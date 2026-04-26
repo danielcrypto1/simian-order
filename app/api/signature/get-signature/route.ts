@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { generateSignature } from "@/lib/signature";
 import { getStore } from "@/lib/adminStore";
+import { findByWallet } from "@/lib/applicationsStore";
 
 export const runtime = "nodejs";
 
@@ -29,9 +30,7 @@ export async function POST(req: Request) {
   const store = getStore();
   const cfg = store.mintConfig;
 
-  const app = store.applications.find(
-    (a) => a.wallet.toLowerCase() === wallet
-  );
+  const app = findByWallet(wallet);
   const fcfsAllocated = store.fcfsState.claimed.has(wallet);
 
   let phase: number;
