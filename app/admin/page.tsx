@@ -14,7 +14,17 @@ const sections = [
   { id: "mint", label: "Mint Controls" },
   { id: "fcfs", label: "FCFS" },
   { id: "apps", label: "Applications" },
+  { id: "referrals", label: "Referrals" },
 ];
+
+type ReferralAdminItem = {
+  wallet: string;
+  code: string;
+  count: number;
+  limit: number;
+  createdAt: string;
+  referred: Array<{ wallet: string; twitter: string | null; status: string | null }>;
+};
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -24,17 +34,20 @@ export default function AdminDashboard() {
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [apps, setApps] = useState<{ items: Application[]; total: number } | null>(null);
   const [wl, setWl] = useState<{ items: WhitelistEntry[]; total: number } | null>(null);
+  const [refs, setRefs] = useState<{ items: ReferralAdminItem[]; total: number; totalReferred: number } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [c, a, w] = await Promise.all([
+      const [c, a, w, r] = await Promise.all([
         adminApi.getConfig(),
         adminApi.listApplications(),
         adminApi.listWhitelist(),
+        adminApi.listReferrals(),
       ]);
       setCfg(c);
       setApps(a);
       setWl(w);
+      setRefs(r);
       setError(null);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
@@ -89,6 +102,7 @@ export default function AdminDashboard() {
             <MintControlsSection cfg={cfg} onSaved={refresh} />
             <FcfsSection cfg={cfg} onSaved={refresh} />
             <ApplicationsSection apps={apps} onAction={refresh} />
+            <ReferralsSection refs={refs} onChanged={refresh} />
           </main>
         </div>
       </div>
@@ -496,6 +510,165 @@ function ApplicationsSection({
             )}
           </tbody>
         </table>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+// ───── Referrals ───────────────────────────────────────────────────────
+
+function ReferralsSection({
+  refs,
+  onChanged,
+}: {
+  refs: { items: ReferralAdminItem[]; total: number; totalReferred: number } | null;
+  onChanged: () => void;
+}) {
+  const [referrer, setReferrer] = useState("");
+  const [referee, setReferee] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function simulate() {
+    if (!referrer.trim()) {
+      setErr("referrer wallet required");
+      return;
+    }
+    setErr(null);
+    setMsg(null);
+    setBusy(true);
+    try {
+      const r = await adminApi.simulateReferral(referrer.trim(), referee.trim() || undefined);
+      setMsg(`linked ${r.referee.slice(0, 10)}… → ${r.referrer.slice(0, 10)}…`);
+      setReferee("");
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "unknown");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(refr: string, refe: string) {
+    if (!confirm(`Remove referral?\n  ${refe}\n  ← from referrer ${refr}`)) return;
+    setBusy(true);
+    try {
+      await adminApi.removeReferral(refr, refe);
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "unknown");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div id="referrals">
+      <Panel
+        title="Referrals"
+        right={
+          refs ? (
+            <span>{refs.total} referrer{refs.total === 1 ? "" : "s"} · {refs.totalReferred} total</span>
+          ) : (
+            <span>loading...</span>
+          )
+        }
+        padded={false}
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs min-w-[760px]">
+            <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
+              <tr>
+                <th className="text-left px-3 py-1 border-b border-border">referrer</th>
+                <th className="text-left px-3 py-1 border-b border-border">code</th>
+                <th className="text-left px-3 py-1 border-b border-border">count</th>
+                <th className="text-left px-3 py-1 border-b border-border">referred wallets</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {(refs?.items ?? []).map((row) => (
+                <tr key={row.wallet} className="row-hover">
+                  <td className="px-3 py-2 font-mono text-ape-100 break-all">{row.wallet}</td>
+                  <td className="px-3 py-2 font-mono text-ape-200">{row.code}</td>
+                  <td className="px-3 py-2 font-mono text-ape-100">{row.count} / {row.limit}</td>
+                  <td className="px-3 py-2">
+                    {row.referred.length === 0 ? (
+                      <span className="text-mute italic text-xxs">—</span>
+                    ) : (
+                      <ul className="space-y-1">
+                        {row.referred.map((r) => (
+                          <li key={r.wallet} className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-ape-100 break-all">{r.wallet}</span>
+                            {r.twitter && <span className="text-ape-200">@{r.twitter}</span>}
+                            {r.status && (
+                              <StatusBadge
+                                status={
+                                  r.status === "approved" ? "Approved" :
+                                  r.status === "rejected" ? "Rejected" : "Pending"
+                                }
+                              />
+                            )}
+                            <button
+                              onClick={() => remove(row.wallet, r.wallet)}
+                              className="text-xxs text-red-300 hover:text-red-200 underline"
+                              disabled={busy}
+                            >
+                              remove
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {refs && refs.items.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-3 py-3 text-mute text-center text-xxs italic">
+                    no referrals yet — simulate one below to test
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="border-t border-border p-3 space-y-2">
+          <div className="text-xxs text-mute uppercase tracking-wide">simulate referral · creates a real entry</div>
+          <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-2 items-end">
+            <div>
+              <label className="label">referrer wallet</label>
+              <input
+                className="field font-mono"
+                placeholder="0x..."
+                value={referrer}
+                onChange={(e) => setReferrer(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label">referee wallet (optional)</label>
+              <input
+                className="field font-mono"
+                placeholder="0x... (random if blank)"
+                value={referee}
+                onChange={(e) => setReferee(e.target.value)}
+              />
+            </div>
+            <Button variant="primary" onClick={simulate} disabled={busy || !referrer.trim()}>
+              Simulate Referral
+            </Button>
+          </div>
+          {msg && <div className="text-xxs text-ape-200">{msg}</div>}
+          {err && (
+            <div className="text-xxs text-red-300 uppercase">
+              error: {err}
+              {err === "limit_reached" && " (referrer already at 5/5)"}
+              {err === "already_referred" && " (referee already referred by someone)"}
+              {err === "self_referral" && " (referrer and referee must differ)"}
+            </div>
+          )}
         </div>
       </Panel>
     </div>

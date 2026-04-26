@@ -1,29 +1,6 @@
-import fs from "node:fs";
-import path from "node:path";
+import { readJSON, writeJSON } from "./gistStore";
 
-// Application store with two backends:
-//
-//  - GitHub Gist (preferred): when APPLICATIONS_GIST_ID + APPLICATIONS_GIST_TOKEN
-//    are set, reads/writes go to a private Gist via the GitHub API. This is
-//    shared across all Vercel lambda instances so submissions appear in the
-//    admin panel immediately.
-//
-//  - File (fallback): when env vars are absent, writes to
-//    `<repo>/data/applications.json` locally or `/tmp/applications.json` on
-//    Vercel. Works for single-instance dev / single-warm-lambda demos but
-//    NOT for production on serverless (per-instance only).
-//
-// To migrate to a real DB later, replace `read()` and `write()` only.
-
-const GIST_ID = process.env.APPLICATIONS_GIST_ID;
-const GIST_TOKEN = process.env.APPLICATIONS_GIST_TOKEN;
-const USE_GIST = Boolean(GIST_ID && GIST_TOKEN);
-
-const isVercel = process.env.VERCEL === "1";
-const DATA_FILE = isVercel
-  ? "/tmp/applications.json"
-  : path.join(process.cwd(), "data", "applications.json");
-const GIST_FILE = "applications.json";
+const FILE = "applications.json";
 
 export type ApplicationStatus = "pending" | "approved" | "rejected";
 
@@ -38,81 +15,12 @@ export type Application = {
   createdAt: string;
 };
 
-// ───── File backend ───────────────────────────────────────────────────
-
-function ensureFileDir(): void {
-  const dir = path.dirname(DATA_FILE);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-}
-function readFile(): Application[] {
-  try {
-    if (!fs.existsSync(DATA_FILE)) return [];
-    const text = fs.readFileSync(DATA_FILE, "utf8");
-    if (!text.trim()) return [];
-    const parsed = JSON.parse(text);
-    return Array.isArray(parsed) ? (parsed as Application[]) : [];
-  } catch {
-    return [];
-  }
-}
-function writeFile(apps: Application[]): void {
-  ensureFileDir();
-  fs.writeFileSync(DATA_FILE, JSON.stringify(apps, null, 2), "utf8");
-}
-
-// ───── Gist backend ───────────────────────────────────────────────────
-
-async function readGist(): Promise<Application[]> {
-  if (!USE_GIST) return readFile();
-  try {
-    const r = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
-      headers: {
-        Authorization: `Bearer ${GIST_TOKEN}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-        Accept: "application/vnd.github+json",
-      },
-      // Force fresh read every time — this is our database.
-      cache: "no-store",
-    });
-    if (!r.ok) return [];
-    const j = (await r.json()) as { files?: Record<string, { content?: string }> };
-    const content = j.files?.[GIST_FILE]?.content?.trim();
-    if (!content) return [];
-    const parsed = JSON.parse(content);
-    return Array.isArray(parsed) ? (parsed as Application[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-async function writeGist(apps: Application[]): Promise<void> {
-  if (!USE_GIST) { writeFile(apps); return; }
-  const body = {
-    files: { [GIST_FILE]: { content: JSON.stringify(apps, null, 2) } },
-  };
-  const r = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${GIST_TOKEN}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-      Accept: "application/vnd.github+json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) {
-    const t = await r.text().catch(() => "");
-    throw new Error(`gist_write_failed_${r.status}: ${t.slice(0, 200)}`);
-  }
-}
-
-// ───── Public API ─────────────────────────────────────────────────────
-
 async function read(): Promise<Application[]> {
-  return USE_GIST ? readGist() : readFile();
+  const raw = await readJSON<Application[]>(FILE, []);
+  return Array.isArray(raw) ? raw : [];
 }
 async function write(apps: Application[]): Promise<void> {
-  return USE_GIST ? writeGist(apps) : writeFile(apps);
+  await writeJSON(FILE, apps);
 }
 
 function newId(): string {

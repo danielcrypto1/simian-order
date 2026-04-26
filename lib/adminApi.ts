@@ -84,6 +84,26 @@ export const adminApi = {
   deleteApplication: (w: string) =>
     req<{ ok: boolean }>(`/api/admin/applications/${w}`, { method: "DELETE" }),
 
+  listReferrals: () =>
+    req<{
+      items: Array<{
+        wallet: string; code: string; count: number; limit: number; createdAt: string;
+        referred: Array<{ wallet: string; twitter: string | null; status: string | null }>;
+      }>;
+      total: number;
+      totalReferred: number;
+    }>("/api/admin/referrals"),
+  simulateReferral: (referrer: string, referee?: string) =>
+    req<{ ok: boolean; referrer: string; referee: string }>("/api/admin/referrals/simulate", {
+      method: "POST",
+      body: JSON.stringify({ referrer, referee }),
+    }),
+  removeReferral: (referrer: string, referee: string) =>
+    req<{ ok: boolean }>("/api/admin/referrals/remove", {
+      method: "POST",
+      body: JSON.stringify({ referrer, referee }),
+    }),
+
   listWhitelist: () => req<{ items: WhitelistEntry[]; total: number }>("/api/admin/whitelist"),
   addWhitelist: (entry: { wallet: string; phase: "GTD" | "FCFS"; maxMint: number }) =>
     req<{ ok: boolean; entry: WhitelistEntry }>("/api/admin/whitelist", {

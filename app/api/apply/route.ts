@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { getStore } from "@/lib/adminStore";
 import { upsertApplication } from "@/lib/applicationsStore";
-import { codeForWallet } from "@/lib/referralCode";
+import { addReferral, findLinkByCode } from "@/lib/referralsStore";
 
 export const runtime = "nodejs";
 
@@ -22,7 +21,6 @@ export async function POST(req: Request) {
   if (typeof b.wallet !== "string" || !isWallet(b.wallet)) {
     return NextResponse.json({ error: "invalid_wallet" }, { status: 400 });
   }
-  // Accept both `handle` and `twitter` as the X username field.
   const twitterRaw = typeof b.twitter === "string" && b.twitter
     ? b.twitter
     : typeof b.handle === "string" ? b.handle : "";
@@ -53,38 +51,17 @@ export async function POST(req: Request) {
     referrer_input: referrerInput,
   });
 
-  // Optional referral linkage (still in-memory — not strictly tied to apps).
+  // Referral linkage (best-effort, doesn't block application creation).
+  let referralResult: { ok: boolean; error?: string } | null = null;
   if (referrerInput) {
-    const store = getStore();
-    let linked = false;
-    for (const [refWallet, link] of store.referrals.entries()) {
-      if (link.code === referrerInput && refWallet !== wallet) {
-        if (!link.referred.includes(wallet)) link.referred.push(wallet);
-        linked = true;
-        break;
-      }
-    }
-    if (!linked) {
-      const { listApplications } = await import("@/lib/applicationsStore");
-      const allApps = await listApplications();
-      for (const app of allApps) {
-        const code = codeForWallet(app.wallet);
-        if (code === referrerInput && app.wallet !== wallet) {
-          const existing = store.referrals.get(app.wallet);
-          if (existing) {
-            if (!existing.referred.includes(wallet)) existing.referred.push(wallet);
-          } else {
-            store.referrals.set(app.wallet, {
-              wallet: app.wallet,
-              code,
-              referred: [wallet],
-            });
-          }
-          break;
-        }
-      }
+    const link = await findLinkByCode(referrerInput);
+    if (link) {
+      const r = await addReferral(link.wallet, wallet);
+      referralResult = r.ok ? { ok: true } : { ok: false, error: r.error };
+    } else {
+      referralResult = { ok: false, error: "code_not_found" };
     }
   }
 
-  return NextResponse.json({ ok: true, application });
+  return NextResponse.json({ ok: true, application, referral: referralResult });
 }

@@ -24,18 +24,12 @@ export type MintConfig = {
   royalty_bps: number;
 };
 
-export type ReferralLink = {
-  wallet: string;          // referrer's wallet (lowercased)
-  code: string;            // SIM-XXXXX
-  referred: string[];      // wallets that used this code (lowercased)
-};
-
 export type Store = {
   whitelist: Map<string, WhitelistEntry>;
   mintConfig: MintConfig;
   fcfsState: { total: number; taken: number; claimed: Set<string> };
-  referrals: Map<string, ReferralLink>; // keyed by wallet
-  // Applications now live in lib/applicationsStore.ts (file-backed).
+  // Applications live in lib/applicationsStore.ts (gist-backed).
+  // Referrals live in lib/referralsStore.ts (gist-backed).
 };
 
 declare global {
