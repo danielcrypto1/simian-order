@@ -2,12 +2,22 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { ethers } from "ethers";
 import Panel from "@/components/Panel";
 import Button from "@/components/Button";
 import StatusBadge from "@/components/StatusBadge";
 import { stats } from "@/lib/mockData";
 import { useStore } from "@/lib/store";
 import { useWallet } from "@/lib/wallet";
+
+const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
+const CHAIN_ID = process.env.NEXT_PUBLIC_CHAIN_ID;
+const ZERO = "0x0000000000000000000000000000000000000000";
+
+const MINT_ABI = [
+  "function mint(uint256 quantity, uint8 phase, uint256 maxAllowed, bytes signature) payable",
+  "function totalMinted() view returns (uint256)",
+];
 
 const MINT_DURATION_MS = 90_000;
 
@@ -20,11 +30,36 @@ function formatRemaining(ms: number) {
   return `${h}:${m}:${sec}`;
 }
 
+function explorerTx(hash: string): string {
+  const id = Number(CHAIN_ID);
+  if (id === 33139) return `https://apescan.io/tx/${hash}`;
+  if (id === 33111) return `https://curtis.apescan.io/tx/${hash}`;
+  return `#${hash}`;
+}
+
+function shortHash(h: string): string {
+  return `${h.slice(0, 10)}…${h.slice(-8)}`;
+}
+
+function formatTxError(e: unknown): string {
+  const err = e as { code?: string | number; reason?: string; shortMessage?: string; message?: string };
+  if (err?.code === "ACTION_REJECTED" || err?.code === 4001) return "transaction rejected";
+  if (err?.code === "INSUFFICIENT_FUNDS") return "insufficient funds for gas";
+  if (typeof err?.reason === "string") return err.reason;
+  if (typeof err?.shortMessage === "string") return err.shortMessage;
+  if (typeof err?.message === "string") return err.message;
+  return "mint failed";
+}
+
+type Step = "idle" | "fetching-sig" | "awaiting-wallet" | "broadcast" | "minted" | "error";
+
 export default function MintPage() {
   const { mintEligible, fcfsApproved, applicationStatus } = useStore();
   const { address, connect } = useWallet();
   const [qty, setQty] = useState(1);
-  const [phase, setPhase] = useState<"idle" | "minting" | "minted">("idle");
+  const [step, setStep] = useState<Step>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
   const [minted, setMinted] = useState(stats.minted);
   const [now, setNow] = useState(() => Date.now());
 
@@ -58,15 +93,89 @@ export default function MintPage() {
     setMintStart(next);
   }
 
+  async function ensureChain(provider: ethers.BrowserProvider) {
+    if (!CHAIN_ID) return;
+    const expected = BigInt(CHAIN_ID);
+    const current = (await provider.getNetwork()).chainId;
+    if (current === expected) return;
+    const hex = "0x" + expected.toString(16);
+    try {
+      await (window as any).ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: hex }],
+      });
+    } catch {
+      throw new Error(`wrong network — switch wallet to chain ${CHAIN_ID}`);
+    }
+  }
+
   async function mint() {
+    setError(null);
+    setTxHash(null);
+
     if (!address) {
       await connect();
       return;
     }
-    setPhase("minting");
-    await new Promise((r) => setTimeout(r, 1100));
-    setMinted((m) => Math.min(stats.totalSupply, m + qty));
-    setPhase("minted");
+
+    if (!CONTRACT_ADDRESS) {
+      setError("NEXT_PUBLIC_CONTRACT_ADDRESS not configured");
+      setStep("error");
+      return;
+    }
+    if (CONTRACT_ADDRESS.toLowerCase() === ZERO) {
+      setError("contract not yet deployed — NEXT_PUBLIC_CONTRACT_ADDRESS is the zero address");
+      setStep("error");
+      return;
+    }
+
+    try {
+      // 1. Fetch the allowance signature from the backend.
+      setStep("fetching-sig");
+      const sigRes = await fetch("/api/signature/get-signature", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ wallet: address }),
+      });
+      if (!sigRes.ok) {
+        const j = await sigRes.json().catch(() => ({}));
+        throw new Error(j.error || `signature_failed_${sigRes.status}`);
+      }
+      const {
+        signature,
+        phase: mintPhase,
+        maxAllowed,
+      } = (await sigRes.json()) as {
+        signature: string;
+        phase: number;
+        maxAllowed: number;
+      };
+
+      // 2. Get a wallet signer.
+      if (typeof window === "undefined" || !(window as any).ethereum) {
+        throw new Error("no wallet provider — install MetaMask");
+      }
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      await ensureChain(provider);
+      const signer = await provider.getSigner();
+
+      // 3. Build contract instance + send mint tx.
+      const contract = new ethers.Contract(CONTRACT_ADDRESS, MINT_ABI, signer);
+      setStep("awaiting-wallet");
+      const tx = await contract.mint(qty, mintPhase, maxAllowed, signature);
+
+      // 4. Wait for confirmation.
+      setTxHash(tx.hash);
+      setStep("broadcast");
+      await tx.wait();
+
+      setMinted((m) => Math.min(stats.totalSupply, m + qty));
+      setStep("minted");
+    } catch (e) {
+      console.error(e);
+      setError(formatTxError(e));
+      setStep("error");
+    }
   }
 
   const reasonLocked = !mintEligible
@@ -80,6 +189,18 @@ export default function MintPage() {
     : "";
 
   const pct = (minted / stats.totalSupply) * 100;
+  const busy =
+    step === "fetching-sig" || step === "awaiting-wallet" || step === "broadcast";
+
+  const buttonLabel = !address
+    ? "Connect & Mint"
+    : step === "fetching-sig"
+    ? "Requesting signature..."
+    : step === "awaiting-wallet"
+    ? "Confirm in wallet..."
+    : step === "broadcast"
+    ? "Minting on-chain..."
+    : "Mint";
 
   return (
     <div className="space-y-3">
@@ -172,16 +293,19 @@ export default function MintPage() {
                       className="btn-old px-2"
                       onClick={() => setQty(Math.max(1, qty - 1))}
                       aria-label="decrease"
+                      disabled={busy}
                     >−</button>
                     <input
                       className="field w-12 text-center font-mono"
                       value={qty}
                       onChange={(e) => setQty(Math.max(1, Math.min(2, Number(e.target.value) || 1)))}
+                      disabled={busy}
                     />
                     <button
                       className="btn-old px-2"
                       onClick={() => setQty(Math.min(2, qty + 1))}
                       aria-label="increase"
+                      disabled={busy}
                     >+</button>
                   </div>
                   <span className="text-xxs text-mute ml-2 font-mono">
@@ -189,24 +313,63 @@ export default function MintPage() {
                   </span>
                 </div>
 
-                {phase === "minted" ? (
-                  <div className="space-y-2">
-                    <StatusBadge status="Done" />
+                {step === "minted" ? (
+                  <div className="space-y-2 border border-ape-300 bg-ape-800 p-3">
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status="Done" />
+                      <span className="text-xxs uppercase tracking-wide text-ape-100">tx confirmed</span>
+                    </div>
                     <p className="text-xs text-ape-100">
                       you received <span className="font-mono">{qty}</span> simian{qty > 1 ? "s" : ""}.
                       welcome.
                     </p>
-                    <Button variant="ghost" onClick={() => setPhase("idle")}>Mint again</Button>
+                    {txHash && (
+                      <div className="text-xxs font-mono break-all">
+                        <a href={explorerTx(txHash)} target="_blank" rel="noreferrer" className="text-ape-300">
+                          {shortHash(txHash)} ↗
+                        </a>
+                      </div>
+                    )}
+                    <Button variant="ghost" onClick={() => { setStep("idle"); setTxHash(null); }}>Mint again</Button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2">
-                    <Button variant="primary" onClick={mint} disabled={phase === "minting" || remaining === 0}>
-                      {phase === "minting" ? "Minting..." : address ? "Mint" : "Connect & Mint"}
-                    </Button>
-                    <span className="text-xxs text-mute">
-                      UI only &mdash; contract not wired.
-                    </span>
-                  </div>
+                  <>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="primary"
+                        onClick={mint}
+                        disabled={busy || remaining === 0}
+                      >
+                        {buttonLabel}
+                      </Button>
+                      <span className="text-xxs text-mute">
+                        {CONTRACT_ADDRESS && CONTRACT_ADDRESS.toLowerCase() !== ZERO
+                          ? `contract: ${CONTRACT_ADDRESS.slice(0, 6)}…${CONTRACT_ADDRESS.slice(-4)} · chain ${CHAIN_ID ?? "?"}`
+                          : "contract address not set"}
+                      </span>
+                    </div>
+
+                    {step === "broadcast" && txHash && (
+                      <div className="border border-border bg-ape-950 p-2 text-xxs space-y-1">
+                        <div className="text-ape-200 uppercase tracking-wide">awaiting confirmation…</div>
+                        <a
+                          href={explorerTx(txHash)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-ape-300 font-mono break-all"
+                        >
+                          {shortHash(txHash)} ↗
+                        </a>
+                      </div>
+                    )}
+
+                    {step === "error" && error && (
+                      <div className="border border-red-700 bg-red-950 px-2 py-2 text-xxs">
+                        <div className="text-red-200 uppercase tracking-wide">error</div>
+                        <div className="text-red-200 font-mono break-all">{error}</div>
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             )}
