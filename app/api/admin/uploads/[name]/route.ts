@@ -7,7 +7,7 @@ export async function DELETE(
   _req: Request,
   { params }: { params: { name: string } }
 ) {
-  const removed = deleteUpload(decodeURIComponent(params.name));
+  const removed = await deleteUpload(decodeURIComponent(params.name));
   if (!removed) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

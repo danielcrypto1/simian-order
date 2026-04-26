@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { listUploads, saveUpload } from "@/lib/uploadsStore";
+import { listUploads, saveUpload, MAX_BYTES } from "@/lib/uploadsStore";
 
 export const runtime = "nodejs";
-const MAX_BYTES = 5 * 1024 * 1024; // 5 MB per file
 
 export async function GET() {
-  return NextResponse.json({ items: listUploads(), total: listUploads().length });
+  const items = await listUploads();
+  return NextResponse.json({ items, total: items.length });
 }
 
 export async function POST(req: Request) {
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     );
   }
   const buf = new Uint8Array(await file.arrayBuffer());
-  const r = saveUpload(file.name, buf, file.type);
+  const r = await saveUpload(file.name, buf, file.type);
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
   return NextResponse.json({ ok: true, entry: r.entry });
 }

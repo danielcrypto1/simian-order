@@ -10,7 +10,7 @@ export async function GET(
   _req: Request,
   { params }: { params: { name: string } }
 ) {
-  const f = readFileFromStore(decodeURIComponent(params.name));
+  const f = await readFileFromStore(decodeURIComponent(params.name));
   if (!f) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return new NextResponse(f.buf, {
     headers: {

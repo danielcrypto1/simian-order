@@ -1,22 +1,45 @@
 import fs from "node:fs";
 import path from "node:path";
 
-// Local dev: writes to <repo>/public/uploads/, Next.js serves at /uploads/<name>.
-// Vercel: writes to /tmp/uploads/ (ephemeral per-instance) and serves via the
-// /api/uploads/file/<name> route. For durable cross-instance uploads on
-// Vercel, swap saveUpload/readFile/deleteUpload here to Vercel Blob — same
-// shape, ~30 lines of change.
+// Three-tier store for admin uploads:
+//
+//   1. Gist (preferred on Vercel): when APPLICATIONS_GIST_ID +
+//      APPLICATIONS_GIST_TOKEN are set, binary files are stored as
+//      base64-encoded gist files (`upload_<name>`) plus a JSON index
+//      (`_uploads_index.json`). Cross-instance consistent. Each file is
+//      capped at ~700 KB raw (gist file limit is ~1 MB; base64 inflates ~33%).
+//      For larger assets, replace this tier with Vercel Blob.
+//
+//   2. File local: writes to <repo>/public/uploads/, served at /uploads/<name>
+//      by Next.js's static handler.
+//
+//   3. File ephemeral: when neither gist nor a writeable public/ exists
+//      (Vercel without gist), falls back to /tmp/uploads/. Per-instance,
+//      lost on cold start.
+//
+// Public URL prefix is chosen so admin previews always render:
+//   gist  → /api/uploads/file/<name>   (proxy decodes base64 from gist)
+//   local → /uploads/<name>            (Next static)
+//   /tmp  → /api/uploads/file/<name>   (proxy reads /tmp)
+
+const GIST_ID = process.env.APPLICATIONS_GIST_ID;
+const GIST_TOKEN = process.env.APPLICATIONS_GIST_TOKEN;
+export const USE_GIST = Boolean(GIST_ID && GIST_TOKEN);
 
 const isVercel = process.env.VERCEL === "1";
 const STORAGE_DIR = isVercel
   ? "/tmp/uploads"
   : path.join(process.cwd(), "public", "uploads");
 
-export const PUBLIC_URL_PREFIX = isVercel
-  ? "/api/uploads/file/"
-  : "/uploads/";
+export const PUBLIC_URL_PREFIX =
+  USE_GIST || isVercel ? "/api/uploads/file/" : "/uploads/";
 
-const INDEX_FILE = "_index.json";
+export const MAX_BYTES = USE_GIST ? 700 * 1024 : 5 * 1024 * 1024;
+
+const INDEX_LOCAL = "_index.json";
+const INDEX_GIST = "_uploads_index.json";
+const GIST_URL = `https://api.github.com/gists/${GIST_ID}`;
+const GIST_FILE_PREFIX = "upload_";
 
 export type UploadKind = "image" | "json";
 
@@ -27,7 +50,6 @@ export type UploadEntry = {
   contentType: string;
   uploadedAt: string;
   url: string;
-  // For JSON: parsed metadata fields surfaced for preview
   metadata?: {
     name?: string;
     description?: string;
@@ -36,31 +58,7 @@ export type UploadEntry = {
   } | null;
 };
 
-function ensureDir(): void {
-  if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR, { recursive: true });
-}
-
-function readIndex(): UploadEntry[] {
-  try {
-    const p = path.join(STORAGE_DIR, INDEX_FILE);
-    if (!fs.existsSync(p)) return [];
-    const t = fs.readFileSync(p, "utf8").trim();
-    if (!t) return [];
-    const parsed = JSON.parse(t);
-    return Array.isArray(parsed) ? (parsed as UploadEntry[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeIndex(entries: UploadEntry[]): void {
-  ensureDir();
-  fs.writeFileSync(
-    path.join(STORAGE_DIR, INDEX_FILE),
-    JSON.stringify(entries, null, 2),
-    "utf8"
-  );
-}
+// ───── Helpers ─────────────────────────────────────────────────────────
 
 export function sanitizeName(raw: string): string {
   return raw
@@ -103,25 +101,110 @@ function parseMetadata(buf: Uint8Array): UploadEntry["metadata"] {
         attributes: Array.isArray(obj.attributes) ? obj.attributes : undefined,
       };
     }
-  } catch { /* fall through */ }
+  } catch {}
   return null;
 }
+
+// ───── Local file backend ─────────────────────────────────────────────
+
+function ensureLocalDir(): void {
+  if (!fs.existsSync(STORAGE_DIR)) fs.mkdirSync(STORAGE_DIR, { recursive: true });
+}
+function readLocalIndex(): UploadEntry[] {
+  try {
+    const p = path.join(STORAGE_DIR, INDEX_LOCAL);
+    if (!fs.existsSync(p)) return [];
+    const t = fs.readFileSync(p, "utf8").trim();
+    if (!t) return [];
+    const parsed = JSON.parse(t);
+    return Array.isArray(parsed) ? (parsed as UploadEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+function writeLocalIndex(entries: UploadEntry[]): void {
+  ensureLocalDir();
+  fs.writeFileSync(
+    path.join(STORAGE_DIR, INDEX_LOCAL),
+    JSON.stringify(entries, null, 2)
+  );
+}
+
+// ───── Gist backend ───────────────────────────────────────────────────
+
+async function gistGetAllFiles(): Promise<Record<string, { content?: string }>> {
+  const r = await fetch(GIST_URL, {
+    headers: {
+      Authorization: `Bearer ${GIST_TOKEN}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+      Accept: "application/vnd.github+json",
+    },
+    cache: "no-store",
+  });
+  if (!r.ok) throw new Error(`gist_read_${r.status}`);
+  const j = (await r.json()) as { files?: Record<string, { content?: string }> };
+  return j.files ?? {};
+}
+
+async function gistPatch(
+  files: Record<string, { content: string } | null>
+): Promise<void> {
+  const r = await fetch(GIST_URL, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${GIST_TOKEN}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ files }),
+  });
+  if (!r.ok) {
+    const t = await r.text().catch(() => "");
+    throw new Error(`gist_write_${r.status}: ${t.slice(0, 160)}`);
+  }
+}
+
+async function readGistIndex(): Promise<UploadEntry[]> {
+  try {
+    const files = await gistGetAllFiles();
+    const content = files[INDEX_GIST]?.content?.trim();
+    if (!content) return [];
+    const parsed = JSON.parse(content);
+    return Array.isArray(parsed) ? (parsed as UploadEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function readGistBinary(name: string): Promise<Buffer | null> {
+  try {
+    const files = await gistGetAllFiles();
+    const content = files[GIST_FILE_PREFIX + name]?.content;
+    if (!content) return null;
+    return Buffer.from(content, "base64");
+  } catch {
+    return null;
+  }
+}
+
+// ───── Public API ─────────────────────────────────────────────────────
 
 export type SaveResult =
   | { ok: true; entry: UploadEntry }
   | { ok: false; error: string };
 
-export function saveUpload(
+export async function saveUpload(
   name: string,
   buf: Uint8Array,
   contentType: string
-): SaveResult {
+): Promise<SaveResult> {
   const cleanName = sanitizeName(name);
-  if (!cleanName || cleanName === INDEX_FILE) return { ok: false, error: "invalid_name" };
-
+  if (!cleanName || cleanName === INDEX_LOCAL || cleanName === INDEX_GIST) {
+    return { ok: false, error: "invalid_name" };
+  }
   const kind = detectKind(cleanName, contentType);
   if (!kind) return { ok: false, error: "unsupported_type" };
-
   if (kind === "image" && !validateImage(buf)) {
     return { ok: false, error: "invalid_image_bytes" };
   }
@@ -135,11 +218,6 @@ export function saveUpload(
     metadata = parseMetadata(buf);
   }
 
-  ensureDir();
-  fs.writeFileSync(path.join(STORAGE_DIR, cleanName), buf);
-
-  const entries = readIndex();
-  const idx = entries.findIndex((e) => e.name === cleanName);
   const entry: UploadEntry = {
     name: cleanName,
     kind,
@@ -149,23 +227,52 @@ export function saveUpload(
     url: PUBLIC_URL_PREFIX + cleanName,
     metadata,
   };
-  if (idx >= 0) entries[idx] = entry;
-  else entries.unshift(entry);
-  writeIndex(entries);
+
+  if (USE_GIST) {
+    const entries = await readGistIndex();
+    const idx = entries.findIndex((e) => e.name === cleanName);
+    if (idx >= 0) entries[idx] = entry;
+    else entries.unshift(entry);
+    await gistPatch({
+      [GIST_FILE_PREFIX + cleanName]: { content: Buffer.from(buf).toString("base64") },
+      [INDEX_GIST]: { content: JSON.stringify(entries, null, 2) },
+    });
+  } else {
+    ensureLocalDir();
+    fs.writeFileSync(path.join(STORAGE_DIR, cleanName), buf);
+    const entries = readLocalIndex();
+    const idx = entries.findIndex((e) => e.name === cleanName);
+    if (idx >= 0) entries[idx] = entry;
+    else entries.unshift(entry);
+    writeLocalIndex(entries);
+  }
 
   return { ok: true, entry };
 }
 
-export function listUploads(): UploadEntry[] {
-  return readIndex().filter((e) => e.name !== INDEX_FILE);
+export async function listUploads(): Promise<UploadEntry[]> {
+  const all = USE_GIST ? await readGistIndex() : readLocalIndex();
+  return all.filter((e) => e.name !== INDEX_LOCAL && e.name !== INDEX_GIST);
 }
 
-export function readFileFromStore(name: string): { buf: Buffer; contentType: string } | null {
+export async function readFileFromStore(
+  name: string
+): Promise<{ buf: Buffer; contentType: string } | null> {
   const cleanName = sanitizeName(name);
-  if (!cleanName || cleanName === INDEX_FILE) return null;
+  if (!cleanName) return null;
+
+  if (USE_GIST) {
+    const entries = await readGistIndex();
+    const entry = entries.find((e) => e.name === cleanName);
+    if (!entry) return null;
+    const buf = await readGistBinary(cleanName);
+    if (!buf) return null;
+    return { buf, contentType: entry.contentType };
+  }
+
   const filePath = path.join(STORAGE_DIR, cleanName);
   if (!fs.existsSync(filePath)) return null;
-  const entries = readIndex();
+  const entries = readLocalIndex();
   const entry = entries.find((e) => e.name === cleanName);
   return {
     buf: fs.readFileSync(filePath),
@@ -173,15 +280,29 @@ export function readFileFromStore(name: string): { buf: Buffer; contentType: str
   };
 }
 
-export function deleteUpload(name: string): boolean {
+export async function deleteUpload(name: string): Promise<boolean> {
   const cleanName = sanitizeName(name);
-  if (!cleanName || cleanName === INDEX_FILE) return false;
+  if (!cleanName) return false;
+
+  if (USE_GIST) {
+    const entries = await readGistIndex();
+    const idx = entries.findIndex((e) => e.name === cleanName);
+    if (idx < 0) return false;
+    entries.splice(idx, 1);
+    // Setting a file to null in the PATCH payload deletes it from the gist.
+    await gistPatch({
+      [GIST_FILE_PREFIX + cleanName]: null as unknown as { content: string },
+      [INDEX_GIST]: { content: JSON.stringify(entries, null, 2) },
+    });
+    return true;
+  }
+
   const filePath = path.join(STORAGE_DIR, cleanName);
   if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-  const entries = readIndex();
+  const entries = readLocalIndex();
   const idx = entries.findIndex((e) => e.name === cleanName);
   if (idx < 0) return false;
   entries.splice(idx, 1);
-  writeIndex(entries);
+  writeLocalIndex(entries);
   return true;
 }
