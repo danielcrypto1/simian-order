@@ -32,11 +32,18 @@ export type MintConfig = {
   royalty_bps: number;
 };
 
+export type ReferralLink = {
+  wallet: string;          // referrer's wallet (lowercased)
+  code: string;            // SIM-XXXXX
+  referred: string[];      // wallets that used this code (lowercased)
+};
+
 export type Store = {
   whitelist: Map<string, WhitelistEntry>;
   applications: Application[];
   mintConfig: MintConfig;
   fcfsState: { total: number; taken: number; claimed: Set<string> };
+  referrals: Map<string, ReferralLink>; // keyed by wallet
 };
 
 declare global {
@@ -92,6 +99,7 @@ export function getStore(): Store {
       applications: seedApplications(),
       mintConfig: defaultMintConfig(),
       fcfsState: { total: 50, taken: 0, claimed: new Set() },
+      referrals: new Map(),
     };
   }
   return globalThis.__SIMIAN_ADMIN_STORE__;

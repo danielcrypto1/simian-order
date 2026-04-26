@@ -208,7 +208,8 @@ function WhitelistTableSection({
         right={wl ? <span>{wl.total} entries</span> : <span>loading...</span>}
         padded={false}
       >
-        <table className="w-full text-xs">
+        <div className="overflow-x-auto">
+        <table className="w-full text-xs min-w-[640px]">
           <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
             <tr>
               <th className="text-left px-3 py-1 border-b border-border">wallet</th>
@@ -230,6 +231,7 @@ function WhitelistTableSection({
             )}
           </tbody>
         </table>
+        </div>
       </Panel>
     </div>
   );
@@ -403,7 +405,8 @@ function ApplicationsSection({
         right={apps ? <span>{apps.total} total</span> : <span>loading...</span>}
         padded={false}
       >
-        <table className="w-full text-xs">
+        <div className="overflow-x-auto">
+        <table className="w-full text-xs min-w-[640px]">
           <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
             <tr>
               <th className="text-left px-3 py-1 border-b border-border">wallet</th>
@@ -442,6 +445,7 @@ function ApplicationsSection({
             )}
           </tbody>
         </table>
+        </div>
       </Panel>
     </div>
   );

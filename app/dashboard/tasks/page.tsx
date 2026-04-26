@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Panel from "@/components/Panel";
 import Button from "@/components/Button";
 import StatusBadge from "@/components/StatusBadge";
@@ -18,18 +18,30 @@ export default function TasksPage() {
     tagged,
     tasksCompleted,
     fcfsApproved,
-    fcfsRemaining,
     setTwitterConnected,
     setDiscordJoined,
     setRetweeted,
     setTagged,
     setTasksCompleted,
-    tryGrantFcfs,
   } = useStore();
 
   const { address } = useWallet();
   const [walletInput, setWalletInput] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [fcfsRemaining, setFcfsRemaining] = useState<number | null>(null);
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const [claiming, setClaiming] = useState(false);
+  const claimedRef = useRef(false);
+
+  // Read public FCFS state on mount.
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/claim-fcfs")
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((j) => { if (alive) setFcfsRemaining(j.remaining); })
+      .catch(() => { /* keep null on error */ });
+    return () => { alive = false; };
+  }, []);
 
   const tasks = [
     { id: "twitter", title: "Follow @SimianOrder on X", points: 10, done: twitterConnected, toggle: () => setTwitterConnected(!twitterConnected) },
@@ -44,14 +56,44 @@ export default function TasksPage() {
   const points = tasks.filter((t) => t.done).reduce((a, t) => a + t.points, 0);
   const allDone = done === total;
 
+  // When all tasks complete, attempt to claim an FCFS slot via the real API.
   useEffect(() => {
-    if (allDone && !tasksCompleted) {
-      setTasksCompleted(true);
-      tryGrantFcfs();
-    } else if (!allDone && tasksCompleted) {
-      setTasksCompleted(false);
+    if (!allDone) {
+      if (tasksCompleted) setTasksCompleted(false);
+      claimedRef.current = false;
+      return;
     }
-  }, [allDone, tasksCompleted, setTasksCompleted, tryGrantFcfs]);
+    if (!tasksCompleted) setTasksCompleted(true);
+    if (fcfsApproved || claimedRef.current) return;
+    if (!address) return;
+
+    claimedRef.current = true;
+    setClaiming(true);
+    setClaimError(null);
+    fetch("/api/claim-fcfs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ wallet: address }),
+    })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (r.ok) {
+          useStore.setState({ fcfsApproved: true, mintEligible: true, fcfsRemaining: j.remaining ?? 0 });
+          setFcfsRemaining(j.remaining ?? 0);
+        } else if (r.status === 409 && j.error === "already_claimed") {
+          useStore.setState({ fcfsApproved: true, mintEligible: true });
+          setFcfsRemaining(j.remaining ?? null);
+        } else {
+          setClaimError(j.error || `http_${r.status}`);
+          claimedRef.current = false;
+        }
+      })
+      .catch(() => {
+        setClaimError("network_error");
+        claimedRef.current = false;
+      })
+      .finally(() => setClaiming(false));
+  }, [allDone, address, tasksCompleted, fcfsApproved, setTasksCompleted]);
 
   function submitWallet(e: React.FormEvent) {
     e.preventDefault();
@@ -75,11 +117,14 @@ export default function TasksPage() {
             <div className="h-full bg-ape-500 transition-all" style={{ width: `${(done / total) * 100}%` }} />
           </div>
           {allDone && (
-            <div className="mt-3 border border-ape-300 bg-ape-800 px-2 py-2 flex items-center justify-between">
+            <div className="mt-3 border border-ape-300 bg-ape-800 px-2 py-2 flex items-center justify-between flex-wrap gap-2">
               <div className="text-xs text-ape-100 uppercase tracking-wide">
-                {fcfsApproved ? "FCFS slot granted" : "FCFS waitlist full"}
+                {claiming ? "claiming FCFS slot…" :
+                 fcfsApproved ? "FCFS slot granted" :
+                 claimError ? `claim failed: ${claimError}` :
+                 "FCFS waitlist full"}
               </div>
-              <StatusBadge status={fcfsApproved ? "Approved" : "Locked"} />
+              <StatusBadge status={fcfsApproved ? "Approved" : claiming ? "Pending" : "Locked"} />
             </div>
           )}
         </Panel>
@@ -91,7 +136,7 @@ export default function TasksPage() {
                 <button
                   onClick={t.toggle}
                   aria-label={t.done ? "mark as not done" : "mark as done"}
-                  className={`w-4 h-4 border ${t.done ? "bg-ape-500 border-ape-300" : "bg-ape-950 border-border"} flex items-center justify-center text-white text-xxs`}
+                  className={`w-4 h-4 border ${t.done ? "bg-ape-500 border-ape-300" : "bg-ape-950 border-border"} flex items-center justify-center text-white text-xxs shrink-0`}
                 >
                   {t.done ? "x" : ""}
                 </button>
@@ -105,7 +150,7 @@ export default function TasksPage() {
           </ul>
         </Panel>
 
-        <Panel title="Submit ApeChain Wallet" right={<span>fcfs left: {fcfsRemaining}</span>}>
+        <Panel title="Submit ApeChain Wallet" right={<span>fcfs left: {fcfsRemaining ?? "—"}</span>}>
           {submitted ? (
             <div className="flex items-center gap-3 flex-wrap">
               <StatusBadge status={fcfsApproved ? "Approved" : "Pending"} />
@@ -123,7 +168,7 @@ export default function TasksPage() {
                 value={walletInput}
                 onChange={(e) => setWalletInput(e.target.value)}
               />
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Button type="submit" variant="primary">Submit</Button>
                 {address && (
                   <Button type="button" variant="ghost" onClick={() => setWalletInput(address)}>
@@ -132,7 +177,7 @@ export default function TasksPage() {
                 )}
               </div>
               <div className="text-xxs text-mute">
-                completing all tasks with FCFS spots remaining grants instant approval.
+                completing all tasks while FCFS spots remain grants instant approval.
               </div>
             </form>
           )}

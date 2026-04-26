@@ -5,18 +5,16 @@ import Panel from "@/components/Panel";
 import Button from "@/components/Button";
 import StatusBadge from "@/components/StatusBadge";
 import { useStore } from "@/lib/store";
+import { useWallet } from "@/lib/wallet";
+
+type Status = "idle" | "submitting" | "submitted" | "error";
 
 export default function ApplyPage() {
-  const {
-    applicationStatus,
-    submitApplication,
-    approveApplication,
-    rejectApplication,
-    resetApplication,
-    walletAddress,
-  } = useStore();
+  const { applicationStatus, submitApplication, walletAddress } = useStore();
+  const { address, connect, connecting } = useWallet();
 
-  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<Status>("idle");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [form, setForm] = useState({
     handle: "",
     wallet: "",
@@ -31,24 +29,47 @@ export default function ApplyPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setBusy(true);
-    await new Promise((r) => setTimeout(r, 600));
-    submitApplication();
-    setBusy(false);
+    setErrorMsg(null);
+    if (!address) {
+      setErrorMsg("connect a wallet first");
+      return;
+    }
+    setStatus("submitting");
+    try {
+      const wallet = (form.wallet.trim() || address).toLowerCase();
+      const res = await fetch("/api/apply", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          wallet,
+          handle: form.handle.trim(),
+          discord: form.discord.trim() || null,
+          why: form.why.trim(),
+          referrer_input: form.referrer.trim() || null,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `http_${res.status}`);
+      }
+      submitApplication();
+      setStatus("submitted");
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : "submit_failed");
+      setStatus("error");
+    }
   }
 
-  const statusBadge =
-    applicationStatus === "approved" ? <StatusBadge status="Approved" /> :
-    applicationStatus === "pending" ? <StatusBadge status="Pending" /> :
-    applicationStatus === "rejected" ? <StatusBadge status="Rejected" /> :
-    <StatusBadge status="Open" />;
-
   if (applicationStatus !== "none") {
+    const statusBadge =
+      applicationStatus === "approved" ? <StatusBadge status="Approved" /> :
+      applicationStatus === "pending" ? <StatusBadge status="Pending" /> :
+      applicationStatus === "rejected" ? <StatusBadge status="Rejected" /> :
+      <StatusBadge status="Open" />;
     const title =
       applicationStatus === "approved" ? "Application Approved" :
       applicationStatus === "rejected" ? "Application Rejected" :
       "Application Submitted";
-
     const message =
       applicationStatus === "approved"
         ? "you may now access the referral system and the mint."
@@ -57,52 +78,35 @@ export default function ApplyPage() {
         : "filed. the order will respond within 72 hours.";
 
     return (
-      <div className="space-y-3">
-        <Panel title={title} right={statusBadge}>
-          <div className="space-y-3">
-            <div className="text-ape-100 text-base font-bold uppercase">
-              {applicationStatus === "approved" ? "welcome." : applicationStatus === "rejected" ? "denied." : "filed."}
-            </div>
-            <p className="text-xxs text-mute leading-relaxed">{message}</p>
-            <div className="divider-old" />
-            <dl className="text-xxs grid grid-cols-[120px_1fr] gap-y-1">
-              <dt className="text-mute uppercase">handle</dt><dd className="text-ape-100">{form.handle || "—"}</dd>
-              <dt className="text-mute uppercase">wallet</dt><dd className="font-mono text-ape-100 break-all">{form.wallet || walletAddress || "—"}</dd>
-              <dt className="text-mute uppercase">discord</dt><dd className="text-ape-100">{form.discord || "—"}</dd>
-              <dt className="text-mute uppercase">referrer</dt><dd className="text-ape-100">{form.referrer || "—"}</dd>
-            </dl>
+      <Panel title={title} right={statusBadge}>
+        <div className="space-y-3">
+          <div className="text-ape-100 text-base font-bold uppercase">
+            {applicationStatus === "approved" ? "welcome." : applicationStatus === "rejected" ? "denied." : "filed."}
           </div>
-        </Panel>
-
-        <Panel title="DEV: Reviewer Console" right={<span>temporary</span>}>
-          <div className="text-xxs text-mute mb-2 leading-relaxed">
-            simulate the order&apos;s decision. these buttons exist for testing only and would not be exposed in production.
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="primary"
-              onClick={approveApplication}
-              disabled={applicationStatus === "approved"}
-            >
-              Approve
-            </Button>
-            <Button
-              onClick={rejectApplication}
-              disabled={applicationStatus === "rejected"}
-            >
-              Reject
-            </Button>
-            <Button variant="ghost" onClick={resetApplication}>
-              Withdraw / Reset
-            </Button>
-          </div>
-        </Panel>
-      </div>
+          <p className="text-xxs text-mute leading-relaxed">{message}</p>
+          <div className="divider-old" />
+          <dl className="text-xxs grid grid-cols-[120px_1fr] gap-y-1">
+            <dt className="text-mute uppercase">handle</dt><dd className="text-ape-100">{form.handle || "—"}</dd>
+            <dt className="text-mute uppercase">wallet</dt><dd className="font-mono text-ape-100 break-all">{form.wallet || walletAddress || "—"}</dd>
+            <dt className="text-mute uppercase">discord</dt><dd className="text-ape-100">{form.discord || "—"}</dd>
+            <dt className="text-mute uppercase">referrer</dt><dd className="text-ape-100">{form.referrer || "—"}</dd>
+          </dl>
+        </div>
+      </Panel>
     );
   }
 
   return (
     <Panel title="Apply to the Order" right={<span>round II open</span>}>
+      {!address && (
+        <div className="border border-border bg-ape-950 p-3 mb-3">
+          <div className="text-xxs uppercase tracking-wide text-mute mb-2">wallet required</div>
+          <Button variant="primary" disabled={connecting} onClick={connect}>
+            {connecting ? "Connecting..." : "Connect Wallet"}
+          </Button>
+        </div>
+      )}
+
       <form onSubmit={submit} className="space-y-3">
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
@@ -130,11 +134,11 @@ export default function ApplyPage() {
           <label className="label">ape-chain wallet</label>
           <input
             className="field font-mono"
-            placeholder={walletAddress || "0x..."}
+            placeholder={address || "0x..."}
             value={form.wallet}
             onChange={(e) => update("wallet", e.target.value)}
-            required
           />
+          <div className="text-xxs text-mute mt-1">leave blank to use the connected wallet ({address ? `${address.slice(0,6)}…${address.slice(-4)}` : "none"})</div>
         </div>
 
         <div>
@@ -150,22 +154,33 @@ export default function ApplyPage() {
         </div>
 
         <div>
-          <label className="label">referrer (optional)</label>
+          <label className="label">referrer code (optional)</label>
           <input
-            className="field"
-            placeholder="@referrer or referral code"
+            className="field font-mono"
+            placeholder="SIM-XXXXX"
             value={form.referrer}
-            onChange={(e) => update("referrer", e.target.value)}
+            onChange={(e) => update("referrer", e.target.value.toUpperCase())}
+            maxLength={32}
           />
         </div>
 
+        {errorMsg && (
+          <div className="border border-red-700 bg-red-950 px-2 py-1 text-xxs text-red-200">
+            error: {errorMsg}
+          </div>
+        )}
+
         <div className="divider-old" />
 
-        <div className="flex items-center gap-2">
-          <Button type="submit" variant="primary" disabled={busy}>
-            {busy ? "Filing..." : "Submit Application"}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button type="submit" variant="primary" disabled={status === "submitting" || !address}>
+            {status === "submitting" ? "Filing..." : "Submit Application"}
           </Button>
-          <Button type="button" variant="ghost" onClick={() => setForm({ handle: "", wallet: "", why: "", referrer: "", discord: "" })}>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => { setForm({ handle: "", wallet: "", why: "", referrer: "", discord: "" }); setErrorMsg(null); setStatus("idle"); }}
+          >
             Reset
           </Button>
           <span className="ml-auto text-xxs text-mute">applications close at phase III.</span>

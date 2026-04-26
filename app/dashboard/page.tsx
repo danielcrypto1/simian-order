@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import Panel from "@/components/Panel";
-import ActivityFeed from "@/components/ActivityFeed";
 import StatusBadge from "@/components/StatusBadge";
 import Button from "@/components/Button";
 import { useStore } from "@/lib/store";
@@ -16,7 +15,6 @@ export default function DashboardPage() {
     referralCount,
     referralLimit,
     mintEligible,
-    fcfsRemaining,
   } = useStore();
 
   const appBadge =
@@ -27,10 +25,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-3">
-      <Panel
-        title="Welcome, primate"
-        right={appBadge}
-      >
+      <Panel title="Welcome, primate" right={appBadge}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <div className="text-ape-100 text-base font-bold uppercase tracking-wide">
@@ -38,12 +33,12 @@ export default function DashboardPage() {
             </div>
             <div className="text-xxs text-mute">
               tasks: {tasksCompleted ? "complete" : "open"} &middot;
-              fcfs: {fcfsApproved ? "granted" : `${fcfsRemaining} left`} &middot;
+              fcfs: {fcfsApproved ? "granted" : "—"} &middot;
               referrals: {referralCount}/{referralLimit} &middot;
               mint: {mintEligible ? "eligible" : "locked"}
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Link href="/dashboard/tasks"><Button variant="primary">Open Tasks</Button></Link>
             <Link href="/dashboard/mint"><Button>Go to Mint</Button></Link>
           </div>
@@ -73,8 +68,6 @@ export default function DashboardPage() {
           </div>
         </Panel>
       </div>
-
-      <ActivityFeed />
     </div>
   );
 }

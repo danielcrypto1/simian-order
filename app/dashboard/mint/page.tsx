@@ -6,7 +6,6 @@ import { ethers } from "ethers";
 import Panel from "@/components/Panel";
 import Button from "@/components/Button";
 import StatusBadge from "@/components/StatusBadge";
-import { stats } from "@/lib/mockData";
 import { useStore } from "@/lib/store";
 import { useWallet } from "@/lib/wallet";
 import SimianOrderArtifact from "@/lib/abi/SimianOrder.json";
@@ -15,16 +14,12 @@ const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
 const CHAIN_ID = process.env.NEXT_PUBLIC_CHAIN_ID;
 const ZERO = "0x0000000000000000000000000000000000000000";
 const MINT_ABI = SimianOrderArtifact.abi;
+const MAX_SUPPLY = 3333;
 
-const MINT_DURATION_MS = 90_000;
-
-function formatRemaining(ms: number) {
-  if (ms <= 0) return "00:00:00";
-  const s = Math.floor(ms / 1000);
-  const h = String(Math.floor(s / 3600)).padStart(2, "0");
-  const m = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
-  const sec = String(s % 60).padStart(2, "0");
-  return `${h}:${m}:${sec}`;
+function publicRpcFor(chainId: number | null): string | null {
+  if (chainId === 33139) return "https://apechain.calderachain.xyz/http";
+  if (chainId === 33111) return "https://curtis.rpc.caldera.xyz/http";
+  return null;
 }
 
 function explorerTx(hash: string): string {
@@ -57,38 +52,38 @@ export default function MintPage() {
   const [step, setStep] = useState<Step>("idle");
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
-  const [minted, setMinted] = useState(stats.minted);
-  const [now, setNow] = useState(() => Date.now());
+  const [minted, setMinted] = useState<number>(0);
+  const [supplyLoaded, setSupplyLoaded] = useState(false);
 
-  const [mintStart, setMintStart] = useState(() => {
-    if (typeof window === "undefined") return Date.now() + MINT_DURATION_MS;
-    const stored = window.sessionStorage.getItem("simian:mint-start");
-    if (stored) return Number(stored);
-    const next = Date.now() + MINT_DURATION_MS;
-    window.sessionStorage.setItem("simian:mint-start", String(next));
-    return next;
-  });
-
+  // Read totalMinted from chain when contract is configured.
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
+    if (!CONTRACT_ADDRESS || CONTRACT_ADDRESS.toLowerCase() === ZERO) {
+      setSupplyLoaded(true);
+      return;
+    }
+    const id = CHAIN_ID ? Number(CHAIN_ID) : null;
+    const rpc = publicRpcFor(id);
+    if (!rpc || !id) { setSupplyLoaded(true); return; }
+    let alive = true;
+    (async () => {
+      try {
+        const provider = new ethers.JsonRpcProvider(rpc, id);
+        const c = new ethers.Contract(CONTRACT_ADDRESS, MINT_ABI, provider);
+        const n: bigint = await c.totalMinted();
+        if (alive) { setMinted(Number(n)); setSupplyLoaded(true); }
+      } catch {
+        if (alive) setSupplyLoaded(true);
+      }
+    })();
+    return () => { alive = false; };
   }, []);
 
-  const remaining = stats.totalSupply - minted;
+  const remaining = Math.max(0, MAX_SUPPLY - minted);
 
-  const state: "locked" | "countdown" | "live" = useMemo(() => {
+  const state: "locked" | "live" = useMemo(() => {
     if (!mintEligible) return "locked";
-    if (now < mintStart) return "countdown";
     return "live";
-  }, [mintEligible, now, mintStart]);
-
-  function skipCountdown() {
-    const next = Date.now() - 1;
-    if (typeof window !== "undefined") {
-      window.sessionStorage.setItem("simian:mint-start", String(next));
-    }
-    setMintStart(next);
-  }
+  }, [mintEligible]);
 
   async function ensureChain(provider: ethers.BrowserProvider) {
     if (!CHAIN_ID) return;
@@ -114,20 +109,13 @@ export default function MintPage() {
       await connect();
       return;
     }
-
-    if (!CONTRACT_ADDRESS) {
-      setError("NEXT_PUBLIC_CONTRACT_ADDRESS not configured");
-      setStep("error");
-      return;
-    }
-    if (CONTRACT_ADDRESS.toLowerCase() === ZERO) {
-      setError("contract not yet deployed — NEXT_PUBLIC_CONTRACT_ADDRESS is the zero address");
+    if (!CONTRACT_ADDRESS || CONTRACT_ADDRESS.toLowerCase() === ZERO) {
+      setError("contract not yet deployed");
       setStep("error");
       return;
     }
 
     try {
-      // 1. Fetch the allowance signature from the backend.
       setStep("fetching-sig");
       const sigRes = await fetch("/api/signature/get-signature", {
         method: "POST",
@@ -142,13 +130,8 @@ export default function MintPage() {
         signature,
         phase: mintPhase,
         maxAllowed,
-      } = (await sigRes.json()) as {
-        signature: string;
-        phase: number;
-        maxAllowed: number;
-      };
+      } = (await sigRes.json()) as { signature: string; phase: number; maxAllowed: number };
 
-      // 2. Get a wallet signer.
       if (typeof window === "undefined" || !(window as any).ethereum) {
         throw new Error("no wallet provider — install MetaMask");
       }
@@ -156,20 +139,22 @@ export default function MintPage() {
       await ensureChain(provider);
       const signer = await provider.getSigner();
 
-      // 3. Build contract instance + send mint tx.
       const contract = new ethers.Contract(CONTRACT_ADDRESS, MINT_ABI, signer);
       setStep("awaiting-wallet");
       const tx = await contract.mint(qty, mintPhase, maxAllowed, signature);
 
-      // 4. Wait for confirmation.
       setTxHash(tx.hash);
       setStep("broadcast");
       await tx.wait();
 
-      setMinted((m) => Math.min(stats.totalSupply, m + qty));
+      // Re-read total from chain.
+      try {
+        const total: bigint = await contract.totalMinted();
+        setMinted(Number(total));
+      } catch { /* keep previous */ }
+
       setStep("minted");
     } catch (e) {
-      console.error(e);
       setError(formatTxError(e));
       setStep("error");
     }
@@ -185,9 +170,8 @@ export default function MintPage() {
       : "complete tasks while FCFS spots remain, or wait for application approval."
     : "";
 
-  const pct = (minted / stats.totalSupply) * 100;
-  const busy =
-    step === "fetching-sig" || step === "awaiting-wallet" || step === "broadcast";
+  const pct = (minted / MAX_SUPPLY) * 100;
+  const busy = step === "fetching-sig" || step === "awaiting-wallet" || step === "broadcast";
 
   const buttonLabel = !address
     ? "Connect & Mint"
@@ -200,196 +184,148 @@ export default function MintPage() {
     : "Mint";
 
   return (
-    <div className="space-y-3">
-      <Panel
-        title="Mint"
-        right={
-          <span>
-            <StatusBadge
-              status={state === "live" ? "Open" : state === "countdown" ? "Pending" : "Locked"}
-            />
-          </span>
-        }
-      >
-        <div className="grid md:grid-cols-[200px_1fr] gap-4">
-          <div className="bg-ape-950 border border-border aspect-square flex items-center justify-center relative overflow-hidden">
-            <div className="absolute inset-0 scanline" />
-            <div className="text-center relative">
-              <div className="text-ape-300 text-xxs uppercase tracking-widest">simian.order</div>
-              <div className="text-ape-100 text-5xl font-bold leading-none mt-2">S</div>
-              <div className="text-ape-300 text-xxs uppercase tracking-widest mt-2">primate edition</div>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <div>
-              <div className="flex justify-between text-xxs text-mute uppercase tracking-wide">
-                <span>minted</span>
-                <span>
-                  <span className="text-ape-100 font-mono">{minted}</span> /
-                  <span className="font-mono"> {stats.totalSupply}</span>
-                </span>
-              </div>
-              <div className="h-3 w-full bg-ape-950 border border-border mt-1">
-                <div className="h-full bg-ape-500 transition-all" style={{ width: `${pct}%` }} />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 text-xxs">
-              <div className="border border-border bg-ape-950 px-2 py-1">
-                <div className="text-mute uppercase">price</div>
-                <div className="text-ape-100 font-mono">0.42 APE</div>
-              </div>
-              <div className="border border-border bg-ape-950 px-2 py-1">
-                <div className="text-mute uppercase">max / wallet</div>
-                <div className="text-ape-100 font-mono">2</div>
-              </div>
-              <div className="border border-border bg-ape-950 px-2 py-1">
-                <div className="text-mute uppercase">remaining</div>
-                <div className="text-ape-100 font-mono">{remaining}</div>
-              </div>
-            </div>
-
-            <div className="divider-old" />
-
-            {state === "locked" && (
-              <div className="space-y-2 border border-border bg-ape-950 p-3">
-                <div className="flex items-center gap-2">
-                  <StatusBadge status="Locked" />
-                  <span className="text-xxs uppercase tracking-wide text-mute">mint not eligible</span>
-                </div>
-                <p className="text-xs text-ape-200 leading-relaxed">
-                  {reasonLocked || "you are not currently eligible to mint."}
-                </p>
-                <div className="flex gap-2 pt-1">
-                  <Link href="/dashboard/tasks"><Button variant="primary">Open Tasks</Button></Link>
-                  <Link href="/dashboard/apply"><Button variant="ghost">Open Application</Button></Link>
-                </div>
-              </div>
-            )}
-
-            {state === "countdown" && (
-              <div className="space-y-2">
-                <div className="text-xxs text-mute uppercase tracking-wider">mint opens in</div>
-                <div className="font-mono text-3xl text-ape-100 leading-none">
-                  {formatRemaining(mintStart - now)}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="primary" disabled>Mint not open</Button>
-                  <Button variant="ghost" onClick={skipCountdown}>DEV: Skip</Button>
-                </div>
-              </div>
-            )}
-
-            {state === "live" && (
-              <>
-                <div className="flex items-center gap-2">
-                  <label className="label mb-0">qty</label>
-                  <div className="flex">
-                    <button
-                      className="btn-old px-2"
-                      onClick={() => setQty(Math.max(1, qty - 1))}
-                      aria-label="decrease"
-                      disabled={busy}
-                    >−</button>
-                    <input
-                      className="field w-12 text-center font-mono"
-                      value={qty}
-                      onChange={(e) => setQty(Math.max(1, Math.min(2, Number(e.target.value) || 1)))}
-                      disabled={busy}
-                    />
-                    <button
-                      className="btn-old px-2"
-                      onClick={() => setQty(Math.min(2, qty + 1))}
-                      aria-label="increase"
-                      disabled={busy}
-                    >+</button>
-                  </div>
-                  <span className="text-xxs text-mute ml-2 font-mono">
-                    total: {(qty * 0.42).toFixed(2)} APE
-                  </span>
-                </div>
-
-                {step === "minted" ? (
-                  <div className="space-y-2 border border-ape-300 bg-ape-800 p-3">
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status="Done" />
-                      <span className="text-xxs uppercase tracking-wide text-ape-100">tx confirmed</span>
-                    </div>
-                    <p className="text-xs text-ape-100">
-                      you received <span className="font-mono">{qty}</span> simian{qty > 1 ? "s" : ""}.
-                      welcome.
-                    </p>
-                    {txHash && (
-                      <div className="text-xxs font-mono break-all">
-                        <a href={explorerTx(txHash)} target="_blank" rel="noreferrer" className="text-ape-300">
-                          {shortHash(txHash)} ↗
-                        </a>
-                      </div>
-                    )}
-                    <Button variant="ghost" onClick={() => { setStep("idle"); setTxHash(null); }}>Mint again</Button>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="primary"
-                        onClick={mint}
-                        disabled={busy || remaining === 0}
-                      >
-                        {buttonLabel}
-                      </Button>
-                      <span className="text-xxs text-mute">
-                        {CONTRACT_ADDRESS && CONTRACT_ADDRESS.toLowerCase() !== ZERO
-                          ? `contract: ${CONTRACT_ADDRESS.slice(0, 6)}…${CONTRACT_ADDRESS.slice(-4)} · chain ${CHAIN_ID ?? "?"}`
-                          : "contract address not set"}
-                      </span>
-                    </div>
-
-                    {step === "broadcast" && txHash && (
-                      <div className="border border-border bg-ape-950 p-2 text-xxs space-y-1">
-                        <div className="text-ape-200 uppercase tracking-wide">awaiting confirmation…</div>
-                        <a
-                          href={explorerTx(txHash)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-ape-300 font-mono break-all"
-                        >
-                          {shortHash(txHash)} ↗
-                        </a>
-                      </div>
-                    )}
-
-                    {step === "error" && error && (
-                      <div className="border border-red-700 bg-red-950 px-2 py-2 text-xxs">
-                        <div className="text-red-200 uppercase tracking-wide">error</div>
-                        <div className="text-red-200 font-mono break-all">{error}</div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </>
-            )}
+    <Panel
+      title="Mint"
+      right={<StatusBadge status={state === "live" ? "Open" : "Locked"} />}
+    >
+      <div className="grid md:grid-cols-[200px_1fr] gap-4">
+        <div className="bg-ape-950 border border-border aspect-square flex items-center justify-center relative overflow-hidden">
+          <div className="absolute inset-0 scanline" />
+          <div className="text-center relative">
+            <div className="text-ape-300 text-xxs uppercase tracking-widest">simian.order</div>
+            <div className="text-ape-100 text-5xl font-bold leading-none mt-2">S</div>
+            <div className="text-ape-300 text-xxs uppercase tracking-widest mt-2">primate edition</div>
           </div>
         </div>
-      </Panel>
 
-      <Panel title="Recent Mints" padded={false}>
-        <ul className="divide-y divide-border text-xs">
-          {[
-            { id: "#0421", who: "ordervassal", time: "44m" },
-            { id: "#0420", who: "primape", time: "6h" },
-            { id: "#0419", who: "0x77...4f1", time: "9h" },
-            { id: "#0418", who: "monkebro", time: "12h" },
-          ].map((m) => (
-            <li key={m.id} className="row-hover px-3 py-2 flex items-center justify-between">
-              <span className="font-mono text-ape-100">{m.id}</span>
-              <span className="text-ape-200">{m.who}</span>
-              <span className="text-xxs text-mute uppercase">{m.time} ago</span>
-            </li>
-          ))}
-        </ul>
-      </Panel>
-    </div>
+        <div className="space-y-3">
+          <div>
+            <div className="flex justify-between text-xxs text-mute uppercase tracking-wide">
+              <span>minted</span>
+              <span>
+                <span className="text-ape-100 font-mono">{supplyLoaded ? minted : "—"}</span>
+                <span className="font-mono"> / {MAX_SUPPLY}</span>
+              </span>
+            </div>
+            <div className="h-3 w-full bg-ape-950 border border-border mt-1">
+              <div className="h-full bg-ape-500 transition-all" style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-xxs">
+            <div className="border border-border bg-ape-950 px-2 py-1">
+              <div className="text-mute uppercase">remaining</div>
+              <div className="text-ape-100 font-mono">{supplyLoaded ? remaining : "—"}</div>
+            </div>
+            <div className="border border-border bg-ape-950 px-2 py-1">
+              <div className="text-mute uppercase">network</div>
+              <div className="text-ape-100 font-mono">chain {CHAIN_ID ?? "?"}</div>
+            </div>
+          </div>
+
+          <div className="divider-old" />
+
+          {state === "locked" && (
+            <div className="space-y-2 border border-border bg-ape-950 p-3">
+              <div className="flex items-center gap-2">
+                <StatusBadge status="Locked" />
+                <span className="text-xxs uppercase tracking-wide text-mute">mint not eligible</span>
+              </div>
+              <p className="text-xs text-ape-200 leading-relaxed">
+                {reasonLocked || "you are not currently eligible to mint."}
+              </p>
+              <div className="flex gap-2 pt-1 flex-wrap">
+                <Link href="/dashboard/tasks"><Button variant="primary">Open Tasks</Button></Link>
+                <Link href="/dashboard/apply"><Button variant="ghost">Open Application</Button></Link>
+              </div>
+            </div>
+          )}
+
+          {state === "live" && (
+            <>
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="label mb-0">qty</label>
+                <div className="flex">
+                  <button
+                    className="btn-old px-2"
+                    onClick={() => setQty(Math.max(1, qty - 1))}
+                    aria-label="decrease"
+                    disabled={busy}
+                  >−</button>
+                  <input
+                    className="field w-12 text-center font-mono"
+                    inputMode="numeric"
+                    value={qty}
+                    onChange={(e) => setQty(Math.max(1, Math.min(2, Number(e.target.value) || 1)))}
+                    disabled={busy}
+                  />
+                  <button
+                    className="btn-old px-2"
+                    onClick={() => setQty(Math.min(2, qty + 1))}
+                    aria-label="increase"
+                    disabled={busy}
+                  >+</button>
+                </div>
+              </div>
+
+              {step === "minted" ? (
+                <div className="space-y-2 border border-ape-300 bg-ape-800 p-3">
+                  <div className="flex items-center gap-2">
+                    <StatusBadge status="Done" />
+                    <span className="text-xxs uppercase tracking-wide text-ape-100">tx confirmed</span>
+                  </div>
+                  <p className="text-xs text-ape-100">
+                    you received <span className="font-mono">{qty}</span> simian{qty > 1 ? "s" : ""}.
+                    welcome.
+                  </p>
+                  {txHash && (
+                    <div className="text-xxs font-mono break-all">
+                      <a href={explorerTx(txHash)} target="_blank" rel="noreferrer" className="text-ape-300">
+                        {shortHash(txHash)} ↗
+                      </a>
+                    </div>
+                  )}
+                  <Button variant="ghost" onClick={() => { setStep("idle"); setTxHash(null); }}>Mint again</Button>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button
+                      variant="primary"
+                      onClick={mint}
+                      disabled={busy || (supplyLoaded && remaining === 0)}
+                    >
+                      {buttonLabel}
+                    </Button>
+                    {!address && <span className="text-xxs text-mute">connect a wallet first</span>}
+                  </div>
+
+                  {step === "broadcast" && txHash && (
+                    <div className="border border-border bg-ape-950 p-2 text-xxs space-y-1">
+                      <div className="text-ape-200 uppercase tracking-wide">awaiting confirmation…</div>
+                      <a
+                        href={explorerTx(txHash)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-ape-300 font-mono break-all"
+                      >
+                        {shortHash(txHash)} ↗
+                      </a>
+                    </div>
+                  )}
+
+                  {step === "error" && error && (
+                    <div className="border border-red-700 bg-red-950 px-2 py-2 text-xxs">
+                      <div className="text-red-200 uppercase tracking-wide">error</div>
+                      <div className="text-red-200 font-mono break-all">{error}</div>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </Panel>
   );
 }

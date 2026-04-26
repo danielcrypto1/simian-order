@@ -1,11 +1,13 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Panel from "./Panel";
-import { stats } from "@/lib/mockData";
-import { useStore, FCFS_TOTAL } from "@/lib/store";
+
+const MAX_SUPPLY = 3333;
+const ROYALTY_PCT = 6.9;
 
 function Bar({ value, max }: { value: number; max: number }) {
-  const pct = Math.min(100, Math.round((value / max) * 100));
+  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
   return (
     <div className="h-2 w-full bg-ape-950 border border-border">
       <div className="h-full bg-ape-500" style={{ width: `${pct}%` }} />
@@ -14,40 +16,43 @@ function Bar({ value, max }: { value: number; max: number }) {
 }
 
 export default function RightPanel() {
-  const fcfsRemaining = useStore((s) => s.fcfsRemaining);
-  const fcfsTaken = FCFS_TOTAL - fcfsRemaining;
+  const [fcfs, setFcfs] = useState<{ total: number; taken: number; remaining: number } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      fetch("/api/claim-fcfs")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => { if (alive && j) setFcfs(j); })
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 30_000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
 
   return (
     <aside className="space-y-3">
-      <Panel title="Stats">
+      <Panel title="Collection">
         <ul className="text-xxs space-y-2">
-          <li className="flex justify-between"><span className="text-mute">supply</span><span>{stats.totalSupply}</span></li>
-          <li className="flex justify-between"><span className="text-mute">minted</span><span>{stats.minted} / {stats.totalSupply}</span></li>
-          <li><Bar value={stats.minted} max={stats.totalSupply} /></li>
-          <li className="flex justify-between pt-1"><span className="text-mute">applicants</span><span>{stats.applicants.toLocaleString()}</span></li>
-          <li className="flex justify-between"><span className="text-mute">approved</span><span>{stats.approved}</span></li>
-          <li className="flex justify-between"><span className="text-mute">pending</span><span>{stats.pending}</span></li>
-          <li className="flex justify-between"><span className="text-mute">holders</span><span>{stats.holders}</span></li>
-          <li className="flex justify-between"><span className="text-mute">floor</span><span className="text-ape-100">{stats.floor}</span></li>
+          <li className="flex justify-between"><span className="text-mute">supply</span><span className="font-mono">{MAX_SUPPLY}</span></li>
+          <li className="flex justify-between"><span className="text-mute">royalty</span><span className="font-mono">{ROYALTY_PCT}%</span></li>
+          <li className="flex justify-between"><span className="text-mute">chain</span><span className="font-mono">ape-chain</span></li>
         </ul>
       </Panel>
 
-      <Panel title="FCFS Slots" right={<span>{fcfsRemaining} left</span>}>
-        <div className="text-xxs text-mute mb-2">first come, first served</div>
-        <Bar value={fcfsTaken} max={FCFS_TOTAL} />
-        <div className="flex justify-between text-xxs text-mute uppercase mt-1">
-          <span>taken {fcfsTaken}</span>
-          <span>cap {FCFS_TOTAL}</span>
-        </div>
-      </Panel>
-
-      <Panel title="Phase Clock">
-        <div className="font-mono text-center text-ape-100 text-lg leading-none py-2">
-          02:14:33:09
-        </div>
-        <div className="text-xxs text-center text-mute uppercase tracking-wider">
-          dd : hh : mm : ss
-        </div>
+      <Panel title="FCFS Slots" right={<span>{fcfs ? `${fcfs.remaining} left` : "—"}</span>}>
+        {fcfs ? (
+          <>
+            <div className="text-xxs text-mute mb-2">first come, first served</div>
+            <Bar value={fcfs.taken} max={Math.max(1, fcfs.total)} />
+            <div className="flex justify-between text-xxs text-mute uppercase mt-1">
+              <span>taken {fcfs.taken}</span>
+              <span>cap {fcfs.total}</span>
+            </div>
+          </>
+        ) : (
+          <div className="text-xxs text-mute">loading…</div>
+        )}
       </Panel>
 
       <Panel title="Notice">
