@@ -1,8 +1,11 @@
+"use client";
+
 import Link from "next/link";
 import Logo from "@/components/Logo";
 import Button from "@/components/Button";
 import ConnectWalletButton from "@/components/ConnectWalletButton";
 import SiteFooter from "@/components/SiteFooter";
+import { track } from "@/lib/analytics";
 
 export default function LandingPage() {
   return (
@@ -42,10 +45,10 @@ export default function LandingPage() {
               <div className="divider-old my-8" />
 
               <div className="flex flex-wrap justify-center gap-2">
-                <Link href="/dashboard">
+                <Link href="/dashboard" onClick={() => track("landing_enter_click")}>
                   <Button variant="primary">Enter</Button>
                 </Link>
-                <Link href="/dashboard/apply">
+                <Link href="/dashboard/apply" onClick={() => track("landing_apply_click")}>
                   <Button>Apply</Button>
                 </Link>
                 <ConnectWalletButton variant="ghost" />

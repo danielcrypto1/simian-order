@@ -8,6 +8,7 @@ import Button from "@/components/Button";
 import StatusBadge from "@/components/StatusBadge";
 import { useStore } from "@/lib/store";
 import { useWallet } from "@/lib/wallet";
+import { track } from "@/lib/analytics";
 import SimianOrderArtifact from "@/lib/abi/SimianOrder.json";
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
@@ -104,6 +105,7 @@ export default function MintPage() {
   async function mint() {
     setError(null);
     setTxHash(null);
+    track("mint_click", { qty });
 
     if (!address) {
       await connect();
@@ -153,9 +155,12 @@ export default function MintPage() {
         setMinted(Number(total));
       } catch { /* keep previous */ }
 
+      track("mint_success", { qty, phase: mintPhase });
       setStep("minted");
     } catch (e) {
-      setError(formatTxError(e));
+      const msg = formatTxError(e);
+      track("mint_error", { reason: msg });
+      setError(msg);
       setStep("error");
     }
   }

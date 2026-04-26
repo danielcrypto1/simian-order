@@ -6,6 +6,7 @@ import Button from "@/components/Button";
 import StatusBadge from "@/components/StatusBadge";
 import { useStore } from "@/lib/store";
 import { useWallet } from "@/lib/wallet";
+import { track } from "@/lib/analytics";
 
 type Status = "idle" | "submitting" | "submitted" | "error";
 
@@ -30,6 +31,7 @@ export default function ApplyPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErrorMsg(null);
+    track("apply_submit", { hasReferrer: form.referrer.trim().length > 0 });
     if (!address) {
       setErrorMsg("connect a wallet first");
       return;
@@ -53,6 +55,7 @@ export default function ApplyPage() {
         throw new Error(j.error || `http_${res.status}`);
       }
       submitApplication();
+      track("apply_success");
       setStatus("submitted");
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "submit_failed");
