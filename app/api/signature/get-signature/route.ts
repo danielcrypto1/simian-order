@@ -30,7 +30,7 @@ export async function POST(req: Request) {
   const store = getStore();
   const cfg = store.mintConfig;
 
-  const app = findByWallet(wallet);
+  const app = await findByWallet(wallet);
   const fcfsAllocated = store.fcfsState.claimed.has(wallet);
 
   let phase: number;

@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       : null;
 
   // ALWAYS pending. Submission never auto-approves.
-  const application = upsertApplication({
+  const application = await upsertApplication({
     wallet,
     twitter,
     why,
@@ -64,9 +64,9 @@ export async function POST(req: Request) {
         break;
       }
     }
-    // Brute-force fallback: scan known applications for matching code.
     if (!linked) {
-      const allApps = (await import("@/lib/applicationsStore")).listApplications();
+      const { listApplications } = await import("@/lib/applicationsStore");
+      const allApps = await listApplications();
       for (const app of allApps) {
         const code = codeForWallet(app.wallet);
         if (code === referrerInput && app.wallet !== wallet) {

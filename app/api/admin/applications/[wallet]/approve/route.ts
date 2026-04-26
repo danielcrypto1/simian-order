@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 
 export async function POST(_req: Request, { params }: { params: { wallet: string } }) {
   const wallet = params.wallet.toLowerCase();
-  const application = setStatus(wallet, "approved");
+  const application = await setStatus(wallet, "approved");
   if (!application) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }

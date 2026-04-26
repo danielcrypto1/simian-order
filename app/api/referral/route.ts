@@ -10,6 +10,7 @@ function isWallet(s: string): boolean {
 }
 
 export async function GET(req: Request) {
+  // GET handler is already async, no change needed for await.
   const { searchParams } = new URL(req.url);
   const raw = searchParams.get("wallet");
   if (!raw || !isWallet(raw)) {
@@ -27,8 +28,8 @@ export async function GET(req: Request) {
     link.code = code;
   }
 
-  // Hydrate referred list with current application status from the file store.
-  const apps = listApplications();
+  // Hydrate referred list with current application status from the store.
+  const apps = await listApplications();
   const referred = link.referred.map((w) => {
     const app = apps.find((a) => a.wallet.toLowerCase() === w);
     return {

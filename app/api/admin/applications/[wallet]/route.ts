@@ -8,7 +8,7 @@ export async function DELETE(
   { params }: { params: { wallet: string } }
 ) {
   const wallet = params.wallet.toLowerCase();
-  const removed = deleteApplication(wallet);
+  const removed = await deleteApplication(wallet);
   if (!removed) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
