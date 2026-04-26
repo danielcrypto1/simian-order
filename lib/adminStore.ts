@@ -58,7 +58,6 @@ export function getStore(): Store {
       whitelist: new Map(),
       mintConfig: defaultMintConfig(),
       fcfsState: { total: 50, taken: 0, claimed: new Set() },
-      referrals: new Map(),
     };
   }
   return globalThis.__SIMIAN_ADMIN_STORE__;
