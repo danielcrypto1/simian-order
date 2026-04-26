@@ -232,7 +232,15 @@ export const useStore = create<State & Actions>()(
         return persisted as State;
       },
       partialize: (s) => {
-        const { _hasHydrated, ...rest } = s;
+        // Exclude application/eligibility status from persistence — server is
+        // the source of truth, the client should fetch fresh on mount.
+        const {
+          _hasHydrated,
+          applicationStatus,
+          fcfsApproved,
+          mintEligible,
+          ...rest
+        } = s;
         return rest;
       },
       onRehydrateStorage: () => (state) => {

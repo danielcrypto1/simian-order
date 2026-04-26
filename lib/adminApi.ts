@@ -39,8 +39,13 @@ function safeJson(t: string): unknown {
 
 export type WhitelistEntry = { wallet: string; phase: "GTD" | "FCFS"; maxMint: number; addedAt: string };
 export type Application = {
-  wallet: string; handle: string; twitter: string | null;
-  status: "pending" | "approved" | "rejected"; submittedAt: string;
+  id: string;
+  wallet: string;
+  twitter: string;
+  why: string | null;
+  discord: string | null;
+  status: "pending" | "approved" | "rejected";
+  createdAt: string;
 };
 export type Cfg = {
   mint: {
@@ -76,6 +81,8 @@ export const adminApi = {
     req<unknown>(`/api/admin/applications/${w}/approve`, { method: "POST" }),
   rejectApplication: (w: string) =>
     req<unknown>(`/api/admin/applications/${w}/reject`, { method: "POST" }),
+  deleteApplication: (w: string) =>
+    req<{ ok: boolean }>(`/api/admin/applications/${w}`, { method: "DELETE" }),
 
   listWhitelist: () => req<{ items: WhitelistEntry[]; total: number }>("/api/admin/whitelist"),
   addWhitelist: (entry: { wallet: string; phase: "GTD" | "FCFS"; maxMint: number }) =>

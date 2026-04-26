@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getStore } from "@/lib/adminStore";
+import { upsertApplication } from "@/lib/applicationsStore";
 import { codeForWallet } from "@/lib/referralCode";
 
 export const runtime = "nodejs";
@@ -15,55 +16,58 @@ export async function POST(req: Request) {
   }
   const b = body as {
     wallet?: unknown; handle?: unknown; discord?: unknown;
-    why?: unknown; referrer_input?: unknown;
+    why?: unknown; referrer_input?: unknown; twitter?: unknown;
   };
 
   if (typeof b.wallet !== "string" || !isWallet(b.wallet)) {
     return NextResponse.json({ error: "invalid_wallet" }, { status: 400 });
   }
-  if (typeof b.handle !== "string" || b.handle.trim().length < 1 || b.handle.length > 64) {
-    return NextResponse.json({ error: "invalid_handle" }, { status: 400 });
+  // Accept both `handle` and `twitter` as the X username field.
+  const twitterRaw = typeof b.twitter === "string" && b.twitter
+    ? b.twitter
+    : typeof b.handle === "string" ? b.handle : "";
+  const twitter = twitterRaw.toString().replace(/^@+/, "").trim();
+  if (twitter.length < 1 || twitter.length > 64) {
+    return NextResponse.json({ error: "invalid_twitter" }, { status: 400 });
   }
-  if (typeof b.why !== "string" || b.why.trim().length < 1 || b.why.length > 2000) {
+  if (b.why !== undefined && typeof b.why !== "string") {
     return NextResponse.json({ error: "invalid_why" }, { status: 400 });
   }
+
   const wallet = b.wallet.toLowerCase();
-  const handle = b.handle.trim();
-  const discord = typeof b.discord === "string" ? b.discord.trim().slice(0, 64) : null;
-  const why = b.why.trim();
+  const why = typeof b.why === "string" && b.why.trim() ? b.why.trim() : null;
+  const discord = typeof b.discord === "string" && b.discord.trim()
+    ? b.discord.trim().slice(0, 64)
+    : null;
   const referrerInput =
     typeof b.referrer_input === "string" && b.referrer_input.trim().length > 0
       ? b.referrer_input.trim().toUpperCase()
       : null;
 
-  const store = getStore();
-
-  // One pending app per wallet — replace if pending.
-  const idx = store.applications.findIndex((a) => a.wallet.toLowerCase() === wallet);
-  const application = {
+  // ALWAYS pending. Submission never auto-approves.
+  const application = upsertApplication({
     wallet,
-    handle,
-    twitter: handle.startsWith("@") ? handle.slice(1) : handle,
-    status: "pending" as const,
-    submittedAt: new Date().toISOString(),
-  };
-  if (idx >= 0) store.applications[idx] = application;
-  else store.applications.unshift(application);
+    twitter,
+    why,
+    discord,
+    referrer_input: referrerInput,
+  });
 
-  // Record referrer linkage if the input matches a known wallet's code.
+  // Optional referral linkage (still in-memory — not strictly tied to apps).
   if (referrerInput) {
+    const store = getStore();
+    let linked = false;
     for (const [refWallet, link] of store.referrals.entries()) {
       if (link.code === referrerInput && refWallet !== wallet) {
         if (!link.referred.includes(wallet)) link.referred.push(wallet);
+        linked = true;
         break;
       }
     }
-    // Also create-on-redeem: scan all wallets and find one whose deterministic
-    // code matches the input (the referrer doesn't have to have viewed their
-    // referral page first).
-    if (![...store.referrals.values()].some((l) => l.code === referrerInput)) {
-      // Brute force across applicants only — bounded set.
-      for (const app of store.applications) {
+    // Brute-force fallback: scan known applications for matching code.
+    if (!linked) {
+      const allApps = (await import("@/lib/applicationsStore")).listApplications();
+      for (const app of allApps) {
         const code = codeForWallet(app.wallet);
         if (code === referrerInput && app.wallet !== wallet) {
           const existing = store.referrals.get(app.wallet);

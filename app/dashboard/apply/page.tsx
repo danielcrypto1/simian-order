@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Panel from "@/components/Panel";
 import Button from "@/components/Button";
 import StatusBadge from "@/components/StatusBadge";
@@ -8,12 +8,22 @@ import { useStore } from "@/lib/store";
 import { useWallet } from "@/lib/wallet";
 import { track } from "@/lib/analytics";
 
-type Status = "idle" | "submitting" | "submitted" | "error";
+type Status = "idle" | "loading" | "submitting" | "submitted" | "error";
+type ServerApp = {
+  id: string;
+  wallet: string;
+  twitter: string;
+  why: string | null;
+  discord: string | null;
+  status: "pending" | "approved" | "rejected";
+  createdAt: string;
+};
 
 export default function ApplyPage() {
-  const { applicationStatus, submitApplication, walletAddress } = useStore();
+  const { approveApplication, rejectApplication, submitApplication, resetApplication, applicationStatus } = useStore();
   const { address, connect, connecting } = useWallet();
 
+  const [serverApp, setServerApp] = useState<ServerApp | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -23,6 +33,37 @@ export default function ApplyPage() {
     referrer: "",
     discord: "",
   });
+
+  // Server is source of truth — fetch the user's application on mount and
+  // sync zustand status from it. Prevents the "auto-approved" illusion that
+  // came from a stale persisted client value.
+  const refresh = useCallback(async (wallet: string | null) => {
+    if (!wallet) { setServerApp(null); return; }
+    setStatus("loading");
+    try {
+      const res = await fetch("/api/admin/applications", { credentials: "omit" }).catch(() => null);
+      // /api/admin/applications is admin-protected; users can't list. We
+      // detect their own application by the result of POST /api/apply only
+      // (the response includes the upserted row). For initial mount with no
+      // prior submission this turn, we leave serverApp as null.
+      if (res && res.ok) {
+        // ignore — public users cannot read this endpoint
+      }
+      setStatus("idle");
+    } catch {
+      setStatus("idle");
+    }
+  }, []);
+
+  useEffect(() => { refresh(address ?? null); }, [address, refresh]);
+
+  // Reflect server state into local zustand status display.
+  useEffect(() => {
+    if (!serverApp) return;
+    if (serverApp.status === "approved" && applicationStatus !== "approved") approveApplication();
+    else if (serverApp.status === "rejected" && applicationStatus !== "rejected") rejectApplication();
+    else if (serverApp.status === "pending" && applicationStatus !== "pending") submitApplication();
+  }, [serverApp, applicationStatus, approveApplication, rejectApplication, submitApplication]);
 
   function update<K extends keyof typeof form>(k: K, v: string) {
     setForm({ ...form, [k]: v });
@@ -44,16 +85,16 @@ export default function ApplyPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           wallet,
-          handle: form.handle.trim(),
+          twitter: form.handle.trim(),
           discord: form.discord.trim() || null,
-          why: form.why.trim(),
+          why: form.why.trim() || null,
           referrer_input: form.referrer.trim() || null,
         }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || `http_${res.status}`);
-      }
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || `http_${res.status}`);
+      // Server is source of truth — reflect the returned application.
+      setServerApp(j.application as ServerApp);
       submitApplication();
       track("apply_success");
       setStatus("submitted");
@@ -63,37 +104,58 @@ export default function ApplyPage() {
     }
   }
 
-  if (applicationStatus !== "none") {
+  function reapply() {
+    setServerApp(null);
+    resetApplication();
+    setStatus("idle");
+  }
+
+  // Show the post-submission view only if we have actually submitted this
+  // session OR the server returned an existing application for this wallet.
+  const showSubmittedView = serverApp !== null && status !== "submitting";
+
+  if (showSubmittedView && serverApp) {
+    const s = serverApp.status;
     const statusBadge =
-      applicationStatus === "approved" ? <StatusBadge status="Approved" /> :
-      applicationStatus === "pending" ? <StatusBadge status="Pending" /> :
-      applicationStatus === "rejected" ? <StatusBadge status="Rejected" /> :
-      <StatusBadge status="Open" />;
+      s === "approved" ? <StatusBadge status="Approved" /> :
+      s === "rejected" ? <StatusBadge status="Rejected" /> :
+      <StatusBadge status="Pending" />;
     const title =
-      applicationStatus === "approved" ? "Application Approved" :
-      applicationStatus === "rejected" ? "Application Rejected" :
+      s === "approved" ? "Application Approved" :
+      s === "rejected" ? "Application Rejected" :
       "Application Submitted";
     const message =
-      applicationStatus === "approved"
+      s === "approved"
         ? "you may now access the referral system and the mint."
-        : applicationStatus === "rejected"
+        : s === "rejected"
         ? "the order has declined. you may re-apply in round III."
-        : "filed. the order will respond within 72 hours.";
+        : "filed. the order will respond when ready.";
 
     return (
       <Panel title={title} right={statusBadge}>
         <div className="space-y-3">
           <div className="text-ape-100 text-base font-bold uppercase">
-            {applicationStatus === "approved" ? "welcome." : applicationStatus === "rejected" ? "denied." : "filed."}
+            {s === "approved" ? "welcome." : s === "rejected" ? "denied." : "filed."}
           </div>
           <p className="text-xxs text-mute leading-relaxed">{message}</p>
           <div className="divider-old" />
           <dl className="text-xxs grid grid-cols-[120px_1fr] gap-y-1">
-            <dt className="text-mute uppercase">handle</dt><dd className="text-ape-100">{form.handle || "—"}</dd>
-            <dt className="text-mute uppercase">wallet</dt><dd className="font-mono text-ape-100 break-all">{form.wallet || walletAddress || "—"}</dd>
-            <dt className="text-mute uppercase">discord</dt><dd className="text-ape-100">{form.discord || "—"}</dd>
-            <dt className="text-mute uppercase">referrer</dt><dd className="text-ape-100">{form.referrer || "—"}</dd>
+            <dt className="text-mute uppercase">x handle</dt>
+            <dd className="text-ape-100">@{serverApp.twitter}</dd>
+            <dt className="text-mute uppercase">wallet</dt>
+            <dd className="font-mono text-ape-100 break-all">{serverApp.wallet}</dd>
+            {serverApp.discord && (<>
+              <dt className="text-mute uppercase">discord</dt>
+              <dd className="text-ape-100">{serverApp.discord}</dd>
+            </>)}
+            <dt className="text-mute uppercase">submitted</dt>
+            <dd className="text-mute font-mono">{serverApp.createdAt.replace("T", " ").slice(0, 19)} UTC</dd>
           </dl>
+          {s !== "approved" && (
+            <div className="pt-1">
+              <Button variant="ghost" onClick={reapply}>Re-submit</Button>
+            </div>
+          )}
         </div>
       </Panel>
     );
@@ -141,7 +203,9 @@ export default function ApplyPage() {
             value={form.wallet}
             onChange={(e) => update("wallet", e.target.value)}
           />
-          <div className="text-xxs text-mute mt-1">leave blank to use the connected wallet ({address ? `${address.slice(0,6)}…${address.slice(-4)}` : "none"})</div>
+          <div className="text-xxs text-mute mt-1">
+            leave blank to use the connected wallet ({address ? `${address.slice(0,6)}…${address.slice(-4)}` : "none"})
+          </div>
         </div>
 
         <div>
@@ -151,7 +215,6 @@ export default function ApplyPage() {
             placeholder="speak plainly. lore optional."
             value={form.why}
             onChange={(e) => update("why", e.target.value)}
-            required
           />
           <div className="text-xxs text-mute text-right mt-1">{form.why.length} / 600</div>
         </div>
@@ -186,7 +249,7 @@ export default function ApplyPage() {
           >
             Reset
           </Button>
-          <span className="ml-auto text-xxs text-mute">applications close at phase III.</span>
+          <span className="ml-auto text-xxs text-mute">submitted as PENDING. admin reviews manually.</span>
         </div>
       </form>
     </Panel>

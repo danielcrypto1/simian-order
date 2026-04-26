@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
-import { getStore } from "@/lib/adminStore";
+import { listApplications } from "@/lib/applicationsStore";
 
 export const runtime = "nodejs";
 
 export async function GET() {
-  const store = getStore();
-  return NextResponse.json({
-    items: store.applications,
-    total: store.applications.length,
-  });
+  const items = listApplications();
+  return NextResponse.json({ items, total: items.length });
 }

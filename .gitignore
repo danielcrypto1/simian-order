@@ -17,4 +17,7 @@ typechain-types/
 # Vercel
 .vercel
 
+# Locally-persisted application data
+/data/
+
 .vercel

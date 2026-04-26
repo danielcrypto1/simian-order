@@ -11,14 +11,6 @@ export type WhitelistEntry = {
   addedAt: string;
 };
 
-export type Application = {
-  wallet: string;
-  handle: string;
-  twitter: string | null;
-  status: "pending" | "approved" | "rejected";
-  submittedAt: string;
-};
-
 export type MintConfig = {
   total_supply: number;
   gtd_allocation: number;
@@ -40,10 +32,10 @@ export type ReferralLink = {
 
 export type Store = {
   whitelist: Map<string, WhitelistEntry>;
-  applications: Application[];
   mintConfig: MintConfig;
   fcfsState: { total: number; taken: number; claimed: Set<string> };
   referrals: Map<string, ReferralLink>; // keyed by wallet
+  // Applications now live in lib/applicationsStore.ts (file-backed).
 };
 
 declare global {
@@ -66,37 +58,10 @@ function defaultMintConfig(): MintConfig {
   };
 }
 
-function seedApplications(): Application[] {
-  return [
-    {
-      wallet: "0x9a3f000000000000000000000000000000c00de1",
-      handle: "@apefrog",
-      twitter: "apefrog",
-      status: "pending",
-      submittedAt: "2026-04-22T10:00:00Z",
-    },
-    {
-      wallet: "0x44ab2cccccccccccccccccccccccccccccccccc2",
-      handle: "@bera_lord",
-      twitter: "bera_lord",
-      status: "pending",
-      submittedAt: "2026-04-23T11:00:00Z",
-    },
-    {
-      wallet: "0xaaaa00000000000000000000000000000000ffff",
-      handle: "@nopants",
-      twitter: "nopants",
-      status: "approved",
-      submittedAt: "2026-04-21T09:00:00Z",
-    },
-  ];
-}
-
 export function getStore(): Store {
   if (!globalThis.__SIMIAN_ADMIN_STORE__) {
     globalThis.__SIMIAN_ADMIN_STORE__ = {
       whitelist: new Map(),
-      applications: seedApplications(),
       mintConfig: defaultMintConfig(),
       fcfsState: { total: 50, taken: 0, claimed: new Set() },
       referrals: new Map(),

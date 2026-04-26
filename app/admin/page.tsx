@@ -390,6 +390,18 @@ function ApplicationsSection({
   onAction: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+
+  // Auto-poll every 5s while enabled. Stops on tab hide via visibility check
+  // (saves budget when admin walks away).
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") onAction();
+    }, 5000);
+    return () => clearInterval(id);
+  }, [autoRefresh, onAction]);
+
   async function decide(wallet: string, action: "approve" | "reject") {
     setBusy(`${wallet}:${action}`);
     try {
@@ -398,19 +410,49 @@ function ApplicationsSection({
       onAction();
     } finally { setBusy(null); }
   }
+  async function remove(wallet: string) {
+    if (!confirm(`Delete application for ${wallet}?\n\nThis cannot be undone.`)) return;
+    setBusy(`${wallet}:delete`);
+    try {
+      await adminApi.deleteApplication(wallet);
+      onAction();
+    } finally { setBusy(null); }
+  }
   return (
     <div id="apps">
       <Panel
         title="Applications"
-        right={apps ? <span>{apps.total} total</span> : <span>loading...</span>}
+        right={
+          <span className="flex items-center gap-2">
+            {apps ? `${apps.total} total` : "loading..."}
+            <button
+              type="button"
+              onClick={() => onAction()}
+              className="text-ape-300 hover:text-white normal-case font-normal"
+              title="refresh now"
+            >
+              ↻
+            </button>
+            <label className="flex items-center gap-1 normal-case font-normal text-ape-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoRefresh}
+                onChange={(e) => setAutoRefresh(e.target.checked)}
+                className="accent-ape-500"
+              />
+              auto
+            </label>
+          </span>
+        }
         padded={false}
       >
         <div className="overflow-x-auto">
-        <table className="w-full text-xs min-w-[640px]">
+        <table className="w-full text-xs min-w-[760px]">
           <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
             <tr>
               <th className="text-left px-3 py-1 border-b border-border">wallet</th>
-              <th className="text-left px-3 py-1 border-b border-border">handle</th>
+              <th className="text-left px-3 py-1 border-b border-border">twitter</th>
+              <th className="text-left px-3 py-1 border-b border-border">submitted</th>
               <th className="text-left px-3 py-1 border-b border-border">status</th>
               <th className="text-left px-3 py-1 border-b border-border">actions</th>
             </tr>
@@ -420,12 +462,13 @@ function ApplicationsSection({
               const status = row.status;
               const badge = status === "approved" ? "Approved" : status === "rejected" ? "Rejected" : "Pending";
               return (
-                <tr key={row.wallet} className="row-hover">
+                <tr key={row.id} className="row-hover">
                   <td className="px-3 py-2 font-mono text-ape-100 break-all">{row.wallet}</td>
-                  <td className="px-3 py-2 text-ape-200">{row.handle ?? "—"}</td>
+                  <td className="px-3 py-2 text-ape-200">@{row.twitter}</td>
+                  <td className="px-3 py-2 text-mute font-mono">{row.createdAt.replace("T", " ").slice(0, 16)}</td>
                   <td className="px-3 py-2"><StatusBadge status={badge as any} /></td>
                   <td className="px-3 py-2">
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 flex-wrap">
                       <Button
                         variant="primary"
                         onClick={() => decide(row.wallet, "approve")}
@@ -435,13 +478,18 @@ function ApplicationsSection({
                         onClick={() => decide(row.wallet, "reject")}
                         disabled={status === "rejected" || busy === `${row.wallet}:reject`}
                       >Reject</Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => remove(row.wallet)}
+                        disabled={busy === `${row.wallet}:delete`}
+                      >Delete</Button>
                     </div>
                   </td>
                 </tr>
               );
             })}
             {apps && apps.items.length === 0 && (
-              <tr><td colSpan={4} className="px-3 py-3 text-mute text-center text-xxs italic">no applications</td></tr>
+              <tr><td colSpan={5} className="px-3 py-3 text-mute text-center text-xxs italic">no applications</td></tr>
             )}
           </tbody>
         </table>
