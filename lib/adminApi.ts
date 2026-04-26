@@ -54,10 +54,10 @@ export type Cfg = {
 };
 
 export const adminApi = {
-  login: (user: string, pass: string) =>
-    req<{ ok: boolean; user: string }>("/api/admin/login", {
+  login: (username: string, password: string) =>
+    req<{ success: boolean }>("/api/admin/login", {
       method: "POST",
-      body: JSON.stringify({ user, pass }),
+      body: JSON.stringify({ username, password }),
     }),
   logout: () => req<{ ok: boolean }>("/api/admin/logout", { method: "POST" }),
   session: () => req<{ user: string; exp: number }>("/api/admin/session"),

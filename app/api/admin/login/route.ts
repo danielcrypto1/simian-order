@@ -8,20 +8,27 @@ export async function POST(req: Request) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+    return NextResponse.json({ success: false, error: "invalid_json" }, { status: 400 });
   }
-  const b = body as { user?: unknown; pass?: unknown };
-  if (typeof b.user !== "string" || typeof b.pass !== "string") {
-    return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+
+  const b = body as { username?: unknown; password?: unknown };
+  if (typeof b.username !== "string" || typeof b.password !== "string") {
+    return NextResponse.json({ success: false, error: "invalid_input" }, { status: 400 });
   }
+
   if (!process.env.ADMIN_USER || !process.env.ADMIN_PASS) {
-    return NextResponse.json({ error: "admin_not_configured" }, { status: 503 });
+    return NextResponse.json(
+      { success: false, error: "admin_not_configured" },
+      { status: 503 }
+    );
   }
-  if (!checkCredentials(b.user, b.pass)) {
-    return NextResponse.json({ error: "invalid_credentials" }, { status: 401 });
+
+  if (!checkCredentials(b.username, b.password)) {
+    return NextResponse.json({ success: false }, { status: 401 });
   }
+
   const token = await signAdminToken("admin");
-  const res = NextResponse.json({ ok: true, user: "admin" });
+  const res = NextResponse.json({ success: true });
   res.cookies.set(COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
