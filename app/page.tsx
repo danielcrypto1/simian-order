@@ -30,7 +30,7 @@ export default function LandingPage() {
               </div>
 
               <p className="text-center text-ape-200 max-w-[480px] mx-auto leading-relaxed">
-                a quiet collective of 999 simians.
+                a quiet collective of 3333 simians.
                 <br />
                 gated. ranked. on ape-chain.
               </p>
@@ -52,7 +52,7 @@ export default function LandingPage() {
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="border border-border bg-ape-950 px-2 py-2">
                   <div className="text-ape-300 text-xxs uppercase">supply</div>
-                  <div className="text-ape-100 font-mono">999</div>
+                  <div className="text-ape-100 font-mono">3333</div>
                 </div>
                 <div className="border border-border bg-ape-950 px-2 py-2">
                   <div className="text-ape-300 text-xxs uppercase">phase</div>
