@@ -135,6 +135,19 @@ export const adminApi = {
       method: "DELETE",
     }),
 
+  runSystemTest: () =>
+    req<{
+      tests: Array<{
+        name: string;
+        status: "PASS" | "FAIL";
+        message: string;
+        ms: number;
+      }>;
+      total: number;
+      passed: number;
+      failed: number;
+    }>("/api/admin/system-test", { method: "POST" }),
+
   auditLinks: () =>
     req<{
       items: Array<{

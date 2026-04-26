@@ -17,6 +17,7 @@ const sections = [
   { id: "referrals", label: "Referrals" },
   { id: "uploads", label: "Uploads" },
   { id: "audit", label: "Link Audit" },
+  { id: "system-test", label: "System Test" },
 ];
 
 type UploadEntry = {
@@ -125,6 +126,7 @@ export default function AdminDashboard() {
             <ReferralsSection refs={refs} onChanged={refresh} />
             <UploadsSection uploads={uploads} onChanged={refresh} />
             <LinkAuditSection />
+            <SystemTestSection />
           </main>
         </div>
       </div>
@@ -1018,6 +1020,98 @@ function LinkAuditSection() {
                     <td className="px-3 py-2 text-right pr-3 font-mono text-mute">
                       {row.ms != null ? `${row.ms}` : "—"}
                     </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+// ───── System Test ─────────────────────────────────────────────────────
+
+type SystemTestRow = {
+  name: string;
+  status: "PASS" | "FAIL";
+  message: string;
+  ms: number;
+};
+
+function SystemTestSection() {
+  const [data, setData] = useState<{
+    tests: SystemTestRow[]; total: number; passed: number; failed: number;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function runAll() {
+    setBusy(true); setError(null);
+    try {
+      const r = await adminApi.runSystemTest();
+      setData(r);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "system_test_failed");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div id="system-test">
+      <Panel
+        title="System Test"
+        right={
+          data
+            ? (
+              <span>
+                {data.passed}/{data.total} pass{data.failed > 0 ? ` · ${data.failed} fail` : ""}
+              </span>
+            )
+            : <span>not run</span>
+        }
+        padded={false}
+      >
+        <div className="p-3 flex items-center gap-2 flex-wrap border-b border-border">
+          <Button variant="primary" onClick={runAll} disabled={busy}>
+            {busy ? "Running…" : data ? "Re-run all tests" : "Run all tests"}
+          </Button>
+          <span className="text-xxs text-mute">
+            5 end-to-end tests: application submit → admin list, approval persistence,
+            referral count + duplicate guard, FCFS atomic claim + 409 on retry,
+            signature recovery against contract digest. Each test cleans up its
+            own test data.
+          </span>
+          {error && (
+            <span className="text-xxs text-red-300 uppercase">error: {error}</span>
+          )}
+        </div>
+
+        {data && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs min-w-[640px]">
+              <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
+                <tr>
+                  <th className="text-left px-3 py-1 border-b border-border">result</th>
+                  <th className="text-left px-3 py-1 border-b border-border">test</th>
+                  <th className="text-left px-3 py-1 border-b border-border">message</th>
+                  <th className="text-left px-3 py-1 border-b border-border text-right pr-3">ms</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {data.tests.map((t) => (
+                  <tr
+                    key={t.name}
+                    className={t.status === "FAIL" ? "bg-red-950/30" : ""}
+                  >
+                    <td className="px-3 py-2">
+                      <StatusBadge status={t.status === "PASS" ? "Approved" : "Rejected"} />
+                    </td>
+                    <td className="px-3 py-2 text-ape-100 font-bold uppercase tracking-wide">
+                      {t.name}
+                    </td>
+                    <td className="px-3 py-2 text-ape-200 break-all">{t.message}</td>
+                    <td className="px-3 py-2 text-right pr-3 font-mono text-mute">{t.ms}</td>
                   </tr>
                 ))}
               </tbody>
