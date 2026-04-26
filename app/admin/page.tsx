@@ -15,7 +15,23 @@ const sections = [
   { id: "fcfs", label: "FCFS" },
   { id: "apps", label: "Applications" },
   { id: "referrals", label: "Referrals" },
+  { id: "uploads", label: "Uploads" },
 ];
+
+type UploadEntry = {
+  name: string;
+  kind: "image" | "json";
+  size: number;
+  contentType: string;
+  uploadedAt: string;
+  url: string;
+  metadata?: {
+    name?: string;
+    description?: string;
+    image?: string;
+    attributes?: Array<{ trait_type: string; value: string | number }>;
+  } | null;
+};
 
 type ReferralAdminItem = {
   wallet: string;
@@ -35,19 +51,22 @@ export default function AdminDashboard() {
   const [apps, setApps] = useState<{ items: Application[]; total: number } | null>(null);
   const [wl, setWl] = useState<{ items: WhitelistEntry[]; total: number } | null>(null);
   const [refs, setRefs] = useState<{ items: ReferralAdminItem[]; total: number; totalReferred: number } | null>(null);
+  const [uploads, setUploads] = useState<{ items: UploadEntry[]; total: number } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [c, a, w, r] = await Promise.all([
+      const [c, a, w, r, u] = await Promise.all([
         adminApi.getConfig(),
         adminApi.listApplications(),
         adminApi.listWhitelist(),
         adminApi.listReferrals(),
+        adminApi.listUploads(),
       ]);
       setCfg(c);
       setApps(a);
       setWl(w);
       setRefs(r);
+      setUploads(u);
       setError(null);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
@@ -103,6 +122,7 @@ export default function AdminDashboard() {
             <FcfsSection cfg={cfg} onSaved={refresh} />
             <ApplicationsSection apps={apps} onAction={refresh} />
             <ReferralsSection refs={refs} onChanged={refresh} />
+            <UploadsSection uploads={uploads} onChanged={refresh} />
           </main>
         </div>
       </div>
@@ -667,6 +687,228 @@ function ReferralsSection({
               {err === "limit_reached" && " (referrer already at 5/5)"}
               {err === "already_referred" && " (referee already referred by someone)"}
               {err === "self_referral" && " (referrer and referee must differ)"}
+            </div>
+          )}
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+// ───── Uploads ─────────────────────────────────────────────────────────
+
+function UploadsSection({
+  uploads,
+  onChanged,
+}: {
+  uploads: { items: UploadEntry[]; total: number } | null;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [replaceTarget, setReplaceTarget] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function uploadFiles(files: FileList | File[], replaceName?: string) {
+    setError(null);
+    setInfo(null);
+    setBusy(true);
+    let added = 0;
+    let lastErr: string | null = null;
+    try {
+      for (const f of Array.from(files)) {
+        // For "replace": rename the file in-flight to match the target name.
+        const fileToSend = replaceName
+          ? new File([f], replaceName, { type: f.type })
+          : f;
+        try {
+          await adminApi.uploadAsset(fileToSend);
+          added++;
+        } catch (e) {
+          lastErr = e instanceof ApiError ? e.message : "upload_failed";
+        }
+      }
+      if (added > 0) setInfo(`uploaded ${added} file${added === 1 ? "" : "s"}.`);
+      if (lastErr) setError(lastErr);
+      if (added > 0) onChanged();
+    } finally {
+      setBusy(false);
+      setReplaceTarget(null);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const fs = e.target.files;
+    if (!fs || fs.length === 0) return;
+    await uploadFiles(fs, replaceTarget ?? undefined);
+  }
+
+  async function remove(name: string) {
+    if (!confirm(`Delete ${name}?`)) return;
+    setBusy(true);
+    try {
+      await adminApi.deleteUpload(name);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "delete_failed");
+    } finally { setBusy(false); }
+  }
+
+  function startReplace(name: string) {
+    setReplaceTarget(name);
+    setError(null);
+    setInfo(`replacing ${name} — choose a file…`);
+    fileRef.current?.click();
+  }
+
+  const images = (uploads?.items ?? []).filter((e) => e.kind === "image");
+  const metas = (uploads?.items ?? []).filter((e) => e.kind === "json");
+
+  function fmtBytes(n: number): string {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  return (
+    <div id="uploads">
+      <Panel
+        title="Uploads"
+        right={
+          uploads ? (
+            <span>{uploads.total} file{uploads.total === 1 ? "" : "s"}</span>
+          ) : (
+            <span>loading...</span>
+          )
+        }
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="label">file (.json, .jpg, .png — max 5MB each)</label>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".json,.jpg,.jpeg,.png,application/json,image/jpeg,image/png"
+              multiple={!replaceTarget}
+              disabled={busy}
+              className="field"
+              onChange={onFileChange}
+            />
+            <div className="text-xxs text-mute mt-1">
+              {replaceTarget
+                ? `replace mode: file will overwrite ${replaceTarget}`
+                : "select one or more files. duplicate filenames overwrite existing entries."}
+            </div>
+          </div>
+          {info && <div className="text-xxs text-ape-200">{info}</div>}
+          {error && (
+            <div className="border border-red-700 bg-red-950 px-2 py-1 text-xxs text-red-200">
+              error: {error}
+            </div>
+          )}
+        </div>
+
+        <div className="divider-old" />
+
+        <div className="space-y-2">
+          <div className="text-xxs uppercase tracking-wide text-mute">
+            images ({images.length})
+          </div>
+          {images.length === 0 ? (
+            <div className="text-xxs text-mute italic">no images uploaded yet.</div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {images.map((img) => (
+                <div
+                  key={img.name}
+                  className="border border-border bg-ape-950 p-2 space-y-2"
+                >
+                  <a href={img.url} target="_blank" rel="noreferrer" className="block">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={img.url}
+                      alt={img.name}
+                      className="w-full aspect-square object-cover border border-border"
+                    />
+                  </a>
+                  <div className="text-xxs font-mono text-ape-200 break-all">
+                    {img.name}
+                  </div>
+                  <div className="text-xxs text-mute">{fmtBytes(img.size)}</div>
+                  <div className="flex gap-1 flex-wrap">
+                    <Button onClick={() => startReplace(img.name)} disabled={busy}>
+                      Replace
+                    </Button>
+                    <Button variant="ghost" onClick={() => remove(img.name)} disabled={busy}>
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="divider-old" />
+
+        <div className="space-y-2">
+          <div className="text-xxs uppercase tracking-wide text-mute">
+            metadata ({metas.length})
+          </div>
+          {metas.length === 0 ? (
+            <div className="text-xxs text-mute italic">no metadata files uploaded.</div>
+          ) : (
+            <div className="grid sm:grid-cols-2 gap-2">
+              {metas.map((m) => (
+                <div
+                  key={m.name}
+                  className="border border-border bg-ape-950 p-2 text-xxs space-y-1"
+                >
+                  <div className="font-mono text-ape-100 break-all">{m.name}</div>
+                  <dl className="grid grid-cols-[80px_1fr] gap-y-1">
+                    <dt className="text-mute uppercase">name</dt>
+                    <dd className="text-ape-100">{m.metadata?.name ?? <span className="text-mute italic">missing</span>}</dd>
+                    <dt className="text-mute uppercase">image</dt>
+                    <dd className="font-mono text-ape-200 break-all">
+                      {m.metadata?.image ? (
+                        <a href={m.metadata.image} target="_blank" rel="noreferrer">{m.metadata.image}</a>
+                      ) : (
+                        <span className="text-mute italic">missing</span>
+                      )}
+                    </dd>
+                    <dt className="text-mute uppercase">attrs</dt>
+                    <dd className="text-ape-100">{m.metadata?.attributes?.length ?? 0}</dd>
+                  </dl>
+                  {m.metadata?.attributes && m.metadata.attributes.length > 0 && (
+                    <div className="border-t border-border pt-1 space-y-0.5 max-h-28 overflow-auto">
+                      {m.metadata.attributes.map((a, i) => (
+                        <div key={i} className="flex justify-between gap-2">
+                          <span className="text-mute uppercase">{a.trait_type}</span>
+                          <span className="text-ape-200 font-mono">{String(a.value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex gap-1 flex-wrap pt-1">
+                    <a
+                      href={m.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn-old btn-old-ghost text-xxs no-underline px-2"
+                    >
+                      View
+                    </a>
+                    <Button onClick={() => startReplace(m.name)} disabled={busy}>
+                      Replace
+                    </Button>
+                    <Button variant="ghost" onClick={() => remove(m.name)} disabled={busy}>
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

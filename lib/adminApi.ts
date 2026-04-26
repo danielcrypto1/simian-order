@@ -104,6 +104,37 @@ export const adminApi = {
       body: JSON.stringify({ referrer, referee }),
     }),
 
+  listUploads: () =>
+    req<{
+      items: Array<{
+        name: string;
+        kind: "image" | "json";
+        size: number;
+        contentType: string;
+        uploadedAt: string;
+        url: string;
+        metadata?: {
+          name?: string;
+          description?: string;
+          image?: string;
+          attributes?: Array<{ trait_type: string; value: string | number }>;
+        } | null;
+      }>;
+      total: number;
+    }>("/api/admin/uploads"),
+  uploadAsset: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return req<{ ok: boolean; entry: any }>("/api/admin/uploads", {
+      method: "POST",
+      body: fd,
+    });
+  },
+  deleteUpload: (name: string) =>
+    req<{ ok: boolean }>(`/api/admin/uploads/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    }),
+
   listWhitelist: () => req<{ items: WhitelistEntry[]; total: number }>("/api/admin/whitelist"),
   addWhitelist: (entry: { wallet: string; phase: "GTD" | "FCFS"; maxMint: number }) =>
     req<{ ok: boolean; entry: WhitelistEntry }>("/api/admin/whitelist", {
