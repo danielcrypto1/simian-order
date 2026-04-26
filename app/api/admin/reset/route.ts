@@ -22,26 +22,51 @@ export async function POST(req: Request) {
     );
   }
 
-  const [apps, refs, uploads, fcfs] = await Promise.all([
-    clearAllApplications(),
-    clearAllReferrals(),
-    clearAllUploads(),
-    resetFcfs(),
-  ]);
+  // Run sequentially. Concurrent PATCHes against the same gist race in
+  // GitHub's API and silently lose updates. Per-step try so a single
+  // failure doesn't abort the whole wipe — partial success still useful.
+  const errors: Record<string, string> = {};
+
+  let apps = 0;
+  try { apps = await clearAllApplications(); }
+  catch (e) { errors.applications = (e as Error).message; }
+
+  let refs = 0;
+  try { refs = await clearAllReferrals(); }
+  catch (e) { errors.referrals = (e as Error).message; }
+
+  let uploads = 0;
+  try { uploads = await clearAllUploads(); }
+  catch (e) { errors.uploads = (e as Error).message; }
+
+  let fcfsTotal = 0;
+  let fcfsCleared = false;
+  try {
+    const r = await resetFcfs();
+    fcfsTotal = r.total;
+    fcfsCleared = true;
+  } catch (e) {
+    errors.fcfs = (e as Error).message;
+  }
 
   const store = getStore();
   const whitelistCount = store.whitelist.size;
   store.whitelist.clear();
 
-  return NextResponse.json({
-    ok: true,
-    cleared: {
-      applications: apps,
-      referrers: refs,
-      uploads,
-      fcfsTotalPreserved: fcfs.total,
-      fcfsClaimsCleared: true,
-      whitelist: whitelistCount,
+  const status = Object.keys(errors).length === 0 ? 200 : 207; // multi-status
+  return NextResponse.json(
+    {
+      ok: status === 200,
+      cleared: {
+        applications: apps,
+        referrers: refs,
+        uploads,
+        fcfsTotalPreserved: fcfsTotal,
+        fcfsClaimsCleared: fcfsCleared,
+        whitelist: whitelistCount,
+      },
+      errors: Object.keys(errors).length === 0 ? undefined : errors,
     },
-  });
+    { status }
+  );
 }
