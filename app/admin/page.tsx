@@ -18,6 +18,7 @@ const sections = [
   { id: "uploads", label: "Uploads" },
   { id: "audit", label: "Link Audit" },
   { id: "system-test", label: "System Test" },
+  { id: "reset", label: "Reset Data" },
 ];
 
 type UploadEntry = {
@@ -127,6 +128,7 @@ export default function AdminDashboard() {
             <UploadsSection uploads={uploads} onChanged={refresh} />
             <LinkAuditSection />
             <SystemTestSection />
+            <ResetSection onReset={refresh} />
           </main>
         </div>
       </div>
@@ -1172,6 +1174,91 @@ function SystemTestSection() {
           </table>
         </div>
       </Panel>
+    </div>
+  );
+}
+
+// ───── Reset System Data ──────────────────────────────────────────────
+
+function ResetSection({ onReset }: { onReset: () => void }) {
+  const [confirmText, setConfirmText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const armed = confirmText === "RESET";
+
+  async function run() {
+    if (!armed) return;
+    if (!confirm(
+      "Wipe ALL transactional data?\n\n" +
+      "  • applications (gist)\n" +
+      "  • referrals (gist)\n" +
+      "  • uploads (gist binaries + index)\n" +
+      "  • FCFS claims (gist) — total preserved\n" +
+      "  • whitelist (in-memory)\n\n" +
+      "Mint config is preserved. This cannot be undone."
+    )) return;
+
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const r = await adminApi.resetAllData();
+      const c = r.cleared;
+      setResult(
+        `cleared: ${c.applications} applications · ${c.referrers} referrer entries · ` +
+        `${c.uploads} uploads · ${c.whitelist} whitelist · FCFS claims wiped (cap ${c.fcfsTotalPreserved} kept)`
+      );
+      setConfirmText("");
+      onReset();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "reset_failed");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div id="reset">
+      <div className="panel shadow-hard border-red-700">
+        <div className="panel-header bg-red-950 border-b-red-700 text-red-200">
+          <span>:: Reset System Data</span>
+          <span className="text-red-300 normal-case font-normal">danger zone</span>
+        </div>
+        <div className="p-3 space-y-3">
+          <p className="text-xs text-red-200 leading-relaxed">
+            Wipes every transactional store back to empty: applications, referrals,
+            uploads, FCFS claims, and the in-memory whitelist. Mint config and the
+            FCFS cap are preserved. <strong>This cannot be undone.</strong>
+          </p>
+          <div className="flex items-end gap-2 flex-wrap">
+            <div className="flex-1 min-w-[200px]">
+              <label className="label">type RESET to enable the button</label>
+              <input
+                className="field font-mono"
+                placeholder="RESET"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value.trim())}
+              />
+            </div>
+            <Button
+              onClick={run}
+              disabled={!armed || busy}
+              className={armed ? "!bg-red-700 !border-red-500 !text-white" : ""}
+            >
+              {busy ? "Wiping…" : "Reset System Data"}
+            </Button>
+          </div>
+          {result && (
+            <div className="border border-ape-300 bg-ape-800 px-2 py-2 text-xxs text-ape-100 break-all">
+              ✓ {result}
+            </div>
+          )}
+          {error && (
+            <div className="border border-red-700 bg-red-950 px-2 py-1 text-xxs text-red-200">
+              error: {error}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

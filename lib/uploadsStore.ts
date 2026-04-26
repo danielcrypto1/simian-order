@@ -280,6 +280,35 @@ export async function readFileFromStore(
   };
 }
 
+/** Wipes all uploads (binaries + index). Returns count of files cleared. */
+export async function clearAllUploads(): Promise<number> {
+  if (USE_GIST) {
+    const entries = await readGistIndex();
+    if (entries.length === 0) {
+      // Still empty the index just in case.
+      await gistPatch({ [INDEX_GIST]: { content: "[]" } });
+      return 0;
+    }
+    const files: Record<string, { content: string } | null> = {
+      [INDEX_GIST]: { content: "[]" },
+    };
+    for (const e of entries) {
+      files[GIST_FILE_PREFIX + e.name] = null as unknown as { content: string };
+    }
+    await gistPatch(files);
+    return entries.length;
+  }
+
+  // Local file backend.
+  const entries = readLocalIndex();
+  for (const e of entries) {
+    const fp = path.join(STORAGE_DIR, e.name);
+    if (fs.existsSync(fp)) fs.unlinkSync(fp);
+  }
+  writeLocalIndex([]);
+  return entries.length;
+}
+
 export async function deleteUpload(name: string): Promise<boolean> {
   const cleanName = sanitizeName(name);
   if (!cleanName) return false;

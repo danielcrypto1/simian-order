@@ -129,6 +129,14 @@ export async function addReferral(
   return { ok: true, link };
 }
 
+/** Wipes the entire referrals graph. Returns the number of referrer entries
+ *  removed (each may have had up to REFERRAL_LIMIT referees). */
+export async function clearAllReferrals(): Promise<number> {
+  const before = await read();
+  await write([]);
+  return before.length;
+}
+
 /**
  * Admin: remove a referee from a referrer's list. Used by the admin
  * panel's manual adjustment flow.

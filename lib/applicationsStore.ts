@@ -86,6 +86,13 @@ export async function setStatus(
   return app;
 }
 
+/** Wipes the entire application list. Returns the number of entries removed. */
+export async function clearAllApplications(): Promise<number> {
+  const before = await read();
+  await write([]);
+  return before.length;
+}
+
 export async function deleteApplication(wallet: string): Promise<boolean> {
   const apps = await read();
   const w = wallet.toLowerCase();

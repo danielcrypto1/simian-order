@@ -135,6 +135,22 @@ export const adminApi = {
       method: "DELETE",
     }),
 
+  resetAllData: () =>
+    req<{
+      ok: boolean;
+      cleared: {
+        applications: number;
+        referrers: number;
+        uploads: number;
+        fcfsTotalPreserved: number;
+        fcfsClaimsCleared: boolean;
+        whitelist: number;
+      };
+    }>("/api/admin/reset", {
+      method: "POST",
+      body: JSON.stringify({ confirm: true }),
+    }),
+
   runSystemTest: (only?: "application" | "approval" | "referral" | "fcfs" | "signature") =>
     req<{
       tests: Array<{
