@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { generateSignature } from "@/lib/signature";
 import { getStore } from "@/lib/adminStore";
 import { findByWallet } from "@/lib/applicationsStore";
+import { getFcfsState } from "@/lib/fcfsStore";
 
 export const runtime = "nodejs";
 
@@ -31,7 +32,8 @@ export async function POST(req: Request) {
   const cfg = store.mintConfig;
 
   const app = await findByWallet(wallet);
-  const fcfsAllocated = store.fcfsState.claimed.has(wallet);
+  const fcfs = await getFcfsState();
+  const fcfsAllocated = fcfs.claimed.includes(wallet);
 
   let phase: number;
   let maxAllowed: number;
