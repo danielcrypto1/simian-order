@@ -135,9 +135,10 @@ export const adminApi = {
       method: "DELETE",
     }),
 
-  runSystemTest: () =>
+  runSystemTest: (only?: "application" | "approval" | "referral" | "fcfs" | "signature") =>
     req<{
       tests: Array<{
+        id: "application" | "approval" | "referral" | "fcfs" | "signature";
         name: string;
         status: "PASS" | "FAIL";
         message: string;
@@ -146,7 +147,7 @@ export const adminApi = {
       total: number;
       passed: number;
       failed: number;
-    }>("/api/admin/system-test", { method: "POST" }),
+    }>(`/api/admin/system-test${only ? `?only=${only}` : ""}`, { method: "POST" }),
 
   auditLinks: () =>
     req<{

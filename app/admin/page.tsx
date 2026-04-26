@@ -1033,39 +1033,73 @@ function LinkAuditSection() {
 
 // ───── System Test ─────────────────────────────────────────────────────
 
+type SystemTestId = "application" | "approval" | "referral" | "fcfs" | "signature";
 type SystemTestRow = {
+  id: SystemTestId;
   name: string;
   status: "PASS" | "FAIL";
   message: string;
   ms: number;
 };
 
+const SYSTEM_TESTS: { id: SystemTestId; label: string; subtitle: string }[] = [
+  { id: "application", label: "Application Flow", subtitle: "Submit → admin sees → cleanup" },
+  { id: "approval",    label: "Approval Flow",    subtitle: "Approve → status persists → unlocks referral" },
+  { id: "referral",    label: "Referral Flow",    subtitle: "Add → count++ → duplicate rejected" },
+  { id: "fcfs",        label: "FCFS Flow",        subtitle: "Claim → taken++ → re-claim 409" },
+  { id: "signature",   label: "Signature",        subtitle: "Sign → recover → matches signer" },
+];
+
 function SystemTestSection() {
-  const [data, setData] = useState<{
-    tests: SystemTestRow[]; total: number; passed: number; failed: number;
-  } | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState<Record<SystemTestId, SystemTestRow | undefined>>({} as any);
+  const [running, setRunning] = useState<Set<SystemTestId>>(new Set());
+  const [allBusy, setAllBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  function setRow(r: SystemTestRow) {
+    setResults((prev) => ({ ...prev, [r.id]: r }));
+  }
+
+  async function runOne(id: SystemTestId) {
+    setError(null);
+    setRunning((prev) => new Set(prev).add(id));
+    try {
+      const r = await adminApi.runSystemTest(id);
+      const row = r.tests[0];
+      if (row) setRow(row);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "test_failed");
+    } finally {
+      setRunning((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    }
+  }
+
   async function runAll() {
-    setBusy(true); setError(null);
+    setError(null);
+    setAllBusy(true);
     try {
       const r = await adminApi.runSystemTest();
-      setData(r);
+      const merged: Record<SystemTestId, SystemTestRow | undefined> = {} as any;
+      for (const row of r.tests) merged[row.id] = row;
+      setResults(merged);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "system_test_failed");
-    } finally { setBusy(false); }
+    } finally { setAllBusy(false); }
   }
+
+  const passed = Object.values(results).filter((r) => r?.status === "PASS").length;
+  const failed = Object.values(results).filter((r) => r?.status === "FAIL").length;
+  const totalSeen = passed + failed;
 
   return (
     <div id="system-test">
       <Panel
         title="System Test"
         right={
-          data
+          totalSeen > 0
             ? (
               <span>
-                {data.passed}/{data.total} pass{data.failed > 0 ? ` · ${data.failed} fail` : ""}
+                {passed}/{totalSeen} pass{failed > 0 ? ` · ${failed} fail` : ""}
               </span>
             )
             : <span>not run</span>
@@ -1073,51 +1107,70 @@ function SystemTestSection() {
         padded={false}
       >
         <div className="p-3 flex items-center gap-2 flex-wrap border-b border-border">
-          <Button variant="primary" onClick={runAll} disabled={busy}>
-            {busy ? "Running…" : data ? "Re-run all tests" : "Run all tests"}
+          <Button variant="primary" onClick={runAll} disabled={allBusy}>
+            {allBusy ? "Running all…" : totalSeen >= 5 ? "Re-run all" : "Run all tests"}
           </Button>
           <span className="text-xxs text-mute">
-            5 end-to-end tests: application submit → admin list, approval persistence,
-            referral count + duplicate guard, FCFS atomic claim + 409 on retry,
-            signature recovery against contract digest. Each test cleans up its
-            own test data.
+            each test seeds its own random wallet, asserts the expected store mutation,
+            and cleans up. fail rows persist after re-runs of other tests.
           </span>
           {error && (
             <span className="text-xxs text-red-300 uppercase">error: {error}</span>
           )}
         </div>
 
-        {data && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[640px]">
-              <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
-                <tr>
-                  <th className="text-left px-3 py-1 border-b border-border">result</th>
-                  <th className="text-left px-3 py-1 border-b border-border">test</th>
-                  <th className="text-left px-3 py-1 border-b border-border">message</th>
-                  <th className="text-left px-3 py-1 border-b border-border text-right pr-3">ms</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {data.tests.map((t) => (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs min-w-[760px]">
+            <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
+              <tr>
+                <th className="text-left px-3 py-1 border-b border-border">result</th>
+                <th className="text-left px-3 py-1 border-b border-border">test</th>
+                <th className="text-left px-3 py-1 border-b border-border">message</th>
+                <th className="text-left px-3 py-1 border-b border-border text-right pr-2">ms</th>
+                <th className="text-left px-3 py-1 border-b border-border">action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {SYSTEM_TESTS.map((t) => {
+                const row = results[t.id];
+                const isRunning = running.has(t.id) || allBusy;
+                return (
                   <tr
-                    key={t.name}
-                    className={t.status === "FAIL" ? "bg-red-950/30" : ""}
+                    key={t.id}
+                    className={row?.status === "FAIL" ? "bg-red-950/30" : ""}
                   >
                     <td className="px-3 py-2">
-                      <StatusBadge status={t.status === "PASS" ? "Approved" : "Rejected"} />
+                      {row ? (
+                        <StatusBadge status={row.status === "PASS" ? "Approved" : "Rejected"} />
+                      ) : (
+                        <span className="text-mute text-xxs italic">—</span>
+                      )}
                     </td>
-                    <td className="px-3 py-2 text-ape-100 font-bold uppercase tracking-wide">
-                      {t.name}
+                    <td className="px-3 py-2">
+                      <div className="text-ape-100 font-bold uppercase tracking-wide">{t.label}</div>
+                      <div className="text-xxs text-mute">{t.subtitle}</div>
                     </td>
-                    <td className="px-3 py-2 text-ape-200 break-all">{t.message}</td>
-                    <td className="px-3 py-2 text-right pr-3 font-mono text-mute">{t.ms}</td>
+                    <td className="px-3 py-2 text-ape-200 break-all">
+                      {row?.message ?? <span className="text-mute italic">not run</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right pr-2 font-mono text-mute">
+                      {row ? row.ms : "—"}
+                    </td>
+                    <td className="px-3 py-2">
+                      <Button
+                        variant="primary"
+                        onClick={() => runOne(t.id)}
+                        disabled={isRunning}
+                      >
+                        {running.has(t.id) ? "Running…" : row ? "Re-run" : "Run"}
+                      </Button>
+                    </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </Panel>
     </div>
   );
