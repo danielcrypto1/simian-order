@@ -111,13 +111,10 @@ export default function MintPage() {
       await connect();
       return;
     }
-    if (!CONTRACT_ADDRESS || CONTRACT_ADDRESS.toLowerCase() === ZERO) {
-      setError("contract not yet deployed");
-      setStep("error");
-      return;
-    }
 
     try {
+      // 1. Always attempt the signature fetch — exercises the backend even
+      //    if the contract isn't yet deployed.
       setStep("fetching-sig");
       const sigRes = await fetch("/api/signature/get-signature", {
         method: "POST",
@@ -140,6 +137,13 @@ export default function MintPage() {
       const provider = new ethers.BrowserProvider((window as any).ethereum);
       await ensureChain(provider);
       const signer = await provider.getSigner();
+
+      // 2. Surface the placeholder contract case as a clear error AFTER
+      //    signature fetch + chain switch, so the rest of the prep flow
+      //    is still exercised.
+      if (!CONTRACT_ADDRESS || CONTRACT_ADDRESS.toLowerCase() === ZERO) {
+        throw new Error("contract not yet deployed");
+      }
 
       const contract = new ethers.Contract(CONTRACT_ADDRESS, MINT_ABI, signer);
       setStep("awaiting-wallet");
