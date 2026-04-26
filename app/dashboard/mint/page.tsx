@@ -9,15 +9,12 @@ import StatusBadge from "@/components/StatusBadge";
 import { stats } from "@/lib/mockData";
 import { useStore } from "@/lib/store";
 import { useWallet } from "@/lib/wallet";
+import SimianOrderArtifact from "@/lib/abi/SimianOrder.json";
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
 const CHAIN_ID = process.env.NEXT_PUBLIC_CHAIN_ID;
 const ZERO = "0x0000000000000000000000000000000000000000";
-
-const MINT_ABI = [
-  "function mint(uint256 quantity, uint8 phase, uint256 maxAllowed, bytes signature) payable",
-  "function totalMinted() view returns (uint256)",
-];
+const MINT_ABI = SimianOrderArtifact.abi;
 
 const MINT_DURATION_MS = 90_000;
 

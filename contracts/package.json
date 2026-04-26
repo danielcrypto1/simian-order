@@ -6,10 +6,15 @@
     "compile": "hardhat compile",
     "test": "hardhat test",
     "deploy:local": "hardhat run scripts/deploy.ts --network localhost",
-    "node": "hardhat node"
+    "deploy:curtis": "hardhat run scripts/deploy.ts --network curtis",
+    "deploy:apechain": "hardhat run scripts/deploy.ts --network apechain",
+    "verify:apechain": "hardhat verify --network apechain",
+    "node": "hardhat node",
+    "abi": "tsx scripts/extract-abi.ts"
   },
   "dependencies": {
     "@openzeppelin/contracts": "5.0.2",
+    "dotenv": "^17.4.2",
     "erc721a": "4.3.0"
   },
   "devDependencies": {
