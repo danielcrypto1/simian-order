@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  background-color: #020617;
+  color: #cfd8ec;
+  font-family: Tahoma, Verdana, Geneva, sans-serif;
+  font-size: 12px;
+}
+
+::selection {
+  background: #1a45ad;
+  color: #fff;
+}
+
+a {
+  color: #6a93e8;
+  text-decoration: underline;
+}
+
+a:hover {
+  color: #a9c2f0;
+}
+
+input, textarea, select {
+  font-family: inherit;
+  font-size: 12px;
+}
+
+@layer components {
+  .panel {
+    @apply bg-panel border border-border;
+  }
+  .panel-header {
+    @apply bg-ape-800 border-b border-border px-2 py-1 text-ape-100 uppercase tracking-wide text-xxs font-bold flex items-center justify-between;
+  }
+  .panel-body {
+    @apply p-2;
+  }
+  .btn-old {
+    @apply inline-flex items-center justify-center px-3 py-1 bg-ape-700 border border-ape-500 text-ape-100 uppercase tracking-wide text-xxs font-bold hover:bg-ape-600 active:bg-ape-800 disabled:opacity-50 disabled:cursor-not-allowed;
+    box-shadow: inset 1px 1px 0 #3b6dd6, inset -1px -1px 0 #040a1f;
+  }
+  .btn-old-primary {
+    @apply bg-ape-500 border-ape-300 text-white hover:bg-ape-400;
+  }
+  .btn-old-ghost {
+    @apply bg-panel border-border text-ink hover:bg-ape-800;
+  }
+  .field {
+    @apply w-full bg-ape-950 border border-border px-2 py-1 text-ink focus:outline-none focus:border-ape-400;
+  }
+  .label {
+    @apply block text-ape-200 text-xxs uppercase tracking-wide mb-1;
+  }
+  .badge {
+    @apply inline-block px-2 py-[1px] text-xxs uppercase font-bold border tracking-wide;
+  }
+  .divider-old {
+    @apply border-t border-border my-2;
+  }
+  .row-hover:hover {
+    background: #091638;
+  }
+}
+
+.scanline {
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(255,255,255,0.02) 0px,
+    rgba(255,255,255,0.02) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+}
