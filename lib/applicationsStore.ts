@@ -4,12 +4,14 @@ import path from "node:path";
 // File-backed application store.
 //
 // Local dev: writes to `<repo>/data/applications.json` (gitignored, persists
-//   across server restarts).
-// Vercel: writes to `/tmp/applications.json`. The project filesystem is
-//   read-only on Vercel, but `/tmp` is writeable per lambda instance
-//   (ephemeral, ~hours of warmth, not shared across instances). For multi-
-//   instance durability swap to Vercel KV / Postgres / Supabase by
-//   replacing `read()` and `write()` here only.
+//   across server restarts). Works perfectly.
+// Vercel: writes to `/tmp/applications.json`. Vercel's project FS is
+//   read-only and `/tmp` is **per lambda instance** — writes from one
+//   instance are NOT visible to another. For low traffic with a warm
+//   instance, this works; for production multi-instance durability swap
+//   the read()/write() functions below to Vercel KV / Postgres / Upstash.
+//
+// Migration path is intentionally narrow — only this file changes.
 
 const isVercel = process.env.VERCEL === "1";
 const DATA_FILE = isVercel

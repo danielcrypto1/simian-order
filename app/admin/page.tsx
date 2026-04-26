@@ -425,6 +425,9 @@ function ApplicationsSection({
         right={
           <span className="flex items-center gap-2">
             {apps ? `${apps.total} total` : "loading..."}
+            <span className="text-mute" title="On Vercel serverless, applications persist per lambda instance (/tmp). Reads from a different instance may show 0 until the warm instance handles the GET. Swap lib/applicationsStore.ts to Vercel KV/Postgres for cross-instance consistency.">
+              ⓘ
+            </span>
             <button
               type="button"
               onClick={() => onAction()}
