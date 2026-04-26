@@ -14,36 +14,14 @@ import {
   removeReferral,
 } from "@/lib/referralsStore";
 import { generateSignature, getSignerAddress } from "@/lib/signature";
+import { TEST_IDS, type TestId, type TestResult } from "@/lib/systemTests";
 
 export const runtime = "nodejs";
-
-export type TestId =
-  | "application"
-  | "approval"
-  | "referral"
-  | "fcfs"
-  | "signature";
-
-export const TEST_IDS: TestId[] = [
-  "application",
-  "approval",
-  "referral",
-  "fcfs",
-  "signature",
-];
 
 type TestOutcome = {
   ok: boolean;
   message: string;
   cleanup?: () => Promise<void>;
-};
-
-export type TestResult = {
-  id: TestId;
-  name: string;
-  status: "PASS" | "FAIL";
-  message: string;
-  ms: number;
 };
 
 const NAMES: Record<TestId, string> = {
