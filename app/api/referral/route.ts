@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getStore } from "@/lib/adminStore";
+import { listApplications } from "@/lib/applicationsStore";
 import { codeForWallet, REFERRAL_LIMIT } from "@/lib/referralCode";
 
 export const runtime = "nodejs";
@@ -26,14 +27,15 @@ export async function GET(req: Request) {
     link.code = code;
   }
 
-  // Hydrate referred list with current application status.
+  // Hydrate referred list with current application status from the file store.
+  const apps = listApplications();
   const referred = link.referred.map((w) => {
-    const app = store.applications.find((a) => a.wallet.toLowerCase() === w);
+    const app = apps.find((a) => a.wallet.toLowerCase() === w);
     return {
       wallet: w,
-      handle: app?.handle ?? null,
+      handle: app?.twitter ? "@" + app.twitter : null,
       status: app?.status ?? "pending",
-      submittedAt: app?.submittedAt ?? null,
+      submittedAt: app?.createdAt ?? null,
     };
   });
 
