@@ -1,40 +1,33 @@
 import { NextResponse } from "next/server";
-import { COOKIE_NAME, checkCredentials, signAdminToken } from "@/lib/adminAuth";
+import { COOKIE_NAME, signAdminToken } from "@/lib/adminAuth";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  let body: unknown;
   try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ success: false, error: "invalid_json" }, { status: 400 });
-  }
+    const { username, password } = await req.json();
 
-  const b = body as { username?: unknown; password?: unknown };
-  if (typeof b.username !== "string" || typeof b.password !== "string") {
-    return NextResponse.json({ success: false, error: "invalid_input" }, { status: 400 });
-  }
+    if (
+      username === process.env.ADMIN_USER &&
+      password === process.env.ADMIN_PASS
+    ) {
+      // Sign + Set-Cookie so middleware / /api/admin/session recognise the
+      // session for subsequent admin requests. The body still satisfies the
+      // brief's `{ success: true }` contract.
+      const token = await signAdminToken("admin");
+      const res = NextResponse.json({ success: true });
+      res.cookies.set(COOKIE_NAME, token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 8 * 60 * 60,
+      });
+      return res;
+    }
 
-  if (!process.env.ADMIN_USER || !process.env.ADMIN_PASS) {
-    return NextResponse.json(
-      { success: false, error: "admin_not_configured" },
-      { status: 503 }
-    );
+    return Response.json({ success: false }, { status: 401 });
+  } catch (err) {
+    return Response.json({ error: "Server error" }, { status: 500 });
   }
-
-  if (!checkCredentials(b.username, b.password)) {
-    return NextResponse.json({ success: false }, { status: 401 });
-  }
-
-  const token = await signAdminToken("admin");
-  const res = NextResponse.json({ success: true });
-  res.cookies.set(COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 8 * 60 * 60,
-  });
-  return res;
 }
