@@ -4,7 +4,7 @@
 
 export const SOCIAL = {
   X: "https://x.com/SimianOrder",
-  DISCORD: "https://discord.gg/simian",
+  DISCORD: "https://discord.gg/JYJZruds6R",
   APECHAIN: "https://apechain.com",
   OPENSEA: "https://opensea.io/collection/simian-order",
 };

@@ -43,7 +43,7 @@ export default function Sidebar() {
       <Panel title="Links">
         <ul className="space-y-1 text-xxs">
           <li>&middot; <a href={SOCIAL.X} target="_blank" rel="noopener noreferrer">x.com/SimianOrder ↗</a></li>
-          <li>&middot; <a href={SOCIAL.DISCORD} target="_blank" rel="noopener noreferrer">discord.gg/simian ↗</a></li>
+          <li>&middot; <a href={SOCIAL.DISCORD} target="_blank" rel="noopener noreferrer">discord ↗</a></li>
           <li>&middot; <a href={SOCIAL.APECHAIN} target="_blank" rel="noopener noreferrer">apechain.com ↗</a></li>
           <li>&middot; <a href={SOCIAL.OPENSEA} target="_blank" rel="noopener noreferrer">opensea / floor ↗</a></li>
         </ul>

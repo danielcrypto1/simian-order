@@ -8,12 +8,15 @@ import RouteGuard from "@/components/RouteGuard";
 import { useStore } from "@/lib/store";
 import { useWallet } from "@/lib/wallet";
 
-// All quest links live here. Update PINNED_TWEET_URL once the actual pinned
-// tweet exists. The contract is "user-driven completion" — clicking OPEN
+import { TASK_LINKS } from "@/lib/links";
+
+// All quest links live in lib/links.ts. PINNED_TWEET_URL there still points
+// at the X profile — update it to the actual pinned tweet status URL once
+// it exists. The contract is "user-driven completion" — clicking OPEN
 // just records `opened`, no API verification.
-const X_PROFILE_URL = "https://x.com/SimianOrder";
-const PINNED_TWEET_URL = "https://x.com/SimianOrder";
-const DISCORD_URL = "https://discord.gg/simian";
+const X_PROFILE_URL = TASK_LINKS.X_PROFILE;
+const PINNED_TWEET_URL = TASK_LINKS.PINNED_TWEET;
+const DISCORD_URL = TASK_LINKS.DISCORD;
 
 type Task = {
   id: string;

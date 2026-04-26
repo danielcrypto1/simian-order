@@ -1,6 +1,4 @@
-const X_URL = "https://x.com/SimianOrder";
-const DISCORD_URL = "https://discord.gg/simian";
-const APECHAIN_URL = "https://apechain.com";
+import { SOCIAL } from "@/lib/links";
 
 export default function SiteFooter() {
   return (
@@ -10,7 +8,7 @@ export default function SiteFooter() {
 
         <nav className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <a
-            href={X_URL}
+            href={SOCIAL.X}
             target="_blank"
             rel="noreferrer"
             className="no-underline text-ape-300 hover:text-white hover-flicker"
@@ -19,7 +17,7 @@ export default function SiteFooter() {
           </a>
           <span className="text-border">|</span>
           <a
-            href={DISCORD_URL}
+            href={SOCIAL.DISCORD}
             target="_blank"
             rel="noreferrer"
             className="no-underline text-ape-300 hover:text-white hover-flicker"
@@ -28,7 +26,7 @@ export default function SiteFooter() {
           </a>
           <span className="text-border">|</span>
           <a
-            href={APECHAIN_URL}
+            href={SOCIAL.APECHAIN}
             target="_blank"
             rel="noreferrer"
             className="no-underline text-ape-300 hover:text-white hover-flicker"
