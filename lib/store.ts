@@ -8,13 +8,19 @@ export type ApplicationStatus = "none" | "pending" | "approved" | "rejected";
 export const FCFS_TOTAL = 50;
 export const REFERRAL_LIMIT = 5;
 
+export type TaskFlags = { opened: boolean; completed: boolean };
+
 export type State = {
   walletConnected: boolean;
   walletAddress: string | null;
-  twitterConnected: boolean;
-  discordJoined: boolean;
-  retweeted: boolean;
-  tagged: boolean;
+
+  // New tasks model — keyed by task id (e.g. "follow", "retweet").
+  taskState: Record<string, TaskFlags>;
+
+  // Identity submitted via the tasks form.
+  twitterHandle: string | null;
+  submittedWallet: string | null;
+
   tasksCompleted: boolean;
   fcfsApproved: boolean;
   applicationStatus: ApplicationStatus;
@@ -29,20 +35,27 @@ export type State = {
 export type Actions = {
   connectWallet: (addr: string) => void;
   disconnectWallet: () => void;
-  setTwitterConnected: (v: boolean) => void;
-  setDiscordJoined: (v: boolean) => void;
-  setRetweeted: (v: boolean) => void;
-  setTagged: (v: boolean) => void;
+
+  markTaskOpened: (id: string) => void;
+  markTaskCompleted: (id: string) => void;
+  resetTask: (id: string) => void;
+
+  submitIdentity: (wallet: string, twitter: string) => void;
+  clearIdentity: () => void;
+
   setTasksCompleted: (v: boolean) => void;
   tryGrantFcfs: () => boolean;
   decrementFcfs: () => void;
+
   submitApplication: () => void;
   approveApplication: () => void;
   rejectApplication: () => void;
   resetApplication: () => void;
+
   ensureReferralCode: () => string;
   addReferral: () => boolean;
   resetReferrals: () => void;
+
   setMintEligible: (v: boolean) => void;
   setHasHydrated: (v: boolean) => void;
   resetAll: () => void;
@@ -51,10 +64,9 @@ export type Actions = {
 const initialState: State = {
   walletConnected: false,
   walletAddress: null,
-  twitterConnected: false,
-  discordJoined: false,
-  retweeted: false,
-  tagged: false,
+  taskState: {},
+  twitterHandle: null,
+  submittedWallet: null,
   tasksCompleted: false,
   fcfsApproved: false,
   applicationStatus: "none",
@@ -85,10 +97,36 @@ export const useStore = create<State & Actions>()(
       disconnectWallet: () =>
         set({ walletConnected: false, walletAddress: null }),
 
-      setTwitterConnected: (v) => set({ twitterConnected: v }),
-      setDiscordJoined: (v) => set({ discordJoined: v }),
-      setRetweeted: (v) => set({ retweeted: v }),
-      setTagged: (v) => set({ tagged: v }),
+      markTaskOpened: (id) =>
+        set((s) => ({
+          taskState: {
+            ...s.taskState,
+            [id]: { opened: true, completed: s.taskState[id]?.completed ?? false },
+          },
+        })),
+
+      markTaskCompleted: (id) =>
+        set((s) => ({
+          taskState: {
+            ...s.taskState,
+            [id]: { opened: true, completed: true },
+          },
+        })),
+
+      resetTask: (id) =>
+        set((s) => {
+          const next = { ...s.taskState };
+          delete next[id];
+          return { taskState: next };
+        }),
+
+      submitIdentity: (wallet, twitter) =>
+        set({
+          submittedWallet: wallet.toLowerCase(),
+          twitterHandle: twitter.replace(/^@+/, "").trim(),
+        }),
+
+      clearIdentity: () => set({ submittedWallet: null, twitterHandle: null }),
 
       setTasksCompleted: (v) => set({ tasksCompleted: v }),
 
@@ -96,14 +134,8 @@ export const useStore = create<State & Actions>()(
         const s = get();
         if (s.fcfsApproved) return true;
         if (s.fcfsRemaining <= 0) return false;
-        const next = {
-          fcfsApproved: true,
-          fcfsRemaining: s.fcfsRemaining - 1,
-        };
-        set({
-          ...next,
-          mintEligible: computeMintEligible({ ...s, ...next }),
-        });
+        const next = { fcfsApproved: true, fcfsRemaining: s.fcfsRemaining - 1 };
+        set({ ...next, mintEligible: computeMintEligible({ ...s, ...next }) });
         return true;
       },
 
@@ -175,6 +207,30 @@ export const useStore = create<State & Actions>()(
     {
       name: "simian-store",
       storage: createJSONStorage(() => localStorage),
+      version: 2,
+      migrate: (persisted, fromVersion) => {
+        // v1 → v2: drop legacy per-task booleans, hydrate the new taskState
+        // map from them so users mid-flow don't lose progress.
+        if (fromVersion < 2 && persisted && typeof persisted === "object") {
+          const p = persisted as Record<string, unknown>;
+          const taskState: Record<string, TaskFlags> = (p.taskState as any) ?? {};
+          const adopt = (id: string, prevKey: string) => {
+            if (p[prevKey] === true && !taskState[id]) {
+              taskState[id] = { opened: true, completed: true };
+            }
+          };
+          adopt("follow", "twitterConnected");
+          adopt("retweet", "retweeted");
+          adopt("discord", "discordJoined");
+          adopt("tag", "tagged");
+          delete p.twitterConnected;
+          delete p.retweeted;
+          delete p.discordJoined;
+          delete p.tagged;
+          p.taskState = taskState;
+        }
+        return persisted as State;
+      },
       partialize: (s) => {
         const { _hasHydrated, ...rest } = s;
         return rest;
