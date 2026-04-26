@@ -86,6 +86,33 @@ export async function setStatus(
   return app;
 }
 
+/**
+ * Bulk-flips every application in `status: "pending"` to a new status.
+ * Single read-modify-write so we avoid N gist round-trips.
+ *
+ * `onlyValid` (default false): when true, skips entries that don't have
+ * both a wallet and a twitter handle. The /api/apply route validates
+ * these on submit so all current entries should pass; the toggle is
+ * defensive against legacy/imported data.
+ */
+export async function bulkSetStatusForPending(
+  newStatus: "approved" | "rejected",
+  options?: { onlyValid?: boolean }
+): Promise<number> {
+  const apps = await read();
+  let count = 0;
+  for (const app of apps) {
+    if (app.status !== "pending") continue;
+    if (options?.onlyValid) {
+      if (!app.wallet || !app.twitter) continue;
+    }
+    app.status = newStatus;
+    count++;
+  }
+  if (count > 0) await write(apps);
+  return count;
+}
+
 /** Wipes the entire application list. Returns the number of entries removed. */
 export async function clearAllApplications(): Promise<number> {
   const before = await read();

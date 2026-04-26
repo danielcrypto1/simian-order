@@ -81,6 +81,16 @@ export const adminApi = {
     req<unknown>(`/api/admin/applications/${w}/approve`, { method: "POST" }),
   rejectApplication: (w: string) =>
     req<unknown>(`/api/admin/applications/${w}/reject`, { method: "POST" }),
+  acceptAllPending: (onlyValid?: boolean) =>
+    req<{ success: boolean; count: number; onlyValid: boolean }>(
+      "/api/admin/applications/accept-all",
+      { method: "POST", body: JSON.stringify({ onlyValid: !!onlyValid }) }
+    ),
+  rejectAllPending: (onlyValid?: boolean) =>
+    req<{ success: boolean; count: number; onlyValid: boolean }>(
+      "/api/admin/applications/reject-all",
+      { method: "POST", body: JSON.stringify({ onlyValid: !!onlyValid }) }
+    ),
   deleteApplication: (w: string) =>
     req<{ ok: boolean }>(`/api/admin/applications/${w}`, { method: "DELETE" }),
 

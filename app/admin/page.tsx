@@ -431,6 +431,9 @@ function ApplicationsSection({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [onlyValid, setOnlyValid] = useState(true);
+  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
 
   // Auto-poll every 5s while enabled. Stops on tab hide via visibility check
   // (saves budget when admin walks away).
@@ -457,6 +460,29 @@ function ApplicationsSection({
       await adminApi.deleteApplication(wallet);
       onAction();
     } finally { setBusy(null); }
+  }
+
+  const pendingCount = (apps?.items ?? []).filter((a) => a.status === "pending").length;
+
+  async function bulkAction(action: "approve" | "reject") {
+    const verb = action === "approve" ? "approve" : "reject";
+    const filterCopy = onlyValid ? " (skipping entries missing wallet or twitter)" : "";
+    if (!confirm(
+      `Are you sure you want to ${verb} all ${pendingCount} pending application${pendingCount === 1 ? "" : "s"}?${filterCopy}\n\nThis cannot be undone.`
+    )) return;
+
+    setBulkBusy(true);
+    setBulkMessage(null);
+    try {
+      const r = action === "approve"
+        ? await adminApi.acceptAllPending(onlyValid)
+        : await adminApi.rejectAllPending(onlyValid);
+      const past = action === "approve" ? "approved" : "rejected";
+      setBulkMessage(`${r.count} application${r.count === 1 ? "" : "s"} ${past}.`);
+      onAction();
+    } catch (e) {
+      setBulkMessage(`error: ${e instanceof ApiError ? e.message : "bulk_failed"}`);
+    } finally { setBulkBusy(false); }
   }
   return (
     <div id="apps">
@@ -489,6 +515,45 @@ function ApplicationsSection({
         }
         padded={false}
       >
+        <div className="p-3 border-b border-border space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="primary"
+              onClick={() => bulkAction("approve")}
+              disabled={bulkBusy || pendingCount === 0}
+            >
+              {bulkBusy ? "Working…" : `Accept All Pending (${pendingCount})`}
+            </Button>
+            <Button
+              onClick={() => bulkAction("reject")}
+              disabled={bulkBusy || pendingCount === 0}
+            >
+              {`Reject All Pending`}
+            </Button>
+            <label className="flex items-center gap-1 text-xxs uppercase tracking-wide text-ape-200 cursor-pointer ml-2">
+              <input
+                type="checkbox"
+                checked={onlyValid}
+                onChange={(e) => setOnlyValid(e.target.checked)}
+                className="accent-ape-500"
+              />
+              only approve valid entries
+            </label>
+          </div>
+          <div className="text-xxs text-red-300 uppercase tracking-wide">
+            ⚠ this will {pendingCount === 0 ? "do nothing — no pending applications" : `apply to ALL ${pendingCount} pending application${pendingCount === 1 ? "" : "s"}`}
+          </div>
+          {bulkMessage && (
+            <div className={`text-xxs px-2 py-1 border ${
+              bulkMessage.startsWith("error")
+                ? "bg-red-950 border-red-700 text-red-200"
+                : "bg-ape-800 border-ape-300 text-ape-100"
+            }`}>
+              {bulkMessage}
+            </div>
+          )}
+        </div>
+
         <div className="overflow-x-auto">
         <table className="w-full text-xs min-w-[760px]">
           <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
