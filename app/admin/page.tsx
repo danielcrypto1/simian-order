@@ -1,76 +1,59 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Panel from "@/components/Panel";
 import Button from "@/components/Button";
 import StatusBadge from "@/components/StatusBadge";
 import AdminTopBar from "@/components/AdminTopBar";
-import { adminApi, ApiError, getAdminToken, setAdminToken } from "@/lib/adminApi";
-
-type Cfg = Awaited<ReturnType<typeof adminApi.getConfig>>;
-type Apps = Awaited<ReturnType<typeof adminApi.listApplications>>;
-type Users = Awaited<ReturnType<typeof adminApi.listUsers>>;
+import { adminApi, ApiError, type Application, type Cfg, type WhitelistEntry } from "@/lib/adminApi";
 
 const sections = [
+  { id: "whitelist-upload", label: "Whitelist Upload" },
+  { id: "whitelist-table", label: "Whitelist Table" },
   { id: "mint", label: "Mint Controls" },
-  { id: "supply", label: "Supply" },
   { id: "fcfs", label: "FCFS" },
   { id: "apps", label: "Applications" },
-  { id: "refs", label: "Referrals" },
-  { id: "royalty", label: "Royalty" },
 ];
 
 export default function AdminDashboard() {
   const router = useRouter();
   const [authUser, setAuthUser] = useState<string | null>(null);
-  const [hydrated, setHydrated] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [cfg, setCfg] = useState<Cfg | null>(null);
-  const [apps, setApps] = useState<Apps | null>(null);
-  const [users, setUsers] = useState<Users | null>(null);
+  const [apps, setApps] = useState<{ items: Application[]; total: number } | null>(null);
+  const [wl, setWl] = useState<{ items: WhitelistEntry[]; total: number } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [c, a, u] = await Promise.all([
+      const [c, a, w] = await Promise.all([
         adminApi.getConfig(),
         adminApi.listApplications(),
-        adminApi.listUsers(),
+        adminApi.listWhitelist(),
       ]);
       setCfg(c);
       setApps(a);
-      setUsers(u);
+      setWl(w);
       setError(null);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
-        setAdminToken(null);
         router.replace("/admin/login");
         return;
       }
-      setError(e instanceof ApiError ? e.message : "unknown error");
+      setError(e instanceof ApiError ? e.message : "unknown");
     }
   }, [router]);
 
   useEffect(() => {
-    setHydrated(true);
-    if (!getAdminToken()) {
-      router.replace("/admin/login");
-      return;
-    }
     adminApi
       .session()
       .then((s) => {
         setAuthUser(s.user);
         refresh();
       })
-      .catch(() => {
-        setAdminToken(null);
-        router.replace("/admin/login");
-      });
-  }, [router, refresh]);
-
-  if (!hydrated) return null;
+      .catch(() => router.replace("/admin/login"));
+  }, [refresh, router]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -97,18 +80,15 @@ export default function AdminDashboard() {
           <main className="space-y-3 min-w-0">
             {error && (
               <Panel title="Error">
-                <div className="text-xxs text-red-300 uppercase tracking-wide">
-                  {error}
-                </div>
+                <div className="text-xxs text-red-300 uppercase tracking-wide">{error}</div>
               </Panel>
             )}
 
-            <MintSection cfg={cfg} onSaved={refresh} />
-            <SupplySection cfg={cfg} onSaved={refresh} />
+            <WhitelistUploadSection onUploaded={refresh} />
+            <WhitelistTableSection wl={wl} onChanged={refresh} />
+            <MintControlsSection cfg={cfg} onSaved={refresh} />
             <FcfsSection cfg={cfg} onSaved={refresh} />
             <ApplicationsSection apps={apps} onAction={refresh} />
-            <ReferralsSection users={users} onSaved={refresh} />
-            <RoyaltySection cfg={cfg} onSaved={refresh} />
           </main>
         </div>
       </div>
@@ -116,8 +96,212 @@ export default function AdminDashboard() {
   );
 }
 
-function MintSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }) {
+// ───── Whitelist upload ───────────────────────────────────────────────
+
+function WhitelistUploadSection({ onUploaded }: { onUploaded: () => void }) {
+  const [mode, setMode] = useState<"append" | "overwrite">("append");
   const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [errors, setErrors] = useState<{ row: number; reason: string }[] | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function upload(e: React.FormEvent) {
+    e.preventDefault();
+    const f = fileRef.current?.files?.[0];
+    if (!f) return;
+    setBusy(true); setMsg(null); setErrors(null);
+    try {
+      const r = await adminApi.uploadWhitelist(f, mode);
+      setMsg(`${mode === "overwrite" ? "Overwrote" : "Appended"}: ${r.added} entries (total ${r.total}).`);
+      if (fileRef.current) fileRef.current.value = "";
+      onUploaded();
+    } catch (e) {
+      if (e instanceof ApiError && e.message === "validation_failed" && Array.isArray(e.details)) {
+        setErrors(e.details as { row: number; reason: string }[]);
+        setMsg("validation failed — fix the rows below and re-upload.");
+      } else {
+        setMsg(e instanceof ApiError ? `error: ${e.message}` : "upload failed");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div id="whitelist-upload">
+      <Panel title="Whitelist Upload" right={<span>.csv / .xlsx</span>}>
+        <form onSubmit={upload} className="space-y-3">
+          <div>
+            <label className="label">file</label>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              required
+              className="field"
+            />
+            <div className="text-xxs text-mute mt-1">
+              expected columns: <span className="font-mono text-ape-200">wallet, phase, maxMint</span>
+              &nbsp;— phase ∈ <span className="font-mono">GTD | FCFS</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="label mb-0">mode</span>
+            <label className="flex items-center gap-1 text-xxs uppercase tracking-wide cursor-pointer">
+              <input
+                type="radio"
+                name="mode"
+                checked={mode === "append"}
+                onChange={() => setMode("append")}
+              /> append
+            </label>
+            <label className="flex items-center gap-1 text-xxs uppercase tracking-wide cursor-pointer">
+              <input
+                type="radio"
+                name="mode"
+                checked={mode === "overwrite"}
+                onChange={() => setMode("overwrite")}
+              /> overwrite
+            </label>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button type="submit" variant="primary" disabled={busy}>
+              {busy ? "Uploading..." : "Upload"}
+            </Button>
+            {msg && <span className="text-xxs text-ape-200">{msg}</span>}
+          </div>
+
+          {errors && errors.length > 0 && (
+            <div className="border border-red-700 bg-red-950 px-2 py-2 text-xxs space-y-1">
+              <div className="text-red-200 uppercase tracking-wide">
+                {errors.length} validation error{errors.length > 1 ? "s" : ""}
+              </div>
+              <ul className="font-mono text-red-200 max-h-32 overflow-auto">
+                {errors.slice(0, 50).map((er, i) => (
+                  <li key={i}>row {er.row}: {er.reason}</li>
+                ))}
+                {errors.length > 50 && <li>…and {errors.length - 50} more</li>}
+              </ul>
+            </div>
+          )}
+        </form>
+      </Panel>
+    </div>
+  );
+}
+
+// ───── Whitelist table ─────────────────────────────────────────────────
+
+function WhitelistTableSection({
+  wl,
+  onChanged,
+}: {
+  wl: { items: WhitelistEntry[]; total: number } | null;
+  onChanged: () => void;
+}) {
+  return (
+    <div id="whitelist-table">
+      <Panel
+        title="Whitelist"
+        right={wl ? <span>{wl.total} entries</span> : <span>loading...</span>}
+        padded={false}
+      >
+        <table className="w-full text-xs">
+          <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
+            <tr>
+              <th className="text-left px-3 py-1 border-b border-border">wallet</th>
+              <th className="text-left px-3 py-1 border-b border-border">phase</th>
+              <th className="text-left px-3 py-1 border-b border-border">maxMint</th>
+              <th className="text-left px-3 py-1 border-b border-border">actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {(wl?.items ?? []).map((row) => (
+              <WhitelistRow key={row.wallet} row={row} onChanged={onChanged} />
+            ))}
+            {wl && wl.items.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-3 py-3 text-mute text-center text-xxs italic">
+                  no whitelist entries — upload a .csv or .xlsx above
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </Panel>
+    </div>
+  );
+}
+
+function WhitelistRow({
+  row,
+  onChanged,
+}: {
+  row: WhitelistEntry;
+  onChanged: () => void;
+}) {
+  const [phase, setPhase] = useState<"GTD" | "FCFS">(row.phase);
+  const [maxMint, setMaxMint] = useState<number>(row.maxMint);
+  const [busy, setBusy] = useState(false);
+
+  const dirty = phase !== row.phase || maxMint !== row.maxMint;
+
+  async function save() {
+    setBusy(true);
+    try {
+      await adminApi.updateWhitelist(row.wallet, { phase, maxMint });
+      onChanged();
+    } finally { setBusy(false); }
+  }
+
+  async function del() {
+    if (!confirm(`Delete ${row.wallet}?`)) return;
+    setBusy(true);
+    try {
+      await adminApi.deleteWhitelist(row.wallet);
+      onChanged();
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <tr className="row-hover">
+      <td className="px-3 py-2 font-mono text-ape-100 break-all">{row.wallet}</td>
+      <td className="px-3 py-2">
+        <select
+          className="field py-0 px-1 w-20"
+          value={phase}
+          onChange={(e) => setPhase(e.target.value as "GTD" | "FCFS")}
+        >
+          <option value="GTD">GTD</option>
+          <option value="FCFS">FCFS</option>
+        </select>
+      </td>
+      <td className="px-3 py-2">
+        <input
+          type="number"
+          min={1}
+          className="field py-0 px-1 w-16 font-mono"
+          value={maxMint}
+          onChange={(e) => setMaxMint(Math.max(1, Number(e.target.value) || 1))}
+        />
+      </td>
+      <td className="px-3 py-2">
+        <div className="flex gap-1">
+          <Button variant="primary" disabled={!dirty || busy} onClick={save}>
+            Save
+          </Button>
+          <Button onClick={del} disabled={busy}>Delete</Button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ───── Mint controls ───────────────────────────────────────────────────
+
+function MintControlsSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }) {
   const [form, setForm] = useState({
     gtd_max_mint: 0,
     fcfs_max_mint: 0,
@@ -126,6 +310,7 @@ function MintSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void })
     fcfs_active: false,
     public_active: false,
   });
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!cfg) return;
@@ -154,9 +339,9 @@ function MintSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void })
         </div>
         <div className="divider-old" />
         <div className="grid sm:grid-cols-3 gap-2">
-          <Toggle label="GTD phase active" value={form.gtd_active} onChange={(v) => setForm({ ...form, gtd_active: v })} />
-          <Toggle label="FCFS phase active" value={form.fcfs_active} onChange={(v) => setForm({ ...form, fcfs_active: v })} />
-          <Toggle label="Public phase active" value={form.public_active} onChange={(v) => setForm({ ...form, public_active: v })} />
+          <Toggle label="GTD active" value={form.gtd_active} onChange={(v) => setForm({ ...form, gtd_active: v })} />
+          <Toggle label="FCFS active" value={form.fcfs_active} onChange={(v) => setForm({ ...form, fcfs_active: v })} />
+          <Toggle label="Public active" value={form.public_active} onChange={(v) => setForm({ ...form, public_active: v })} />
         </div>
         <div className="divider-old" />
         <Button variant="primary" disabled={!cfg || busy} onClick={save}>
@@ -167,54 +352,7 @@ function MintSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void })
   );
 }
 
-function SupplySection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ total_supply: 3333, gtd_allocation: 0, fcfs_allocation: 0 });
-
-  useEffect(() => {
-    if (!cfg) return;
-    setForm({
-      total_supply: cfg.mint.total_supply,
-      gtd_allocation: cfg.mint.gtd_allocation,
-      fcfs_allocation: cfg.mint.fcfs_allocation,
-    });
-  }, [cfg]);
-
-  const remaining = form.total_supply - form.gtd_allocation - form.fcfs_allocation;
-  const invalid = remaining < 0;
-
-  async function save() {
-    setBusy(true);
-    try { await adminApi.patchConfig(form); onSaved(); } finally { setBusy(false); }
-  }
-
-  return (
-    <div id="supply">
-      <Panel title="Supply Controls" right={<span>{remaining} public</span>}>
-        <div className="grid sm:grid-cols-3 gap-3">
-          <NumberField label="Total supply" value={form.total_supply} onChange={(v) => setForm({ ...form, total_supply: v })} />
-          <NumberField label="GTD allocation" value={form.gtd_allocation} onChange={(v) => setForm({ ...form, gtd_allocation: v })} />
-          <NumberField label="FCFS allocation" value={form.fcfs_allocation} onChange={(v) => setForm({ ...form, fcfs_allocation: v })} />
-        </div>
-        <div className="grid sm:grid-cols-4 gap-2 mt-3 text-xxs">
-          <KV label="GTD" value={form.gtd_allocation} />
-          <KV label="FCFS" value={form.fcfs_allocation} />
-          <KV label="Public (auto)" value={Math.max(0, remaining)} />
-          <KV label="Total" value={form.total_supply} />
-        </div>
-        {invalid && (
-          <div className="mt-2 border border-red-700 bg-red-950 text-red-200 px-2 py-1 text-xxs uppercase">
-            allocations exceed total supply
-          </div>
-        )}
-        <div className="divider-old" />
-        <Button variant="primary" disabled={!cfg || busy || invalid} onClick={save}>
-          {busy ? "Saving..." : "Save supply"}
-        </Button>
-      </Panel>
-    </div>
-  );
-}
+// ───── FCFS ────────────────────────────────────────────────────────────
 
 function FcfsSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -225,7 +363,7 @@ function FcfsSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void })
   }
   return (
     <div id="fcfs">
-      <Panel title="FCFS System" right={cfg ? <span>{cfg.fcfs_state.remaining} left</span> : null}>
+      <Panel title="FCFS Controls" right={cfg ? <span>{cfg.fcfs_state.remaining} left</span> : null}>
         <div className="grid sm:grid-cols-3 gap-2 text-xxs">
           <KV label="total spots" value={cfg?.fcfs_state.total ?? "—"} />
           <KV label="claimed" value={cfg?.fcfs_state.taken ?? "—"} />
@@ -240,52 +378,60 @@ function FcfsSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void })
   );
 }
 
-function ApplicationsSection({ apps, onAction }: { apps: Apps | null; onAction: () => void }) {
+// ───── Applications ────────────────────────────────────────────────────
+
+function ApplicationsSection({
+  apps,
+  onAction,
+}: {
+  apps: { items: Application[]; total: number } | null;
+  onAction: () => void;
+}) {
   const [busy, setBusy] = useState<string | null>(null);
   async function decide(wallet: string, action: "approve" | "reject") {
-    setBusy(wallet + ":" + action);
+    setBusy(`${wallet}:${action}`);
     try {
       if (action === "approve") await adminApi.approveApplication(wallet);
       else await adminApi.rejectApplication(wallet);
       onAction();
-    } catch {} finally { setBusy(null); }
+    } finally { setBusy(null); }
   }
   return (
     <div id="apps">
-      <Panel title="Applications" right={apps ? <span>{apps.total} total</span> : <span>loading...</span>} padded={false}>
+      <Panel
+        title="Applications"
+        right={apps ? <span>{apps.total} total</span> : <span>loading...</span>}
+        padded={false}
+      >
         <table className="w-full text-xs">
           <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
             <tr>
               <th className="text-left px-3 py-1 border-b border-border">wallet</th>
-              <th className="text-left px-3 py-1 border-b border-border">twitter</th>
+              <th className="text-left px-3 py-1 border-b border-border">handle</th>
               <th className="text-left px-3 py-1 border-b border-border">status</th>
               <th className="text-left px-3 py-1 border-b border-border">actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {(apps?.items ?? []).map((row) => {
-              const status = row.status as "pending" | "approved" | "rejected" | "withdrawn";
-              const badge = status === "approved" ? "Approved" : status === "rejected" ? "Rejected" : status === "pending" ? "Pending" : "Open";
+              const status = row.status;
+              const badge = status === "approved" ? "Approved" : status === "rejected" ? "Rejected" : "Pending";
               return (
-                <tr key={row.id} className="row-hover">
-                  <td className="px-3 py-2 font-mono text-ape-100">{row.wallet_address}</td>
-                  <td className="px-3 py-2 text-ape-200">{row.twitter_id ?? row.handle ?? "—"}</td>
+                <tr key={row.wallet} className="row-hover">
+                  <td className="px-3 py-2 font-mono text-ape-100 break-all">{row.wallet}</td>
+                  <td className="px-3 py-2 text-ape-200">{row.handle ?? "—"}</td>
                   <td className="px-3 py-2"><StatusBadge status={badge as any} /></td>
                   <td className="px-3 py-2">
                     <div className="flex gap-1">
                       <Button
                         variant="primary"
-                        onClick={() => decide(row.wallet_address, "approve")}
-                        disabled={status !== "pending" || busy === row.wallet_address + ":approve"}
-                      >
-                        Approve
-                      </Button>
+                        onClick={() => decide(row.wallet, "approve")}
+                        disabled={status === "approved" || busy === `${row.wallet}:approve`}
+                      >Approve</Button>
                       <Button
-                        onClick={() => decide(row.wallet_address, "reject")}
-                        disabled={status !== "pending" || busy === row.wallet_address + ":reject"}
-                      >
-                        Reject
-                      </Button>
+                        onClick={() => decide(row.wallet, "reject")}
+                        disabled={status === "rejected" || busy === `${row.wallet}:reject`}
+                      >Reject</Button>
                     </div>
                   </td>
                 </tr>
@@ -301,106 +447,7 @@ function ApplicationsSection({ apps, onAction }: { apps: Apps | null; onAction: 
   );
 }
 
-function ReferralsSection({ users, onSaved }: { users: Users | null; onSaved: () => void }) {
-  const [target, setTarget] = useState("");
-  const [referrer, setReferrer] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  async function setRef(clear = false) {
-    if (!target) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      await adminApi.patchUser(target, { referrer: clear ? null : referrer });
-      onSaved();
-      if (!clear) setReferrer("");
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "unknown");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div id="refs">
-      <Panel title="Referrals" right={users ? <span>{users.total} users</span> : <span>loading...</span>} padded={false}>
-        <table className="w-full text-xs">
-          <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
-            <tr>
-              <th className="text-left px-3 py-1 border-b border-border">wallet</th>
-              <th className="text-left px-3 py-1 border-b border-border">code</th>
-              <th className="text-left px-3 py-1 border-b border-border">referrer</th>
-              <th className="text-left px-3 py-1 border-b border-border text-right pr-3">count</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {(users?.items ?? []).map((u) => (
-              <tr key={u.wallet_address} className="row-hover">
-                <td className="px-3 py-2 font-mono text-ape-100">{u.wallet_address}</td>
-                <td className="px-3 py-2 font-mono text-ape-200">{u.referral_code ?? "—"}</td>
-                <td className="px-3 py-2 font-mono text-ape-200">{u.referrer ?? "—"}</td>
-                <td className="px-3 py-2 text-right pr-3 font-mono text-ape-100">{u.referral_count}</td>
-              </tr>
-            ))}
-            {users && users.items.length === 0 && (
-              <tr><td colSpan={4} className="px-3 py-3 text-mute text-center text-xxs italic">no users</td></tr>
-            )}
-          </tbody>
-        </table>
-        <div className="border-t border-border p-3 space-y-2">
-          <div className="text-xxs text-mute uppercase tracking-wide">manual adjustment</div>
-          <div className="grid sm:grid-cols-[1fr_1fr_auto_auto] gap-2 items-end">
-            <div>
-              <label className="label">target wallet</label>
-              <input className="field font-mono" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="0x..." />
-            </div>
-            <div>
-              <label className="label">new referrer</label>
-              <input className="field font-mono" value={referrer} onChange={(e) => setReferrer(e.target.value)} placeholder="0x..." />
-            </div>
-            <Button variant="primary" disabled={!target || !referrer || busy} onClick={() => setRef(false)}>
-              {busy ? "Saving..." : "Set referrer"}
-            </Button>
-            <Button variant="ghost" disabled={!target || busy} onClick={() => setRef(true)}>Clear</Button>
-          </div>
-          {err && <div className="text-xxs text-red-300 uppercase">error: {err}</div>}
-        </div>
-      </Panel>
-    </div>
-  );
-}
-
-function RoyaltySection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [bps, setBps] = useState(690);
-  useEffect(() => { if (cfg) setBps(cfg.royalty_bps); }, [cfg]);
-
-  async function save() {
-    setBusy(true);
-    try { await adminApi.patchConfig({ royalty_bps: bps }); onSaved(); } finally { setBusy(false); }
-  }
-
-  return (
-    <div id="royalty">
-      <Panel title="Royalty" right={<span>{(bps / 100).toFixed(2)}%</span>}>
-        <div className="grid sm:grid-cols-[200px_1fr] gap-3 items-end">
-          <NumberField label="basis points (1% = 100)" value={bps} onChange={setBps} />
-          <div className="text-xs">
-            <span className="text-mute uppercase text-xxs tracking-wide">current</span>
-            <div className="font-mono text-ape-100 text-2xl leading-none">
-              {(bps / 100).toFixed(2)}%
-            </div>
-          </div>
-        </div>
-        <div className="divider-old" />
-        <Button variant="primary" disabled={!cfg || busy} onClick={save}>
-          {busy ? "Saving..." : "Save royalty"}
-        </Button>
-      </Panel>
-    </div>
-  );
-}
+// ───── Helpers ─────────────────────────────────────────────────────────
 
 function NumberField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
   return (
@@ -408,6 +455,7 @@ function NumberField({ label, value, onChange }: { label: string; value: number;
       <label className="label">{label}</label>
       <input
         type="number"
+        min={0}
         className="field font-mono"
         value={Number.isFinite(value) ? value : 0}
         onChange={(e) => onChange(Number(e.target.value) || 0)}

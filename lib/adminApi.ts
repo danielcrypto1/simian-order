@@ -1,21 +1,7 @@
 "use client";
 
-const API_BASE =
-  (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) ||
-  "http://localhost:4000";
-
-const TOKEN_KEY = "simian:admin-token";
-
-export function getAdminToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(TOKEN_KEY);
-}
-
-export function setAdminToken(token: string | null) {
-  if (typeof window === "undefined") return;
-  if (token) window.localStorage.setItem(TOKEN_KEY, token);
-  else window.localStorage.removeItem(TOKEN_KEY);
-}
+// All routes are same-origin Next.js API routes. Auth is via httpOnly cookie
+// set by /api/admin/login; we just send `credentials: 'include'`.
 
 export class ApiError extends Error {
   status: number;
@@ -27,29 +13,22 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(
-  path: string,
-  init: RequestInit & { auth?: boolean } = {}
-): Promise<T> {
+async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.body && !headers.has("content-type")) {
+  if (init.body && !(init.body instanceof FormData) && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
-  }
-  if (init.auth !== false) {
-    const token = getAdminToken();
-    if (token) headers.set("authorization", `Bearer ${token}`);
   }
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { ...init, headers });
-  } catch (e) {
+    res = await fetch(path, { ...init, headers, credentials: "include" });
+  } catch {
     throw new ApiError(0, "network_error");
   }
   const text = await res.text();
   const json = text ? safeJson(text) : null;
   if (!res.ok) {
     const msg = (json && (json as any).error) || `http_${res.status}`;
-    throw new ApiError(res.status, msg, (json as any)?.details);
+    throw new ApiError(res.status, msg, (json as any)?.details ?? (json as any)?.errors);
   }
   return json as T;
 }
@@ -58,72 +37,66 @@ function safeJson(t: string): unknown {
   try { return JSON.parse(t); } catch { return null; }
 }
 
+export type WhitelistEntry = { wallet: string; phase: "GTD" | "FCFS"; maxMint: number; addedAt: string };
+export type Application = {
+  wallet: string; handle: string; twitter: string | null;
+  status: "pending" | "approved" | "rejected"; submittedAt: string;
+};
+export type Cfg = {
+  mint: {
+    total_supply: number; gtd_allocation: number; fcfs_allocation: number;
+    gtd_max_mint: number; fcfs_max_mint: number; public_max_mint: number;
+    gtd_active: boolean; fcfs_active: boolean; public_active: boolean;
+    royalty_bps: number;
+  };
+  royalty_bps: number;
+  fcfs_state: { total: number; taken: number; remaining: number };
+};
+
 export const adminApi = {
   login: (user: string, pass: string) =>
-    request<{ token: string; user: string }>("/api/admin/login", {
+    req<{ ok: boolean; user: string }>("/api/admin/login", {
       method: "POST",
       body: JSON.stringify({ user, pass }),
-      auth: false,
     }),
-  session: () => request<{ user: string; exp: number }>("/api/admin/session"),
-  logout: () => request<{ ok: boolean }>("/api/admin/logout", { method: "POST" }),
-  getConfig: () =>
-    request<{
-      mint: {
-        total_supply: number;
-        gtd_allocation: number;
-        fcfs_allocation: number;
-        gtd_max_mint: number;
-        fcfs_max_mint: number;
-        public_max_mint: number;
-        gtd_active: boolean;
-        fcfs_active: boolean;
-        public_active: boolean;
-      };
-      royalty_bps: number;
-      fcfs_state: { total: number; taken: number; remaining: number };
-    }>("/api/admin/config"),
+  logout: () => req<{ ok: boolean }>("/api/admin/logout", { method: "POST" }),
+  session: () => req<{ user: string; exp: number }>("/api/admin/session"),
+
+  getConfig: () => req<Cfg>("/api/admin/config"),
   patchConfig: (patch: Record<string, unknown>) =>
-    request<unknown>("/api/admin/config", {
-      method: "PATCH",
-      body: JSON.stringify(patch),
-    }),
+    req<unknown>("/api/admin/config", { method: "PATCH", body: JSON.stringify(patch) }),
+
   resetFcfs: () =>
-    request<{ reset: boolean; total: number; taken: number }>("/api/admin/fcfs/reset", {
-      method: "POST",
+    req<{ ok: boolean; total: number; taken: number; remaining: number }>(
+      "/api/admin/fcfs/reset", { method: "POST" }
+    ),
+
+  listApplications: () => req<{ items: Application[]; total: number }>("/api/admin/applications"),
+  approveApplication: (w: string) =>
+    req<unknown>(`/api/admin/applications/${w}/approve`, { method: "POST" }),
+  rejectApplication: (w: string) =>
+    req<unknown>(`/api/admin/applications/${w}/reject`, { method: "POST" }),
+
+  listWhitelist: () => req<{ items: WhitelistEntry[]; total: number }>("/api/admin/whitelist"),
+  addWhitelist: (entry: { wallet: string; phase: "GTD" | "FCFS"; maxMint: number }) =>
+    req<{ ok: boolean; entry: WhitelistEntry }>("/api/admin/whitelist", {
+      method: "POST", body: JSON.stringify(entry),
     }),
-  listApplications: (status?: string) =>
-    request<{
-      items: {
-        id: number;
-        wallet_address: string;
-        handle: string | null;
-        twitter_id: string | null;
-        status: string;
-        submitted_at: string;
-      }[];
-      total: number;
-    }>(`/api/admin/applications${status ? `?status=${status}` : ""}`),
-  approveApplication: (wallet: string) =>
-    request<unknown>(`/api/applications/${wallet}/approve`, { method: "POST" }),
-  rejectApplication: (wallet: string) =>
-    request<unknown>(`/api/applications/${wallet}/reject`, { method: "POST" }),
-  listUsers: () =>
-    request<{
-      items: {
-        wallet_address: string;
-        twitter_id: string | null;
-        application_status: string;
-        fcfs_allocated: boolean;
-        referral_code: string | null;
-        referrer: string | null;
-        referral_count: number;
-      }[];
-      total: number;
-    }>("/api/admin/users?limit=100"),
-  patchUser: (wallet: string, body: Record<string, unknown>) =>
-    request<unknown>(`/api/admin/users/${wallet}`, {
-      method: "PATCH",
-      body: JSON.stringify(body),
+  updateWhitelist: (
+    wallet: string,
+    entry: { phase: "GTD" | "FCFS"; maxMint: number }
+  ) =>
+    req<{ ok: boolean; entry: WhitelistEntry }>(`/api/admin/whitelist/${wallet}`, {
+      method: "PUT", body: JSON.stringify(entry),
     }),
+  deleteWhitelist: (wallet: string) =>
+    req<{ ok: boolean }>(`/api/admin/whitelist/${wallet}`, { method: "DELETE" }),
+  uploadWhitelist: (file: File, mode: "append" | "overwrite") => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("mode", mode);
+    return req<{ ok: boolean; mode: string; added: number; total: number }>(
+      "/api/admin/whitelist/upload", { method: "POST", body: fd }
+    );
+  },
 };

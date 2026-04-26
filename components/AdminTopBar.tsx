@@ -3,13 +3,12 @@
 import { useRouter } from "next/navigation";
 import Logo from "./Logo";
 import Button from "./Button";
-import { adminApi, setAdminToken } from "@/lib/adminApi";
+import { adminApi } from "@/lib/adminApi";
 
 export default function AdminTopBar({ user }: { user: string | null }) {
   const router = useRouter();
   async function logout() {
     try { await adminApi.logout(); } catch {}
-    setAdminToken(null);
     router.replace("/admin/login");
   }
   return (
