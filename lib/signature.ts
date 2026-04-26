@@ -1,7 +1,8 @@
 import { ethers } from "ethers";
-import { isValidWallet } from "./wallet";
 
-/// Signature digest must match the on-chain SimianOrder._digest():
+/// Server-only mint signature generator. Do NOT import from client components.
+///
+/// Digest matches the on-chain SimianOrder._digest():
 ///
 ///   keccak256(abi.encodePacked(
 ///     uint256 chainId,        // block.chainid
@@ -11,11 +12,20 @@ import { isValidWallet } from "./wallet";
 ///     uint256 maxAllowed
 ///   ))
 ///
-/// Wrapped with the standard `\x19Ethereum Signed Message:\n32` prefix via
-/// signMessage; the contract recovers via toEthSignedMessageHash.
+/// `signMessage` applies the `\x19Ethereum Signed Message:\n32` prefix; the
+/// contract recovers via toEthSignedMessageHash.
+///
+/// Env:
+///   - MINT_SIGNER_PRIVATE_KEY     (server-only, NEVER NEXT_PUBLIC_)
+///   - NEXT_PUBLIC_CHAIN_ID
+///   - NEXT_PUBLIC_CONTRACT_ADDRESS
 
 let cachedSigner: ethers.Wallet | null = null;
 let cachedKey: string | null = null;
+
+function isWallet(s: string): boolean {
+  return /^0x[a-fA-F0-9]{40}$/.test(s.trim());
+}
 
 function getSigner(): ethers.Wallet {
   const pk = process.env.MINT_SIGNER_PRIVATE_KEY;
@@ -37,7 +47,7 @@ function getChainId(): bigint {
 function getContractAddress(): string {
   const addr = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
   if (!addr) throw new Error("NEXT_PUBLIC_CONTRACT_ADDRESS_not_configured");
-  if (!isValidWallet(addr)) throw new Error("invalid_contract_address");
+  if (!isWallet(addr)) throw new Error("invalid_contract_address");
   return addr;
 }
 
@@ -46,7 +56,7 @@ export function getSignerAddress(): string {
 }
 
 /**
- * Sign a whitelist allowance for a wallet at a given phase.
+ * Sign a mint allowance.
  *
  * @param wallet      0x-prefixed EVM address being authorised
  * @param phase       0=GTD, 1=FCFS, 2=Public
@@ -57,7 +67,7 @@ export async function generateSignature(
   phase: number,
   maxAllowed: number | bigint
 ): Promise<string> {
-  if (!isValidWallet(wallet)) throw new Error("invalid_wallet");
+  if (!isWallet(wallet)) throw new Error("invalid_wallet");
   if (!Number.isInteger(phase) || phase < 0 || phase > 2) {
     throw new Error("invalid_phase");
   }
