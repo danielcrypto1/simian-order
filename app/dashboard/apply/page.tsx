@@ -35,10 +35,30 @@ export default function ApplyPage() {
     discord: "",
   });
 
-  // No public read of /api/admin/applications by design — admin endpoint
-  // is gated. We seed serverApp from the response of POST /api/apply on
-  // submit; on a fresh mount we just stay in the input form view.
-  const refresh = useCallback(async (_wallet: string | null) => {
+  // Public lookup so the post-submission view (and share buttons) persist
+  // across reloads. /api/application returns only public-safe fields.
+  const refresh = useCallback(async (wallet: string | null) => {
+    if (!wallet) { setServerApp(null); setStatus("idle"); return; }
+    setStatus("loading");
+    try {
+      const r = await fetch(`/api/application?wallet=${wallet}`, { cache: "no-store" });
+      if (r.ok) {
+        const j = await r.json();
+        if (j.application) {
+          setServerApp({
+            id: j.application.id,
+            wallet: j.application.wallet,
+            twitter: j.application.twitter,
+            why: null,
+            discord: null,
+            status: j.application.status,
+            createdAt: j.application.createdAt,
+          });
+        } else {
+          setServerApp(null);
+        }
+      }
+    } catch { /* fall through to idle */ }
     setStatus("idle");
   }, []);
 
