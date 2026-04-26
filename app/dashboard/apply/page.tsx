@@ -7,6 +7,7 @@ import StatusBadge from "@/components/StatusBadge";
 import { useStore } from "@/lib/store";
 import { useWallet } from "@/lib/wallet";
 import { track } from "@/lib/analytics";
+import { TWEETS, openTweet } from "@/lib/twitterShare";
 
 type Status = "idle" | "loading" | "submitting" | "submitted" | "error";
 type ServerApp = {
@@ -137,6 +138,23 @@ export default function ApplyPage() {
             <dt className="text-mute uppercase">submitted</dt>
             <dd className="text-mute font-mono">{serverApp.createdAt.replace("T", " ").slice(0, 19)} UTC</dd>
           </dl>
+
+          {(s === "approved" || s === "rejected") && (
+            <div className="pt-2">
+              <div className="text-xxs uppercase tracking-wide text-mute mb-1">
+                share your status
+              </div>
+              <Button
+                variant="primary"
+                onClick={() =>
+                  openTweet(s === "approved" ? TWEETS.approval() : TWEETS.rejection())
+                }
+              >
+                {s === "approved" ? "Share Approval" : "Share Rejection"}
+              </Button>
+            </div>
+          )}
+
           {s !== "approved" && (
             <div className="pt-1">
               <Button variant="ghost" onClick={reapply}>Re-submit</Button>

@@ -7,6 +7,7 @@ import StatusBadge from "@/components/StatusBadge";
 import RouteGuard from "@/components/RouteGuard";
 import { useStore } from "@/lib/store";
 import { useWallet } from "@/lib/wallet";
+import { TWEETS, openTweet } from "@/lib/twitterShare";
 
 type ReferredEntry = {
   wallet: string;
@@ -93,6 +94,9 @@ export default function ReferralPage() {
               <div className="flex items-center gap-2 flex-wrap">
                 <input className="field font-mono flex-1 min-w-[260px] break-all" readOnly value={link} />
                 <Button variant="primary" onClick={copy}>{copied ? "Copied" : "Copy"}</Button>
+                <Button onClick={() => openTweet(TWEETS.referral(link))}>
+                  Share on X
+                </Button>
               </div>
               <div className="h-2 w-full bg-ape-950 border border-border mt-2">
                 <div className="h-full bg-ape-500 transition-all" style={{ width: `${pct}%` }} />
