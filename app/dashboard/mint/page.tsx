@@ -170,6 +170,10 @@ export default function MintPage() {
       : "complete tasks while FCFS spots remain, or wait for application approval."
     : "";
 
+  // Phase the user is most likely eligible for, derived from store state.
+  const userPhaseLabel: "GTD" | "FCFS" | "PUBLIC" =
+    applicationStatus === "approved" ? "GTD" : fcfsApproved ? "FCFS" : "PUBLIC";
+
   const pct = (minted / MAX_SUPPLY) * 100;
   const busy = step === "fetching-sig" || step === "awaiting-wallet" || step === "broadcast";
 
@@ -184,10 +188,32 @@ export default function MintPage() {
     : "Mint";
 
   return (
-    <Panel
-      title="Mint"
-      right={<StatusBadge status={state === "live" ? "Open" : "Locked"} />}
-    >
+    <div className="space-y-3">
+      <Panel title="Status" padded={false}>
+        <div className="grid grid-cols-3 divide-x divide-border">
+          <div className="px-3 py-3 hover-flicker">
+            <div className="text-mute uppercase text-xxs tracking-wider">supply</div>
+            <div className="text-ape-100 font-mono text-base mt-1">
+              {supplyLoaded ? minted : "—"}<span className="text-mute"> / {MAX_SUPPLY}</span>
+            </div>
+          </div>
+          <div className="px-3 py-3 hover-flicker">
+            <div className="text-mute uppercase text-xxs tracking-wider">phase</div>
+            <div className="text-ape-100 font-mono text-base mt-1">{userPhaseLabel}</div>
+          </div>
+          <div className="px-3 py-3 hover-flicker">
+            <div className="text-mute uppercase text-xxs tracking-wider">eligibility</div>
+            <div className="mt-1">
+              <StatusBadge status={mintEligible ? "Approved" : "Locked"} />
+            </div>
+          </div>
+        </div>
+      </Panel>
+
+      <Panel
+        title="Mint"
+        right={<StatusBadge status={state === "live" ? "Live" : "Locked"} />}
+      >
       <div className="grid md:grid-cols-[200px_1fr] gap-4">
         <div className="bg-ape-950 border border-border aspect-square flex items-center justify-center relative overflow-hidden">
           <div className="absolute inset-0 scanline" />
@@ -326,6 +352,7 @@ export default function MintPage() {
           )}
         </div>
       </div>
-    </Panel>
+      </Panel>
+    </div>
   );
 }

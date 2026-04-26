@@ -23,19 +23,31 @@ export default function DashboardPage() {
     applicationStatus === "rejected" ? <StatusBadge status="Rejected" /> :
     <StatusBadge status="Open" />;
 
+  const tasksBadge =
+    tasksCompleted ? <StatusBadge status="Done" /> :
+    walletConnected ? <StatusBadge status="Open" /> :
+    <StatusBadge status="Locked" />;
+
+  const referralsBadge =
+    applicationStatus !== "approved" ? <StatusBadge status="Locked" /> :
+    referralCount >= referralLimit ? <StatusBadge status="Done" /> :
+    <StatusBadge status="Open" />;
+
+  const mintBadge = mintEligible ? <StatusBadge status="Approved" /> : <StatusBadge status="Locked" />;
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <Panel title="Welcome, primate" right={appBadge}>
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <div className="text-ape-100 text-base font-bold uppercase tracking-wide">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="space-y-2">
+            <div className="text-ape-100 text-lg font-bold uppercase tracking-tight leading-tight">
               {walletConnected ? "the order recognises you." : "the order does not yet know you."}
             </div>
-            <div className="text-xxs text-mute">
-              tasks: {tasksCompleted ? "complete" : "open"} &middot;
-              fcfs: {fcfsApproved ? "granted" : "—"} &middot;
-              referrals: {referralCount}/{referralLimit} &middot;
-              mint: {mintEligible ? "eligible" : "locked"}
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xxs uppercase tracking-wider text-mute">
+              <span>tasks: <span className="text-ape-200">{tasksCompleted ? "complete" : "open"}</span></span>
+              <span>fcfs: <span className="text-ape-200">{fcfsApproved ? "granted" : "—"}</span></span>
+              <span>referrals: <span className="text-ape-200">{referralCount}/{referralLimit}</span></span>
+              <span>mint: <span className="text-ape-200">{mintEligible ? "eligible" : "locked"}</span></span>
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
@@ -45,29 +57,69 @@ export default function DashboardPage() {
         </div>
       </Panel>
 
-      <div className="grid sm:grid-cols-3 gap-3">
-        <Panel title="Application">
-          <div className="text-xs text-ape-100 capitalize">{applicationStatus === "none" ? "not submitted" : applicationStatus}</div>
-          <div className="mt-1">{appBadge}</div>
-          <div className="text-xxs text-mute mt-2">
-            <Link href="/dashboard/apply" className="no-underline text-ape-300">manage &rarr;</Link>
-          </div>
-        </Panel>
-        <Panel title="Tasks">
-          <div className="text-xs text-ape-100">{tasksCompleted ? "complete" : "in progress"}</div>
-          <div className="mt-1"><StatusBadge status={tasksCompleted ? "Done" : "Open"} /></div>
-          <div className="text-xxs text-mute mt-2">
-            <Link href="/dashboard/tasks" className="no-underline text-ape-300">open quest log &rarr;</Link>
-          </div>
-        </Panel>
-        <Panel title="Referrals">
-          <div className="text-xs text-ape-100">{referralCount} / {referralLimit} slots</div>
-          <div className="mt-1"><StatusBadge status={applicationStatus === "approved" ? "Open" : "Locked"} /></div>
-          <div className="text-xxs text-mute mt-2">
-            <Link href="/dashboard/referral" className="no-underline text-ape-300">share link &rarr;</Link>
-          </div>
-        </Panel>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <DashboardCard
+          title="Application"
+          value={applicationStatus === "none" ? "not submitted" : applicationStatus}
+          badge={appBadge}
+          href="/dashboard/apply"
+          cta="manage"
+        />
+        <DashboardCard
+          title="Tasks"
+          value={tasksCompleted ? "complete" : walletConnected ? "in progress" : "locked"}
+          badge={tasksBadge}
+          href="/dashboard/tasks"
+          cta="open quest log"
+        />
+        <DashboardCard
+          title="Referrals"
+          value={`${referralCount} / ${referralLimit} slots`}
+          badge={referralsBadge}
+          href="/dashboard/referral"
+          cta="share link"
+        />
+        <DashboardCard
+          title="Mint"
+          value={mintEligible ? "eligible" : "locked"}
+          badge={mintBadge}
+          href="/dashboard/mint"
+          cta="open mint"
+        />
       </div>
     </div>
+  );
+}
+
+function DashboardCard({
+  title,
+  value,
+  badge,
+  href,
+  cta,
+}: {
+  title: string;
+  value: string;
+  badge: React.ReactNode;
+  href: string;
+  cta: string;
+}) {
+  return (
+    <Link href={href} className="no-underline group block">
+      <div className="panel hover-flicker transition-colors hover:bg-ape-850 h-full">
+        <div className="panel-header">
+          <span>:: {title}</span>
+        </div>
+        <div className="p-3 space-y-3">
+          <div className="text-ape-100 text-sm font-bold uppercase tracking-wide capitalize leading-tight">
+            {value}
+          </div>
+          <div>{badge}</div>
+          <div className="text-xxs text-ape-300 uppercase tracking-widest">
+            {cta} &rarr;
+          </div>
+        </div>
+      </div>
+    </Link>
   );
 }
