@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
-import { getStore } from "@/lib/adminStore";
+import { resetFcfs } from "@/lib/fcfsStore";
 
 export const runtime = "nodejs";
 
 export async function POST() {
-  const store = getStore();
-  store.fcfsState.taken = 0;
-  store.fcfsState.claimed.clear();
+  const s = await resetFcfs();
   return NextResponse.json({
     ok: true,
-    total: store.fcfsState.total,
-    taken: 0,
-    remaining: store.fcfsState.total,
+    total: s.total,
+    taken: s.taken,
+    remaining: Math.max(0, s.total - s.taken),
   });
 }

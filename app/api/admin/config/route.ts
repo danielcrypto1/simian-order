@@ -1,17 +1,19 @@
 import { NextResponse } from "next/server";
 import { getStore, MintConfig } from "@/lib/adminStore";
+import { getFcfsState, setFcfsTotal } from "@/lib/fcfsStore";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   const store = getStore();
+  const fcfs = await getFcfsState();
   return NextResponse.json({
     mint: { ...store.mintConfig },
     royalty_bps: store.mintConfig.royalty_bps,
     fcfs_state: {
-      total: store.fcfsState.total,
-      taken: store.fcfsState.taken,
-      remaining: Math.max(0, store.fcfsState.total - store.fcfsState.taken),
+      total: fcfs.total,
+      taken: fcfs.taken,
+      remaining: Math.max(0, fcfs.total - fcfs.taken),
     },
   });
 }
@@ -53,14 +55,13 @@ export async function PATCH(req: Request) {
     }
   }
 
-  // Sanity: allocations cannot exceed total supply.
   if (store.mintConfig.gtd_allocation + store.mintConfig.fcfs_allocation > store.mintConfig.total_supply) {
     return NextResponse.json({ error: "allocations_exceed_total_supply" }, { status: 400 });
   }
 
-  // Keep fcfs_state.total in sync with fcfs_allocation when feasible.
-  if ("fcfs_allocation" in b && store.mintConfig.fcfs_allocation >= store.fcfsState.taken) {
-    store.fcfsState.total = store.mintConfig.fcfs_allocation;
+  // Keep persistent FCFS total in sync when fcfs_allocation changes.
+  if ("fcfs_allocation" in b) {
+    await setFcfsTotal(store.mintConfig.fcfs_allocation);
   }
 
   return NextResponse.json({ ...store.mintConfig });

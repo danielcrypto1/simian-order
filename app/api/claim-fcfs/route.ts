@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getStore } from "@/lib/adminStore";
+import { claimFcfs, getFcfsState } from "@/lib/fcfsStore";
 
 export const runtime = "nodejs";
 
@@ -8,11 +8,11 @@ function isWallet(s: string): boolean {
 }
 
 export async function GET() {
-  const { fcfsState } = getStore();
+  const s = await getFcfsState();
   return NextResponse.json({
-    total: fcfsState.total,
-    taken: fcfsState.taken,
-    remaining: Math.max(0, fcfsState.total - fcfsState.taken),
+    total: s.total,
+    taken: s.taken,
+    remaining: Math.max(0, s.total - s.taken),
   });
 }
 
@@ -27,38 +27,23 @@ export async function POST(req: Request) {
   }
   const wallet = raw.toLowerCase();
 
-  const { fcfsState } = getStore();
-  if (fcfsState.claimed.has(wallet)) {
+  const r = await claimFcfs(wallet);
+  if (!r.ok) {
     return NextResponse.json(
       {
-        error: "already_claimed",
-        total: fcfsState.total,
-        taken: fcfsState.taken,
-        remaining: Math.max(0, fcfsState.total - fcfsState.taken),
+        error: r.error,
+        total: r.state.total,
+        taken: r.state.taken,
+        remaining: Math.max(0, r.state.total - r.state.taken),
       },
       { status: 409 }
     );
   }
-  if (fcfsState.taken >= fcfsState.total) {
-    return NextResponse.json(
-      {
-        error: "fcfs_full",
-        total: fcfsState.total,
-        taken: fcfsState.taken,
-        remaining: 0,
-      },
-      { status: 409 }
-    );
-  }
-
-  fcfsState.claimed.add(wallet);
-  fcfsState.taken += 1;
-
   return NextResponse.json({
     ok: true,
     wallet,
-    total: fcfsState.total,
-    taken: fcfsState.taken,
-    remaining: Math.max(0, fcfsState.total - fcfsState.taken),
+    total: r.state.total,
+    taken: r.state.taken,
+    remaining: Math.max(0, r.state.total - r.state.taken),
   });
 }

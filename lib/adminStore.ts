@@ -27,9 +27,11 @@ export type MintConfig = {
 export type Store = {
   whitelist: Map<string, WhitelistEntry>;
   mintConfig: MintConfig;
-  fcfsState: { total: number; taken: number; claimed: Set<string> };
-  // Applications live in lib/applicationsStore.ts (gist-backed).
-  // Referrals live in lib/referralsStore.ts (gist-backed).
+  // Persistent state lives in gist-backed stores:
+  //   applications → lib/applicationsStore.ts
+  //   referrals    → lib/referralsStore.ts
+  //   uploads      → lib/uploadsStore.ts
+  //   FCFS state   → lib/fcfsStore.ts
 };
 
 declare global {
@@ -57,7 +59,6 @@ export function getStore(): Store {
     globalThis.__SIMIAN_ADMIN_STORE__ = {
       whitelist: new Map(),
       mintConfig: defaultMintConfig(),
-      fcfsState: { total: 50, taken: 0, claimed: new Set() },
     };
   }
   return globalThis.__SIMIAN_ADMIN_STORE__;
