@@ -16,6 +16,7 @@ const sections = [
   { id: "apps", label: "Applications" },
   { id: "referrals", label: "Referrals" },
   { id: "uploads", label: "Uploads" },
+  { id: "audit", label: "Link Audit" },
 ];
 
 type UploadEntry = {
@@ -123,6 +124,7 @@ export default function AdminDashboard() {
             <ApplicationsSection apps={apps} onAction={refresh} />
             <ReferralsSection refs={refs} onChanged={refresh} />
             <UploadsSection uploads={uploads} onChanged={refresh} />
+            <LinkAuditSection />
           </main>
         </div>
       </div>
@@ -912,6 +914,116 @@ function UploadsSection({
             </div>
           )}
         </div>
+      </Panel>
+    </div>
+  );
+}
+
+// ───── Link Audit ──────────────────────────────────────────────────────
+
+type AuditRow = {
+  path: string;
+  method: string;
+  group: "page" | "api-public" | "api-admin";
+  label: string;
+  status: "OK" | "BROKEN" | "POST-ONLY";
+  code: number | null;
+  expected: number[];
+  ms: number | null;
+};
+
+function LinkAuditSection() {
+  const [data, setData] = useState<{
+    items: AuditRow[]; total: number; ok: number; broken: number; postOnly: number;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true); setError(null);
+    try {
+      const r = await adminApi.auditLinks();
+      setData(r);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "audit_failed");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div id="audit">
+      <Panel
+        title="Link Audit"
+        right={
+          data
+            ? <span>{data.ok}/{data.ok + data.broken} ok · {data.broken} broken · {data.postOnly} post-only</span>
+            : <span>not run</span>
+        }
+        padded={false}
+      >
+        <div className="p-3 flex items-center gap-2 flex-wrap border-b border-border">
+          <Button variant="primary" onClick={run} disabled={busy}>
+            {busy ? "Probing…" : data ? "Re-run audit" : "Run audit"}
+          </Button>
+          <span className="text-xxs text-mute">
+            probes every registered route. admin-gated routes use your current
+            session cookie. POST-only routes are listed but not exercised.
+          </span>
+          {error && (
+            <span className="text-xxs text-red-300 uppercase">error: {error}</span>
+          )}
+        </div>
+
+        {data && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs min-w-[760px]">
+              <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
+                <tr>
+                  <th className="text-left px-3 py-1 border-b border-border">status</th>
+                  <th className="text-left px-3 py-1 border-b border-border">method</th>
+                  <th className="text-left px-3 py-1 border-b border-border">path</th>
+                  <th className="text-left px-3 py-1 border-b border-border">label</th>
+                  <th className="text-left px-3 py-1 border-b border-border">code</th>
+                  <th className="text-left px-3 py-1 border-b border-border text-right pr-3">ms</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {data.items.map((row, i) => (
+                  <tr
+                    key={`${row.method}-${row.path}-${i}`}
+                    className={
+                      row.status === "BROKEN"
+                        ? "bg-red-950/30"
+                        : row.status === "POST-ONLY"
+                        ? "opacity-60"
+                        : ""
+                    }
+                  >
+                    <td className="px-3 py-2">
+                      <StatusBadge
+                        status={
+                          row.status === "OK" ? "Approved" :
+                          row.status === "BROKEN" ? "Rejected" : "Locked"
+                        }
+                      />
+                    </td>
+                    <td className="px-3 py-2 font-mono text-ape-200">{row.method}</td>
+                    <td className="px-3 py-2 font-mono text-ape-100 break-all">{row.path}</td>
+                    <td className="px-3 py-2 text-ape-200">{row.label}</td>
+                    <td className="px-3 py-2 font-mono text-ape-100">
+                      {row.code ?? "—"}
+                      {row.code && row.expected.length > 0 && !row.expected.includes(row.code) && (
+                        <span className="text-mute"> (want {row.expected.join("/")})</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right pr-3 font-mono text-mute">
+                      {row.ms != null ? `${row.ms}` : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Panel>
     </div>
   );

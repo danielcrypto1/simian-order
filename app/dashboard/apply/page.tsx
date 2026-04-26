@@ -34,25 +34,11 @@ export default function ApplyPage() {
     discord: "",
   });
 
-  // Server is source of truth — fetch the user's application on mount and
-  // sync zustand status from it. Prevents the "auto-approved" illusion that
-  // came from a stale persisted client value.
-  const refresh = useCallback(async (wallet: string | null) => {
-    if (!wallet) { setServerApp(null); return; }
-    setStatus("loading");
-    try {
-      const res = await fetch("/api/admin/applications", { credentials: "omit" }).catch(() => null);
-      // /api/admin/applications is admin-protected; users can't list. We
-      // detect their own application by the result of POST /api/apply only
-      // (the response includes the upserted row). For initial mount with no
-      // prior submission this turn, we leave serverApp as null.
-      if (res && res.ok) {
-        // ignore — public users cannot read this endpoint
-      }
-      setStatus("idle");
-    } catch {
-      setStatus("idle");
-    }
+  // No public read of /api/admin/applications by design — admin endpoint
+  // is gated. We seed serverApp from the response of POST /api/apply on
+  // submit; on a fresh mount we just stay in the input form view.
+  const refresh = useCallback(async (_wallet: string | null) => {
+    setStatus("idle");
   }, []);
 
   useEffect(() => { refresh(address ?? null); }, [address, refresh]);

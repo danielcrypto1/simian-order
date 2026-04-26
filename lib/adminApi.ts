@@ -135,6 +135,24 @@ export const adminApi = {
       method: "DELETE",
     }),
 
+  auditLinks: () =>
+    req<{
+      items: Array<{
+        path: string;
+        method: string;
+        group: "page" | "api-public" | "api-admin";
+        label: string;
+        status: "OK" | "BROKEN" | "POST-ONLY";
+        code: number | null;
+        expected: number[];
+        ms: number | null;
+      }>;
+      total: number;
+      ok: number;
+      broken: number;
+      postOnly: number;
+    }>("/api/admin/audit-links"),
+
   listWhitelist: () => req<{ items: WhitelistEntry[]; total: number }>("/api/admin/whitelist"),
   addWhitelist: (entry: { wallet: string; phase: "GTD" | "FCFS"; maxMint: number }) =>
     req<{ ok: boolean; entry: WhitelistEntry }>("/api/admin/whitelist", {
