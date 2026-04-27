@@ -5,6 +5,7 @@ import { useStore } from "@/lib/store";
 import { useWallet } from "@/lib/wallet";
 import { TWEETS, openTweet } from "@/lib/twitterShare";
 import OpenseaLink from "@/components/OpenseaLink";
+import { OPENSEA_HIDDEN } from "@/lib/links";
 import { useRound } from "@/lib/useRound";
 
 /**
@@ -64,6 +65,9 @@ export default function ReferralPage() {
   // "one has entered" — fades in when the server count rises since last render.
   const prevCountRef = useRef<number>(-1);
   const [pulse, setPulse] = useState(false);
+  // Slot-tap "choose carefully" — fades in on touch tap of the slot row.
+  const [slotHint, setSlotHint] = useState(false);
+  const slotHintTimer = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     if (!address) return;
@@ -96,6 +100,12 @@ export default function ReferralPage() {
     }
     prevCountRef.current = data.count;
   }, [data]);
+
+  // Clear the slot-tap hint timer on unmount so we don't write to a
+  // dead state.
+  useEffect(() => () => {
+    if (slotHintTimer.current !== null) clearTimeout(slotHintTimer.current);
+  }, []);
 
   const link = data?.code
     ? `${typeof window !== "undefined" ? window.location.origin : ""}/?ref=${data.code}`
@@ -190,7 +200,19 @@ export default function ReferralPage() {
           ── you can select 5 for round {round ?? "—"} ──
         </p>
 
-        <div className="flex items-center gap-3 sm:gap-4 flex-wrap mb-4">
+        {/* Tappable slot row — surfacing the "choose carefully" hint
+            on touch so users get a tiny tactile acknowledgment when
+            they poke at the circles. Fades after 1.6s. */}
+        <div
+          className="flex items-center gap-3 sm:gap-4 flex-wrap mb-4 cursor-pointer select-none"
+          onClick={() => {
+            if (slotHintTimer.current !== null) clearTimeout(slotHintTimer.current);
+            setSlotHint(true);
+            slotHintTimer.current = window.setTimeout(() => setSlotHint(false), 1600);
+          }}
+          role="button"
+          aria-label="referral slots — five total"
+        >
           {slots.map((filled, i) => (
             <Slot key={i} filled={filled} index={i} />
           ))}
@@ -200,9 +222,15 @@ export default function ReferralPage() {
           {remaining} / {limit}{" "}
           <span className="text-mute">remain</span>
         </p>
-        <p className="font-serif italic text-sm text-mute mt-1">
-          choose carefully.
-        </p>
+        {slotHint ? (
+          <p className="reveal font-mono text-xs uppercase tracking-widest2 text-bleed mt-1">
+            &gt; choose carefully
+          </p>
+        ) : (
+          <p className="font-serif italic text-sm text-mute mt-1">
+            choose carefully.
+          </p>
+        )}
 
         {/* Hidden message — only when all five slots are spent. */}
         {remaining === 0 && limit > 0 && (
@@ -272,15 +300,15 @@ export default function ReferralPage() {
 
       <div className="divider-noise" aria-hidden />
 
-      {/* ── MARKETPLACE POINTER ────────────────────────────────────── */}
-      {/* Subtle reminder that the secondary market exists. Small, quiet,
-          opens in a new tab. Not the focus of this page. */}
-      <p className="font-mono text-xxs uppercase tracking-widest2 text-mute -mt-2">
-        // secondary market live —{" "}
-        <OpenseaLink source="referral" className="text-link">
-          [ view on opensea ↗ ]
-        </OpenseaLink>
-      </p>
+      {/* Marketplace pointer — gated on OPENSEA_HIDDEN. */}
+      {!OPENSEA_HIDDEN && (
+        <p className="font-mono text-xxs uppercase tracking-widest2 text-mute -mt-2">
+          // secondary market live —{" "}
+          <OpenseaLink source="referral" className="text-link">
+            [ view on opensea ↗ ]
+          </OpenseaLink>
+        </p>
+      )}
 
       {/* ── ENTRY LOG ──────────────────────────────────────────────── */}
       <section>

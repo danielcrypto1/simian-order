@@ -1,4 +1,4 @@
-import { SOCIAL } from "@/lib/links";
+import { SOCIAL, OPENSEA_HIDDEN } from "@/lib/links";
 import ArchiveLink from "./ArchiveLink";
 import OpenseaLink from "./OpenseaLink";
 
@@ -22,10 +22,16 @@ export default function SiteFooter() {
           <a href={SOCIAL.APECHAIN} target="_blank" rel="noreferrer" className="hover-flicker">
             ape-chain ↗
           </a>
-          <span className="text-mute">/</span>
-          <OpenseaLink source="footer" className="hover-flicker">
-            opensea ↗
-          </OpenseaLink>
+          {/* OpenSea slot — hidden behind the global flag so the
+              surrounding `/` separators don't dangle. */}
+          {!OPENSEA_HIDDEN && (
+            <>
+              <span className="text-mute">/</span>
+              <OpenseaLink source="footer" className="hover-flicker">
+                opensea ↗
+              </OpenseaLink>
+            </>
+          )}
           <span className="text-mute">/</span>
           {/* Dead link — clicking flashes a 404 → "nothing is lost" → fade. */}
           <ArchiveLink className="text-xxs" />

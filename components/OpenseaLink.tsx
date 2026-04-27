@@ -1,7 +1,7 @@
 "use client";
 
 import { CSSProperties, ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { OPENSEA_URL } from "@/lib/links";
+import { OPENSEA_URL, OPENSEA_HIDDEN } from "@/lib/links";
 import { track } from "@/lib/analytics";
 
 /**
@@ -44,6 +44,13 @@ export default function OpenseaLink({ className, style, children, source }: Prop
     timersRef.current.forEach((id) => window.clearTimeout(id));
     timersRef.current = [];
   }, []);
+
+  // Site-wide visibility flag. When hidden, render absolutely nothing —
+  // call sites also gate their surrounding separators on the same flag
+  // so the slash-list / nav row reflow cleanly. The transition logic,
+  // about:blank reservation, and analytics fire-paths are all preserved
+  // for the moment OPENSEA_HIDDEN flips back to false.
+  if (OPENSEA_HIDDEN) return null;
 
   const onClick = useCallback((e: React.MouseEvent) => {
     // Honour modified clicks — let the browser do its native thing.

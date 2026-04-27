@@ -1,6 +1,6 @@
 "use client";
 
-import { SOCIAL } from "@/lib/links";
+import { SOCIAL, OPENSEA_HIDDEN } from "@/lib/links";
 import OpenseaLink from "./OpenseaLink";
 
 /**
@@ -48,7 +48,9 @@ export default function FloatingScatter() {
           <ul className="space-y-[2px] font-mono text-xxs">
             <li><a href={SOCIAL.X} target="_blank" rel="noreferrer" className="nav-link">x ↗</a></li>
             <li><a href={SOCIAL.DISCORD} target="_blank" rel="noreferrer" className="nav-link">discord ↗</a></li>
-            <li><OpenseaLink source="scatter-desktop" className="nav-link">opensea ↗</OpenseaLink></li>
+            {!OPENSEA_HIDDEN && (
+              <li><OpenseaLink source="scatter-desktop" className="nav-link">opensea ↗</OpenseaLink></li>
+            )}
           </ul>
         </div>
 
@@ -85,7 +87,9 @@ export default function FloatingScatter() {
           <ul className="space-y-[2px] font-mono text-xxs">
             <li><a href={SOCIAL.X} target="_blank" rel="noreferrer" className="nav-link">x ↗</a></li>
             <li><a href={SOCIAL.DISCORD} target="_blank" rel="noreferrer" className="nav-link">discord ↗</a></li>
-            <li><OpenseaLink source="scatter-mobile" className="nav-link">opensea ↗</OpenseaLink></li>
+            {!OPENSEA_HIDDEN && (
+              <li><OpenseaLink source="scatter-mobile" className="nav-link">opensea ↗</OpenseaLink></li>
+            )}
           </ul>
         </div>
       </div>

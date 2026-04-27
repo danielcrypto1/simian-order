@@ -7,6 +7,7 @@ import MediaBackground from "@/components/MediaBackground";
 import SimianCharacter from "@/components/SimianCharacter";
 import DelayedLink from "@/components/DelayedLink";
 import OpenseaLink from "@/components/OpenseaLink";
+import { OPENSEA_HIDDEN } from "@/lib/links";
 import { useRound } from "@/lib/useRound";
 
 /**
@@ -308,21 +309,25 @@ export default function LandingPage() {
               </DelayedLink>
             )}
 
-            {/* Secondary market — opens OpenSea in a new tab via
-                <OpenseaLink>, which runs the glitch exit sequence first. */}
-            <OpenseaLink
-              source="landing"
-              className="entry-link text-base sm:text-lg"
-              style={{ transform: "rotate(0.6deg) translateY(1px)" }}
-            >
-              [ view on opensea ↗ ]
-            </OpenseaLink>
+            {!OPENSEA_HIDDEN && (
+              <OpenseaLink
+                source="landing"
+                className="entry-link text-base sm:text-lg"
+                style={{ transform: "rotate(0.6deg) translateY(1px)" }}
+              >
+                [ view on opensea ↗ ]
+              </OpenseaLink>
+            )}
           </nav>
 
-          {/* "no public mint" caption — clarifies the door is closed. */}
-          <p className="mt-4 font-mono text-xxxs uppercase tracking-widest2 text-mute t-blur">
-            // no public mint &mdash; secondary market live &mdash; entry continues there.
-          </p>
+          {/* Marketplace caption gated on the same flag — the line's
+              premise was the OpenSea destination. When OpenSea is back
+              the line returns. */}
+          {!OPENSEA_HIDDEN && (
+            <p className="mt-4 font-mono text-xxxs uppercase tracking-widest2 text-mute t-blur">
+              // no public mint &mdash; secondary market live &mdash; entry continues there.
+            </p>
+          )}
 
           <p className="mt-12 font-mono text-xxxs uppercase tracking-widest2 text-mute">
             // last entered: 04:12:33 utc &nbsp;·&nbsp; 3333 &nbsp;·&nbsp; ape-chain

@@ -858,6 +858,29 @@ hr { border-color: #1a1a28; }
   .section-glitch::before { opacity: 0.20 !important; }
 }
 
+/* ───────────────────────────────────────────────────────────────
+   TAP FEEDBACK (touch only)
+   Slight visual press response with a ~100ms delay. Reads as
+   "the tap registered" without feeling instantaneous (creates the
+   weight / intention the brief asks for). Native iOS/Android tap-
+   highlight is suppressed on the same media so colours don't fight. */
+@media (hover: none), (pointer: coarse) {
+  a, button, [role="button"], .btn-old, .entry-link, .text-link, .nav-link {
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      color 120ms ease 100ms,
+      background-color 120ms ease 100ms,
+      border-color 120ms ease 100ms,
+      transform 120ms ease 100ms,
+      opacity 120ms ease 100ms;
+  }
+  a:active, button:active, [role="button"]:active,
+  .btn-old:active, .entry-link:active, .text-link:active, .nav-link:active {
+    transform: translate(0.5px, 0.5px);
+    opacity: 0.85;
+  }
+}
+
 /* Mobile nav — used by TopBar at small breakpoints. Stacks the
    scattered desktop nav into a tidy single line of large tap targets. */
 .mobile-nav {

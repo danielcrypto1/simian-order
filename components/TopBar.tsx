@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import Logo from "./Logo";
 import ConnectWalletButton from "./ConnectWalletButton";
 import OpenseaLink from "./OpenseaLink";
+import { OPENSEA_HIDDEN } from "@/lib/links";
 
 /**
  * Top navigation. Two layouts driven by viewport:
@@ -69,13 +70,15 @@ export default function TopBar() {
                 </Link>
               );
             })}
-            <OpenseaLink
-              source="topbar"
-              className="nav-link text-xs"
-              style={{ transform: "rotate(2.4deg) translateY(-2px)" }}
-            >
-              [opensea ↗]
-            </OpenseaLink>
+            {!OPENSEA_HIDDEN && (
+              <OpenseaLink
+                source="topbar"
+                className="nav-link text-xs"
+                style={{ transform: "rotate(2.4deg) translateY(-2px)" }}
+              >
+                [opensea ↗]
+              </OpenseaLink>
+            )}
           </nav>
         </div>
 
@@ -108,9 +111,11 @@ export default function TopBar() {
             [{item.label}]
           </Link>
         ))}
-        <OpenseaLink source="topbar-mobile">
-          [opensea ↗]
-        </OpenseaLink>
+        {!OPENSEA_HIDDEN && (
+          <OpenseaLink source="topbar-mobile">
+            [opensea ↗]
+          </OpenseaLink>
+        )}
       </nav>
     </header>
   );

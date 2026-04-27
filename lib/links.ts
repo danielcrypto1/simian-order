@@ -25,3 +25,23 @@ export const TASK_LINKS = {
 export const OPENSEA_URL: string =
   (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_OPENSEA_URL) ||
   SOCIAL.OPENSEA;
+
+/**
+ * Site-wide visibility flag for the OpenSea surface.
+ *
+ *   true  → every <OpenseaLink> renders null; call-site separators
+ *           and surrounding "marketplace" copy are gated to also
+ *           disappear (see TopBar / SiteFooter / dashboard / etc.)
+ *   false → links are restored everywhere as they were.
+ *
+ * The Web-Audio audio toggle, glitch transition, click logic, and
+ * underlying URL constant are all preserved — this is a UI-only mute,
+ * easy to flip back on by changing one line.
+ *
+ * Override via env var `NEXT_PUBLIC_OPENSEA_HIDDEN=0` if/when you want
+ * to launch the marketplace surface without a code push.
+ */
+export const OPENSEA_HIDDEN: boolean =
+  (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_OPENSEA_HIDDEN === "0")
+    ? false
+    : true; // default: hidden

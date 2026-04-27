@@ -14,6 +14,10 @@ import { track } from "@/lib/analytics";
  *      session (sessionStorage-backed). Clicks are absorbed when they hit
  *      the badge so the navigation to / does not happen until the
  *      counter resets after a successful reveal.
+ *   3. Tap 3 times rapidly (within 700ms) → dispatches the global
+ *      "simian:alignment" custom event so the InteractionLayer fires
+ *      its alignment-detected overlay. Independent of the 5-click
+ *      counter — both can land in a single sequence.
  *
  * The clickable layer is a <button> overlaying the badge with
  * `pointer-events: auto`. The Link wraps both, but the button captures
@@ -31,6 +35,11 @@ export default function Logo({ size = "sm" }: { size?: "sm" | "lg" }) {
   const [deeper, setDeeper] = useState(false);
   const clickCount = useRef(0);
   const clickTimer = useRef<number | null>(null);
+
+  // 3-rapid-tap "alignment detected" — fires when 3 taps land within
+  // a 700ms window. Tap timestamps tracked in a small ring buffer.
+  const tapTimes = useRef<number[]>([]);
+  const TAP_WINDOW_MS = 700;
 
   useEffect(() => {
     try {
@@ -60,10 +69,13 @@ export default function Logo({ size = "sm" }: { size?: "sm" | "lg" }) {
 
   // Badge click handler — absorbs clicks for the easter egg without
   // navigating. Resets the counter after 2s of inactivity so a slow
-  // sequence doesn't accidentally count.
+  // sequence doesn't accidentally count. Also feeds the 3-rapid-tap
+  // window for the alignment-detected secret.
   const onBadgeClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+
+    // ── 5-click [ deeper ] easter egg ────────────────────────────
     clickCount.current += 1;
     if (clickTimer.current !== null) clearTimeout(clickTimer.current);
     clickTimer.current = window.setTimeout(() => {
@@ -78,6 +90,19 @@ export default function Logo({ size = "sm" }: { size?: "sm" | "lg" }) {
         clearTimeout(clickTimer.current);
         clickTimer.current = null;
       }
+    }
+
+    // ── 3-rapid-tap alignment ────────────────────────────────────
+    const now = Date.now();
+    tapTimes.current.push(now);
+    // Keep only the most recent 3 within the rolling window.
+    tapTimes.current = tapTimes.current.filter((t) => now - t <= TAP_WINDOW_MS);
+    if (tapTimes.current.length >= 3) {
+      try {
+        window.dispatchEvent(new CustomEvent("simian:alignment"));
+        track("secret_logo_3tap");
+      } catch { /* noop */ }
+      tapTimes.current = []; // reset so the next 3 fires again
     }
   };
 

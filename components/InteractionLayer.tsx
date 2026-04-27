@@ -32,9 +32,18 @@ export default function InteractionLayer() {
   // Hidden message overlays (mutually independent).
   const [alignment, setAlignment] = useState(false);
   const [observed, setObserved] = useState(false);
+  const [signalUnstable, setSignalUnstable] = useState(false);
 
   // Night-mode flag — true between 00:00 and 04:00 local.
   const [nightMode, setNightMode] = useState(false);
+
+  // Helper — reused by both the keyboard secret and the logo 3-tap.
+  const fireAlignment = () => {
+    document.body.classList.add("rare-glitch");
+    window.setTimeout(() => document.body.classList.remove("rare-glitch"), 220);
+    setAlignment(true);
+    window.setTimeout(() => setAlignment(false), 2400);
+  };
 
   // ── 5. First-load splash (sessionStorage-gated so it fires once) ────
   useEffect(() => {
@@ -168,18 +177,115 @@ export default function InteractionLayer() {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       buffer = (buffer + e.key.toLowerCase()).slice(-SECRET.length);
       if (buffer === SECRET) {
-        // Trigger the overlay + a one-shot rare-glitch on body.
-        document.body.classList.add("rare-glitch");
-        window.setTimeout(() => document.body.classList.remove("rare-glitch"), 220);
-        setAlignment(true);
-        window.setTimeout(() => setAlignment(false), 2400);
+        fireAlignment();
         track("secret_simian");
         buffer = ""; // reset so a single re-type re-triggers
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Cross-component bridge: Logo dispatches `simian:alignment` after
+  //       3 rapid taps. Listen for it here so the same overlay/glitch
+  //       fires regardless of which surface triggered the secret.
+  useEffect(() => {
+    const onSignal = () => fireAlignment();
+    window.addEventListener("simian:alignment", onSignal);
+    return () => window.removeEventListener("simian:alignment", onSignal);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Long-press (touch only) — 500ms hold without movement triggers a
+  //       glitch + "signal unstable" overlay. Tap targets and form
+  //       inputs are excluded so the user can still long-press to
+  //       paste/select inside fields. The overlay fades after ~1.6s.
+  useEffect(() => {
+    let timer: number | null = null;
+    let startX = 0, startY = 0;
+    const MOVE_TOLERANCE_PX = 10;
+
+    const cancel = () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    const fire = () => {
+      document.body.classList.add("rare-glitch");
+      window.setTimeout(() => document.body.classList.remove("rare-glitch"), 220);
+      setSignalUnstable(true);
+      window.setTimeout(() => setSignalUnstable(false), 1600);
+      try { track("longpress_signal_unstable"); } catch { /* noop */ }
+    };
+
+    const onDown = (e: PointerEvent) => {
+      // Only trigger on touch — mouse/pen long-press is selecting text.
+      if (e.pointerType !== "touch") return;
+      const t = e.target as HTMLElement | null;
+      // Exclude editable + interactive elements so users can long-press
+      // to paste in inputs / select text without firing the secret.
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.tagName === "BUTTON" ||
+          t.tagName === "A" ||
+          t.isContentEditable ||
+          t.closest("a") ||
+          t.closest("button"))
+      ) {
+        return;
+      }
+      startX = e.clientX;
+      startY = e.clientY;
+      cancel();
+      timer = window.setTimeout(fire, 500);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (timer === null) return;
+      const dx = Math.abs(e.clientX - startX);
+      const dy = Math.abs(e.clientY - startY);
+      if (dx > MOVE_TOLERANCE_PX || dy > MOVE_TOLERANCE_PX) cancel();
+    };
+    const onEnd = () => cancel();
+
+    window.addEventListener("pointerdown", onDown, { passive: true });
+    window.addEventListener("pointermove", onMove, { passive: true });
+    window.addEventListener("pointerup", onEnd, { passive: true });
+    window.addEventListener("pointercancel", onEnd, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+      cancel();
+    };
+  }, []);
+
+  // ── Rare "observed" on touch tap (~3% chance). Fires alongside the
+  //       global click handler but only on touch pointers, and only
+  //       when no other overlay is currently on screen so it never
+  //       stacks. Subtle, never aimed at the same tap twice.
+  useEffect(() => {
+    const onPointerUp = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return;
+      const t = e.target as HTMLElement | null;
+      // Skip if the user clicked something that opts out of feedback.
+      if (t?.closest("[data-no-flash]")) return;
+      // Cooldown via existing observed state — if it's already up, skip.
+      if (observed) return;
+      if (Math.random() >= 0.04) return; // 4% chance
+      setObserved(true);
+      window.setTimeout(() => setObserved(false), 1700);
+    };
+    window.addEventListener("pointerup", onPointerUp, { passive: true });
+    return () => window.removeEventListener("pointerup", onPointerUp);
+    // re-bind when `observed` flips so the closure has the fresh value
+  }, [observed]);
 
   // ── 4. Parallax — pushes scrollY into a CSS variable on body ────────
   useEffect(() => {
@@ -250,6 +356,19 @@ export default function InteractionLayer() {
         <div className="observed-overlay" aria-hidden data-no-flash>
           <p className="observed-overlay__text reveal">
             observed<span className="text-bleed">.</span>
+          </p>
+        </div>
+      )}
+
+      {/* "signal unstable" — fired by a 500ms long-press on touch devices.
+          Centered, mono caps, fades after ~1.6s. Same visual register as
+          the alignment overlay so it reads as part of the same system. */}
+      {signalUnstable && (
+        <div className="reveal-overlay" aria-live="polite" data-no-flash>
+          <p className="reveal-overlay__text reveal">
+            <span className="text-mute">&gt; </span>
+            <span className="text-bleed">signal unstable</span>
+            <span className="blink">_</span>
           </p>
         </div>
       )}

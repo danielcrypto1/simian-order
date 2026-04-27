@@ -5,6 +5,7 @@ import StatusBadge from "@/components/StatusBadge";
 import Button from "@/components/Button";
 import { useStore } from "@/lib/store";
 import OpenseaLink from "@/components/OpenseaLink";
+import { OPENSEA_HIDDEN } from "@/lib/links";
 import { useRound } from "@/lib/useRound";
 
 /**
@@ -71,8 +72,12 @@ export default function DashboardPage() {
           <span><span className="text-mute">tasks:</span> <span className="text-bone">{tasksCompleted ? "complete" : "open"}</span></span>
           <span className="text-mute">/</span>
           <span><span className="text-mute">refs:</span> <span className="text-bone">{referralCount}/{referralLimit}</span></span>
-          <span className="text-mute">/</span>
-          <span><span className="text-mute">market:</span> <span className="text-elec">live (opensea)</span></span>
+          {!OPENSEA_HIDDEN && (
+            <>
+              <span className="text-mute">/</span>
+              <span><span className="text-mute">market:</span> <span className="text-elec">live (opensea)</span></span>
+            </>
+          )}
         </div>
       </section>
 
@@ -83,9 +88,11 @@ export default function DashboardPage() {
         <Link href="/dashboard/tasks" className="no-underline">
           <Button variant="primary">&gt;&gt; open tasks</Button>
         </Link>
-        <OpenseaLink source="dashboard-cta" className="text-link">
-          view on opensea ↗
-        </OpenseaLink>
+        {!OPENSEA_HIDDEN && (
+          <OpenseaLink source="dashboard-cta" className="text-link">
+            view on opensea ↗
+          </OpenseaLink>
+        )}
         <span className="font-serif italic text-mute text-sm">or wander</span>
       </section>
 
@@ -128,34 +135,36 @@ export default function DashboardPage() {
           hint="five trusted simians. no more."
         />
 
-        {/* Marketplace pointer — replaces the mint room. Routes through
-            <OpenseaLink> so even this larger entry plays the glitch
-            transition before the new tab opens. */}
-        <OpenseaLink
-          source="dashboard-room"
-          className="group block no-underline tilt-l ml-10 sm:ml-20 max-w-[520px] hover-flicker"
-        >
-          <div className="border-l-2 border-border group-hover:border-elec pl-4 py-1 transition-colors">
-            <div className="flex items-baseline gap-3 mb-1">
-              <span className="font-pixel text-bleed text-xl leading-none">04</span>
-              <span className="font-mono text-xxs uppercase tracking-widest2 text-bone">
-                market
-              </span>
-              <span className="ml-auto">
-                <StatusBadge status="Live" />
-              </span>
+        {/* Room 04 — marketplace pointer. Hidden behind OPENSEA_HIDDEN
+            so the dashboard reads as 3 rooms (application/tasks/refs)
+            until the marketplace surface is re-enabled. */}
+        {!OPENSEA_HIDDEN && (
+          <OpenseaLink
+            source="dashboard-room"
+            className="group block no-underline tilt-l ml-10 sm:ml-20 max-w-[520px] hover-flicker"
+          >
+            <div className="border-l-2 border-border group-hover:border-elec pl-4 py-1 transition-colors">
+              <div className="flex items-baseline gap-3 mb-1">
+                <span className="font-pixel text-bleed text-xl leading-none">04</span>
+                <span className="font-mono text-xxs uppercase tracking-widest2 text-bone">
+                  market
+                </span>
+                <span className="ml-auto">
+                  <StatusBadge status="Live" />
+                </span>
+              </div>
+              <div className="font-serif italic text-2xl text-bone capitalize leading-tight mb-1">
+                available via opensea
+              </div>
+              <div className="font-mono text-xxxs uppercase tracking-widest2 text-mute">
+                view collection &rarr;
+              </div>
+              <p className="font-serif italic text-xs text-mute mt-1">
+                &mdash; no public mint. entry continues there.
+              </p>
             </div>
-            <div className="font-serif italic text-2xl text-bone capitalize leading-tight mb-1">
-              available via opensea
-            </div>
-            <div className="font-mono text-xxxs uppercase tracking-widest2 text-mute">
-              view collection &rarr;
-            </div>
-            <p className="font-serif italic text-xs text-mute mt-1">
-              &mdash; no public mint. entry continues there.
-            </p>
-          </div>
-        </OpenseaLink>
+          </OpenseaLink>
+        )}
       </div>
     </div>
   );

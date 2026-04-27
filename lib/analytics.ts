@@ -13,6 +13,8 @@ export type AnalyticsEvent =
   | "hidden_observed"
   | "secret_simian"
   | "secret_logo_deeper"
+  | "secret_logo_3tap"
+  | "longpress_signal_unstable"
   | "archive_404"
   | "opensea_click"
   | "apply_submit"
