@@ -36,18 +36,19 @@ export default function VoidPage() {
     return () => window.clearTimeout(id);
   }, []);
 
-  // After 6 seconds of staying, surface "you stayed" then auto-redirect
-  // into /void/deep. Respects the cooldown — if the user just came back
-  // from the deep within the last 10 minutes, we don't pull them in
-  // again. The deep page sets `void_last_seen`; we only escalate when
-  // the timestamp is missing or older than the cooldown.
+  // After 3 seconds of staying, surface "you stayed" then auto-redirect
+  // into /void/deep. Cooldown was 10 minutes — dropped to 30 seconds so
+  // re-testing the experience doesn't require waiting forever or
+  // clearing localStorage. Long enough to prevent infinite-loop spam
+  // (user lands on /, drifts back to /void, gets pulled in again),
+  // short enough that you can verify the flow more than once.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const COOLDOWN_MS = 10 * 60 * 1000;
+    const COOLDOWN_MS = 30 * 1000;
     const last = Number(localStorage.getItem("void_last_seen") || "0");
     if (last && Date.now() - last < COOLDOWN_MS) return; // skip — recent visit
-    const reveal = window.setTimeout(() => setStayed(true), 5400);
-    const go = window.setTimeout(() => router.push("/void/deep"), 6000);
+    const reveal = window.setTimeout(() => setStayed(true), 2400);
+    const go = window.setTimeout(() => router.push("/void/deep"), 3000);
     return () => {
       window.clearTimeout(reveal);
       window.clearTimeout(go);

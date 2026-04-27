@@ -119,6 +119,9 @@ export default function VoidDeepPage() {
   // useEffect that owns it can't include `stage` in its deps without
   // self-cancelling on the very first stage transition.
   const startedRef = useRef(false);
+  // Web Audio context + master gain. Held in a ref so the freeze effect
+  // can hard-cut it without re-entering the chaos effect.
+  const audioRef = useRef<{ ctx: AudioContext; gain: GainNode } | null>(null);
 
   // Mark as visited the moment the page mounts, even if the user bails
   // — they saw enough.
@@ -139,12 +142,25 @@ export default function VoidDeepPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [router]);
 
+  // Tear down audio on unmount no matter what stage we leave from
+  // (Esc, redirect, browser back). Closing the AudioContext stops
+  // every oscillator + LFO attached to it.
+  useEffect(() => () => {
+    const a = audioRef.current;
+    if (!a) return;
+    try {
+      a.ctx.close().catch(() => { /* ignore */ });
+    } catch { /* ignore */ }
+    audioRef.current = null;
+  }, []);
+
   // ── Preload images ──────────────────────────────────────────────
   // Sequential decode — fires `setReady(true)` as soon as the first
-  // four are decoded so we can start the chaos without waiting for
-  // every file to land. Remaining images keep loading in the
-  // background; the random picker has a fallback for not-yet-loaded
-  // entries (the browser cache will serve them when they're ready).
+  // 2 images are decoded so we can start chaos almost immediately.
+  // Remaining images keep loading in the background; the random
+  // picker has a fallback for not-yet-loaded entries (browser cache
+  // serves them when they're ready). On a second visit images are
+  // already cached so decode resolves instantly.
   useEffect(() => {
     let alive = true;
     const list = voidImageList();
@@ -157,16 +173,19 @@ export default function VoidDeepPage() {
         .decode()
         .then(() => {
           decoded++;
-          if (decoded === 4 && alive) setReady(true);
+          if (decoded === 2 && alive) setReady(true);
         })
         .catch(() => {
           decoded++;
-          if (decoded === 4 && alive) setReady(true);
+          if (decoded === 2 && alive) setReady(true);
         });
       promises.push(p);
     }
-    // Safety: even if decoding stalls, kick off after 1500ms.
-    const fallback = window.setTimeout(() => { if (alive) setReady(true); }, 1500);
+    // Safety: even if decoding stalls, kick off after 500ms. Fast
+    // enough that the user sees chaos start within half a second of
+    // landing here, slow enough that the first frames have something
+    // real to paint instead of broken images.
+    const fallback = window.setTimeout(() => { if (alive) setReady(true); }, 500);
     Promise.all(promises).finally(() => {/* all done, remaining cached */});
     return () => { alive = false; window.clearTimeout(fallback); };
   }, []);
@@ -194,6 +213,77 @@ export default function VoidDeepPage() {
 
     const isMobile = window.matchMedia("(max-width: 640px), (pointer: coarse)").matches;
     const cfg = isMobile ? MOBILE : DESKTOP;
+
+    // ── Audio: low ambient distortion, builds tension, hard-cuts at
+    //    freeze. Two oscillators (60Hz triangle + 90Hz sawtooth) into
+    //    a bandpass filter swept by a slow LFO. Master gain ramps from
+    //    0 to 0.10 across the chaos duration so the room "fills". On
+    //    autoplay-block the catch swallows the error — audio is
+    //    optional, the experience runs silent if the browser refuses.
+    try {
+      const Ctor = window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (Ctor) {
+        const ctx = new Ctor();
+        // iOS Safari ships AudioContext suspended after navigation.
+        // resume() is a no-op on browsers that auto-start.
+        ctx.resume?.().catch(() => { /* no gesture — silent */ });
+
+        const master = ctx.createGain();
+        master.gain.value = 0;
+        master.connect(ctx.destination);
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = "bandpass";
+        filter.frequency.value = 380;
+        filter.Q.value = 1.4;
+        filter.connect(master);
+
+        // Low rumble
+        const o1 = ctx.createOscillator();
+        o1.type = "triangle";
+        o1.frequency.value = 60;
+        o1.connect(filter);
+        o1.start();
+
+        // Bite layer, ducked so it doesn't dominate
+        const o2 = ctx.createOscillator();
+        o2.type = "sawtooth";
+        o2.frequency.value = 90;
+        const o2g = ctx.createGain();
+        o2g.gain.value = 0.35;
+        o2.connect(o2g).connect(filter);
+        o2.start();
+
+        // Filter sweep — slow LFO drifts the bandpass center ±220Hz
+        // so the texture wanders without becoming melodic.
+        const lfo = ctx.createOscillator();
+        lfo.type = "sine";
+        lfo.frequency.value = 0.18;
+        const lfoGain = ctx.createGain();
+        lfoGain.gain.value = 220;
+        lfo.connect(lfoGain).connect(filter.frequency);
+        lfo.start();
+
+        // Slight detune drift on the second oscillator for instability.
+        const detune = ctx.createOscillator();
+        detune.type = "sine";
+        detune.frequency.value = 0.07;
+        const detuneGain = ctx.createGain();
+        detuneGain.gain.value = 18;
+        detune.connect(detuneGain).connect(o2.detune);
+        detune.start();
+
+        // Build tension across the chaos window.
+        master.gain.setValueAtTime(0, ctx.currentTime);
+        master.gain.linearRampToValueAtTime(
+          isMobile ? 0.07 : 0.10,
+          ctx.currentTime + cfg.totalMs / 1000
+        );
+
+        audioRef.current = { ctx, gain: master };
+      }
+    } catch { /* AudioContext unsupported / blocked — silent */ }
 
     let raf = 0;
     let nextSwapAt = performance.now();
@@ -263,6 +353,17 @@ export default function VoidDeepPage() {
   //   fading   (0.7s) → router.push("/")
   useEffect(() => {
     if (stage !== "freeze") return;
+    // Hard-cut the audio at freeze — 80ms ramp to 0 reads as a
+    // sudden silence rather than an abrupt click. The brief drop-off
+    // before the freeze frame appears is the whole tension release.
+    const a = audioRef.current;
+    if (a) {
+      try {
+        const t = a.ctx.currentTime;
+        a.gain.gain.cancelScheduledValues(t);
+        a.gain.gain.linearRampToValueAtTime(0, t + 0.08);
+      } catch { /* swallow */ }
+    }
     const id = window.setTimeout(() => setStage("returning"), 1300);
     return () => window.clearTimeout(id);
   }, [stage]);
