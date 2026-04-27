@@ -72,6 +72,17 @@ export const adminApi = {
   patchConfig: (patch: Record<string, unknown>) =>
     req<unknown>("/api/admin/config", { method: "PATCH", body: JSON.stringify(patch) }),
 
+  /**
+   * Dedicated round-update endpoint (spec'd). Backed by the same
+   * roundStore as PATCH /api/admin/config { round_number }; either
+   * route writes to the same gist file. Prefer this one in new code.
+   */
+  setRound: (roundNumber: number) =>
+    req<{ ok: boolean; roundNumber: number }>("/api/admin/set-round", {
+      method: "POST",
+      body: JSON.stringify({ roundNumber }),
+    }),
+
   listApplications: () => req<{ items: Application[]; total: number }>("/api/admin/applications"),
   approveApplication: (w: string) =>
     req<unknown>(`/api/admin/applications/${w}/approve`, { method: "POST" }),

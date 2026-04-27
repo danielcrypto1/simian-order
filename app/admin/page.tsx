@@ -340,7 +340,9 @@ function RoundSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }
     if (!Number.isFinite(value) || value < 1) return;
     setBusy(true);
     try {
-      await adminApi.patchConfig({ round_number: Math.floor(value) });
+      // Use the dedicated POST /api/admin/set-round endpoint —
+      // smaller payload, clearer intent than the generic config PATCH.
+      await adminApi.setRound(Math.floor(value));
       onSaved();
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1500);

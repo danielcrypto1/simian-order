@@ -32,7 +32,8 @@ export const ROUTE_REGISTRY: RegistryEntry[] = [
   { path: "/admin",                  method: "GET", auth: "admin",  expect: [200, 307],       group: "page", label: "Admin dashboard (307 if no cookie)" },
 
   // ─── Public APIs (GET-only probes) ────────────────────────────────
-  { path: "/api/round",                                                     method: "GET", auth: "public", expect: [200], group: "api-public", label: "Current round" },
+  { path: "/api/config",                                                    method: "GET", auth: "public", expect: [200], group: "api-public", label: "Public config (round number)" },
+  { path: "/api/round",                                                     method: "GET", auth: "public", expect: [200], group: "api-public", label: "Current round (alias)" },
   { path: "/api/referral?wallet=0x0000000000000000000000000000000000000000", method: "GET", auth: "public", expect: [200], group: "api-public", label: "Referral link by wallet" },
 
   // ─── Admin APIs (GETs probed with admin cookie; POSTs are listed but skipped from probe) ───
@@ -51,6 +52,7 @@ export const POST_ONLY_ROUTES: { path: string; group: "api-public" | "api-admin"
   { path: "/api/admin/login",                            group: "api-admin",  label: "Admin login" },
   { path: "/api/admin/logout",                           group: "api-admin",  label: "Admin logout" },
   { path: "/api/admin/config",                           group: "api-admin",  label: "Patch config (PATCH)" },
+  { path: "/api/admin/set-round",                        group: "api-admin",  label: "Set round number" },
   { path: "/api/admin/applications/[wallet]/approve",    group: "api-admin",  label: "Approve application" },
   { path: "/api/admin/applications/[wallet]/reject",     group: "api-admin",  label: "Reject application" },
   { path: "/api/admin/applications/[wallet]",            group: "api-admin",  label: "Delete application (DELETE)" },
