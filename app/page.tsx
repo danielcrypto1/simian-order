@@ -7,6 +7,7 @@ import MediaBackground from "@/components/MediaBackground";
 import SimianCharacter from "@/components/SimianCharacter";
 import DelayedLink from "@/components/DelayedLink";
 import OpenseaLink from "@/components/OpenseaLink";
+import { useRound } from "@/lib/useRound";
 
 /**
  * SIMIAN ORDER — entry gate.
@@ -32,6 +33,7 @@ export default function LandingPage() {
   const [clicks, setClicks] = useState(0);
   const [audioOn, setAudioOn] = useState(false);
   const audioRef = useRef<{ ctx: AudioContext; gain: GainNode } | null>(null);
+  const round = useRound();
 
   // (Cursor halo lives in the global InteractionLayer — no duplicate here.)
 
@@ -234,6 +236,12 @@ export default function LandingPage() {
 
           <p className="t-accent text-2xl sm:text-3xl tracking-widest text-bone mb-3 tilt-r t-shift-2">
             ENTRY IS EARNED.
+          </p>
+
+          {/* Round indicator — small caps mono caption, intentionally
+              quiet. Updates live via the shared useRound poll. */}
+          <p className="font-mono text-xxs uppercase tracking-widest2 text-elec mb-2">
+            // round {round ?? "—"} active
           </p>
 
           <p className="font-serif italic text-base sm:text-lg text-ape-200 mb-2 tilt-l t-blur">

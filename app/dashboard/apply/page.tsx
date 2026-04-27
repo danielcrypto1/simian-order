@@ -143,10 +143,12 @@ export default function ApplyPage() {
       s === "approved" ? <StatusBadge status="Approved" /> :
       s === "rejected" ? <StatusBadge status="Rejected" /> :
       <StatusBadge status="Pending" />;
+    // Title carries the round so the user (and any screenshot they share)
+    // is anchored to the cycle they were considered in.
     const title =
-      s === "approved" ? "Application Approved" :
-      s === "rejected" ? "Application Rejected" :
-      "Application Submitted";
+      s === "approved" ? `Accepted — Round ${round ?? "—"}` :
+      s === "rejected" ? `Application Rejected — Round ${round ?? "—"}` :
+      `Application Submitted — Round ${round ?? "—"}`;
     const message =
       s === "approved"
         ? "you may now access the referral system and the mint."
@@ -209,7 +211,10 @@ export default function ApplyPage() {
   }
 
   return (
-    <Panel title="Apply to the Order" right={<span>round {round ?? "—"} open</span>}>
+    <Panel
+      title={`Apply for Round ${round ?? "—"}`}
+      right={<span>open</span>}
+    >
       {!address && (
         <div className="border border-border bg-ape-950 p-3 mb-3">
           <div className="text-xxs uppercase tracking-wide text-mute mb-2">wallet required</div>

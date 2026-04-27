@@ -5,6 +5,7 @@ import { useStore } from "@/lib/store";
 import { useWallet } from "@/lib/wallet";
 import { TWEETS, openTweet } from "@/lib/twitterShare";
 import OpenseaLink from "@/components/OpenseaLink";
+import { useRound } from "@/lib/useRound";
 
 /**
  * Referral page — restyled as an "access" dossier, not a marketing feature.
@@ -53,6 +54,7 @@ export default function ReferralPage() {
   const hasHydrated = useStore((s) => s._hasHydrated);
   const applicationStatus = useStore((s) => s.applicationStatus);
   const { address } = useWallet();
+  const round = useRound();
 
   const [data, setData] = useState<ReferralData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -159,8 +161,13 @@ export default function ReferralPage() {
         <h1 className="headline text-5xl sm:text-6xl mb-2">
           access granted<span className="blink text-bleed">.</span>
         </h1>
-        <p className="font-serif italic text-base text-ape-200">
+        <p className="font-serif italic text-base text-ape-200 mb-2">
           you have been given limited authority.
+        </p>
+        {/* Round-bound access tag — small, mono caps, electric blue.
+            Updates live when admin bumps the round. */}
+        <p className="font-mono text-xxs uppercase tracking-widest2 text-elec">
+          // round {round ?? "—"} access
         </p>
 
         {/* "one has entered" — only visible when a new referral lands */}
