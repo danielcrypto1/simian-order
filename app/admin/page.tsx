@@ -628,6 +628,12 @@ function ApplicationsSection({
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
   // Source filter: "all" | "apply" | "quest". Filters the table client-side.
   const [sourceFilter, setSourceFilter] = useState<"all" | "apply" | "quest">("all");
+  // Wallet/twitter search — case-insensitive substring match.
+  const [search, setSearch] = useState("");
+  // Pagination — keeps the DOM size bounded at 1000+ applications.
+  const [pageSize, setPageSize] = useState<25 | 50 | 100 | 0>(50); // 0 = all
+  const [page, setPage] = useState(0);
+  const [exportFlash, setExportFlash] = useState<string | null>(null);
 
   // Auto-poll every 5s while enabled. Stops on tab hide via visibility check
   // (saves budget when admin walks away).
@@ -658,9 +664,90 @@ function ApplicationsSection({
 
   const allItems = apps?.items ?? [];
   const filteredItems = sourceFilter === "all" ? allItems : allItems.filter((a) => a.source === sourceFilter);
+
+  // Wallet / twitter substring filter — applied on top of source filter.
+  const searchedItems = search.trim()
+    ? filteredItems.filter((a) => {
+        const q = search.trim().toLowerCase();
+        return (
+          a.wallet.toLowerCase().includes(q) ||
+          (a.twitter ?? "").toLowerCase().includes(q)
+        );
+      })
+    : filteredItems;
+
+  // Pagination — at 1000+ rows the DOM cost of rendering every row in
+  // one <tbody> dominates. 50/100/all selectable.
+  const totalPages = pageSize === 0 ? 1 : Math.max(1, Math.ceil(searchedItems.length / pageSize));
+  const safePage = Math.min(page, totalPages - 1);
+  const pageItems =
+    pageSize === 0
+      ? searchedItems
+      : searchedItems.slice(safePage * pageSize, safePage * pageSize + pageSize);
+
   const pendingCount = allItems.filter((a) => a.status === "pending").length;
   const questCount = allItems.filter((a) => a.source === "quest").length;
   const applyCount = allItems.length - questCount;
+
+  // Reset paging when filter / search / data shape changes so the user
+  // never lands on a now-empty page after a refresh.
+  useEffect(() => {
+    setPage(0);
+  }, [sourceFilter, search, allItems.length]);
+
+  // ── Export helpers ───────────────────────────────────────────────
+  // Both run against `allItems` (every application, ignoring the
+  // active filter / search / page) so the export is a snapshot of the
+  // entire queue regardless of what the admin is currently looking at.
+
+  function downloadFile(filename: string, content: string, mime: string) {
+    try {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setExportFlash(filename);
+      setTimeout(() => setExportFlash(null), 1800);
+    } catch {
+      setExportFlash("export_failed");
+      setTimeout(() => setExportFlash(null), 1800);
+    }
+  }
+
+  function todayStamp(): string {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  function exportWallets() {
+    if (allItems.length === 0) {
+      setExportFlash("no_applications");
+      setTimeout(() => setExportFlash(null), 1500);
+      return;
+    }
+    // Newline-separated wallet addresses — directly drop into OpenSea
+    // allowlist input or any whitelist tool.
+    const body = allItems.map((a) => a.wallet).join("\n");
+    downloadFile(`simian-wallets-${todayStamp()}.txt`, body, "text/plain;charset=utf-8");
+  }
+
+  function exportCsv() {
+    if (allItems.length === 0) {
+      setExportFlash("no_applications");
+      setTimeout(() => setExportFlash(null), 1500);
+      return;
+    }
+    // CSV with a header row. address_type maps to the source column
+    // ("apply" formal application, "quest" auto-filed via tasks).
+    const rows = allItems.map((a) => `${a.wallet},${a.source}`);
+    const body = `wallet,address_type\n${rows.join("\n")}\n`;
+    downloadFile(`simian-applicants-${todayStamp()}.csv`, body, "text/csv;charset=utf-8");
+  }
 
   async function bulkAction(action: "approve" | "reject") {
     const verb = action === "approve" ? "approve" : "reject";
@@ -772,6 +859,68 @@ function ApplicationsSection({
               onClick={() => setSourceFilter("quest")}
             />
           </div>
+
+          {/* Search + page-size — keeps the DOM bounded at 1000+ rows.
+              The bulk + export buttons remain scoped to the underlying
+              dataset, not to the visible page. */}
+          <div className="flex items-center gap-2 flex-wrap pt-1">
+            <input
+              type="search"
+              placeholder="search wallet or @handle..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="field flex-1 min-w-[200px] max-w-[360px] py-0 px-2 text-xs"
+              aria-label="search applications"
+            />
+            <label className="flex items-center gap-1 text-xxs uppercase tracking-wide text-mute">
+              show
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value) as 25 | 50 | 100 | 0)}
+                className="field py-0 px-1 text-xs"
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={0}>all</option>
+              </select>
+            </label>
+            <span className="text-xxs uppercase tracking-wide text-mute">
+              {searchedItems.length} match{searchedItems.length === 1 ? "" : "es"}
+              {pageSize !== 0 && totalPages > 1 && (
+                <> · page {safePage + 1}/{totalPages}</>
+              )}
+            </span>
+          </div>
+
+          {/* Export — operates on every application, regardless of
+              filter / search / page. .txt = newline-separated wallets
+              for OpenSea allowlist. .csv = wallet,address_type with
+              header for spreadsheet tools. */}
+          <div className="flex items-center gap-2 flex-wrap pt-1">
+            <span className="text-xxs uppercase tracking-wide text-mute mr-1">export:</span>
+            <Button onClick={exportWallets} disabled={allItems.length === 0}>
+              Export Wallets
+            </Button>
+            <Button onClick={exportCsv} disabled={allItems.length === 0}>
+              Export CSV
+            </Button>
+            {exportFlash && (
+              <span className={`text-xxs uppercase tracking-wide ${
+                exportFlash.startsWith("no_") || exportFlash.includes("failed")
+                  ? "text-red-300" : "text-ape-200"
+              }`}>
+                {exportFlash.startsWith("simian-")
+                  ? `↓ ${exportFlash}`
+                  : exportFlash === "no_applications"
+                  ? "no applications to export"
+                  : "export failed"}
+              </span>
+            )}
+            <span className="text-xxs text-mute ml-auto">
+              exports {allItems.length} application{allItems.length === 1 ? "" : "s"}
+            </span>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -787,7 +936,7 @@ function ApplicationsSection({
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {filteredItems.map((row) => {
+            {pageItems.map((row) => {
               const status = row.status;
               const badge = status === "approved" ? "Approved" : status === "rejected" ? "Rejected" : "Pending";
               return (
@@ -832,11 +981,13 @@ function ApplicationsSection({
                 </tr>
               );
             })}
-            {filteredItems.length === 0 && (
+            {pageItems.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-3 py-3 text-mute text-center text-xxs italic">
                   {allItems.length === 0
                     ? "no applications"
+                    : search.trim()
+                    ? `no applications match "${search.trim()}"`
                     : `no ${sourceFilter === "quest" ? "quest applicants" : sourceFilter === "apply" ? "standard applications" : "applications"} match this filter`}
                 </td>
               </tr>
@@ -844,6 +995,40 @@ function ApplicationsSection({
           </tbody>
         </table>
         </div>
+
+        {/* Pagination nav — first / prev / N / next / last. Hidden when
+            there's only one page. Buttons are wide-tap-friendly mono
+            caps to match the rest of the admin chrome. */}
+        {pageSize !== 0 && totalPages > 1 && (
+          <div className="flex items-center gap-2 flex-wrap p-3 border-t border-border">
+            <Button
+              variant="ghost"
+              onClick={() => setPage(0)}
+              disabled={safePage === 0}
+            >« first</Button>
+            <Button
+              variant="ghost"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={safePage === 0}
+            >‹ prev</Button>
+            <span className="font-mono text-xxs uppercase tracking-wide text-bone">
+              {safePage + 1} / {totalPages}
+            </span>
+            <Button
+              variant="ghost"
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={safePage >= totalPages - 1}
+            >next ›</Button>
+            <Button
+              variant="ghost"
+              onClick={() => setPage(totalPages - 1)}
+              disabled={safePage >= totalPages - 1}
+            >last »</Button>
+            <span className="ml-auto text-xxs text-mute">
+              showing {pageItems.length} of {searchedItems.length}
+            </span>
+          </div>
+        )}
       </Panel>
     </div>
   );
