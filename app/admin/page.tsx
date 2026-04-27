@@ -11,7 +11,7 @@ import { adminApi, ApiError, type Application, type Cfg, type WhitelistEntry } f
 const sections = [
   { id: "whitelist-upload", label: "Whitelist Upload" },
   { id: "whitelist-table", label: "Whitelist Table" },
-  { id: "round", label: "Current Round" },
+  { id: "round", label: "Round Control" },
   { id: "mint", label: "Mint Controls" },
   { id: "apps", label: "Applications" },
   { id: "gtd", label: "GTD Users" },
@@ -324,41 +324,88 @@ function WhitelistRow({
   );
 }
 
-// ───── Current round ───────────────────────────────────────────────────
+// ───── Round Control ───────────────────────────────────────────────────
+// Reads the current round (cfg.round_number) and lets admin push a new
+// value via POST /api/admin/set-round. Edits don't auto-save — the
+// admin types a number and clicks UPDATE ROUND to commit. Dirty state
+// (value !== cfg.round_number) is shown as a faint "(unsaved)" tag.
 
 function RoundSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }) {
   const [value, setValue] = useState<number>(1);
   const [busy, setBusy] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
+  // Keep the input in sync with the latest server value when cfg
+  // refreshes — but don't clobber an in-flight edit.
   useEffect(() => {
     if (!cfg) return;
     setValue(cfg.round_number ?? 1);
   }, [cfg]);
 
+  const current = cfg?.round_number ?? null;
+  const dirty = current !== null && Math.floor(value) !== current;
+
   async function save() {
-    if (!Number.isFinite(value) || value < 1) return;
+    setError(null);
+    if (!Number.isFinite(value) || value < 1) {
+      setError("round must be an integer ≥ 1");
+      return;
+    }
     setBusy(true);
     try {
-      // Use the dedicated POST /api/admin/set-round endpoint —
-      // smaller payload, clearer intent than the generic config PATCH.
       await adminApi.setRound(Math.floor(value));
       onSaved();
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1500);
-    } finally { setBusy(false); }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "update_failed");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <div id="round">
       <Panel
-        title="Current Round"
-        right={cfg ? <span>round {cfg.round_number}</span> : <span>loading...</span>}
+        title="Round Control"
+        right={
+          cfg ? (
+            <span>
+              round {current}
+              {dirty && (
+                <span className="ml-2 text-bleed normal-case">(unsaved)</span>
+              )}
+            </span>
+          ) : (
+            <span>loading...</span>
+          )
+        }
       >
+        {/* Current round — read-only display so the admin can see what's
+            live before they edit. */}
+        <div className="flex items-baseline gap-3 mb-3">
+          <span className="font-mono text-xxs uppercase tracking-wide text-mute">
+            current round:
+          </span>
+          <span
+            className="font-pixel text-bleed text-2xl leading-none"
+            aria-label={`current round ${current ?? "loading"}`}
+          >
+            [ {current ?? "—"} ]
+          </span>
+        </div>
+
+        <div className="divider-old" />
+
+        {/* Editable input + UPDATE ROUND button */}
         <div className="grid sm:grid-cols-[1fr_auto] gap-3 items-end">
           <div>
-            <label className="label">round number</label>
+            <label className="label" htmlFor="round-input">
+              new round number
+            </label>
             <input
+              id="round-input"
               type="number"
               min={1}
               step={1}
@@ -366,16 +413,37 @@ function RoundSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }
               value={value}
               onChange={(e) => setValue(Number(e.target.value))}
               disabled={!cfg || busy}
+              onKeyDown={(e) => {
+                // Enter from the input fires Save — fewer mouse trips.
+                if (e.key === "Enter" && !busy) save();
+              }}
             />
-            <div className="text-xxs text-mute mt-1">
-              shown in headlines, terminal bar, and the X share text on
-              the approval page. propagates immediately on save.
-            </div>
           </div>
-          <Button variant="primary" disabled={!cfg || busy} onClick={save}>
-            {busy ? "Saving..." : savedFlash ? "Saved ✓" : "Save round"}
+          <Button
+            variant="primary"
+            disabled={!cfg || busy || !dirty}
+            onClick={save}
+          >
+            {busy ? "Updating..." : savedFlash ? "Updated ✓" : "Update Round"}
           </Button>
         </div>
+
+        {error && (
+          <div className="border border-red-700 bg-red-950 px-2 py-1 text-xxs text-red-200 mt-2">
+            error: {error}
+          </div>
+        )}
+
+        {/* Tagline + scope. Italic serif so it reads as flavour copy
+            rather than instructional text — sets the tone the admin sees
+            every time they bump the round. */}
+        <p className="font-serif italic text-xs text-mute mt-3">
+          &mdash; earlier rounds establish influence.
+        </p>
+        <p className="text-xxs text-mute mt-1">
+          propagates to headlines, terminal bar, and the approval-share
+          tweet on the next poll. no client cache to bust.
+        </p>
       </Panel>
     </div>
   );
