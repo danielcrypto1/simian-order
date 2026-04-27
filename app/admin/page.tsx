@@ -27,6 +27,8 @@ type ReferralAdminItem = {
   count: number;
   limit: number;
   gtd: boolean;
+  gtdRound: number | null;
+  gtdAt: string | null;
   createdAt: string;
   referred: Array<{ wallet: string; twitter: string | null; status: string | null }>;
 };
@@ -565,12 +567,13 @@ function GtdUsersSection({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[420px]">
+            <table className="w-full text-xs min-w-[520px]">
               <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
                 <tr>
                   <th className="text-left px-3 py-1 border-b border-border">wallet</th>
                   <th className="text-left px-3 py-1 border-b border-border">referrals</th>
-                  <th className="text-left px-3 py-1 border-b border-border">since</th>
+                  <th className="text-left px-3 py-1 border-b border-border">round joined</th>
+                  <th className="text-left px-3 py-1 border-b border-border">joined at</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -582,8 +585,17 @@ function GtdUsersSection({
                     <td className="px-3 py-1.5 text-ape-200 font-mono">
                       {r.count}/{r.limit}
                     </td>
+                    <td className="px-3 py-1.5 font-mono">
+                      {r.gtdRound != null ? (
+                        <span className="text-bleed">
+                          round {r.gtdRound}
+                        </span>
+                      ) : (
+                        <span className="text-mute">—</span>
+                      )}
+                    </td>
                     <td className="px-3 py-1.5 text-mute font-mono">
-                      {r.createdAt.slice(0, 10)}
+                      {(r.gtdAt ?? r.createdAt).slice(0, 10)}
                     </td>
                   </tr>
                 ))}

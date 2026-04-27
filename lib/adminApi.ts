@@ -109,6 +109,8 @@ export const adminApi = {
         count: number;
         limit: number;
         gtd: boolean;
+        gtdRound: number | null;
+        gtdAt: string | null;
         createdAt: string;
         referred: Array<{ wallet: string; twitter: string | null; status: string | null }>;
       }>;

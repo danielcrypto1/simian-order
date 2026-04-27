@@ -18,6 +18,11 @@ export async function GET() {
       count,
       limit: REFERRAL_LIMIT,
       gtd: count >= REFERRAL_LIMIT,
+      // Round / timestamp at which this wallet hit the GTD cap. Null
+      // for any wallet that hasn't reached 5 referrals yet, OR that
+      // capped before this field was introduced (legacy data).
+      gtdRound: l.gtdRound ?? null,
+      gtdAt: l.gtdAt ?? null,
       createdAt: l.createdAt,
       referred: l.referred.map((w) => {
         const app = apps.find((a) => a.wallet.toLowerCase() === w);

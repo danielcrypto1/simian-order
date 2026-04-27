@@ -170,10 +170,12 @@ export default function ReferralPage() {
           // round {round ?? "—"} access
         </p>
 
-        {/* "one has entered" — only visible when a new referral lands */}
+        {/* Round-bound entry pulse — fades in when a new referral lands.
+            Includes the active round so the timestamp on the entry is
+            unambiguous in the moment AND in screenshots. */}
         {pulse && (
           <p className="reveal mt-4 font-mono text-xs uppercase tracking-widest2 text-bleed">
-            &gt; one has entered.
+            &gt; they have entered &mdash; round {round ?? "—"}
           </p>
         )}
       </header>
@@ -182,8 +184,10 @@ export default function ReferralPage() {
 
       {/* ── SLOTS ──────────────────────────────────────────────────── */}
       <section>
+        {/* Round-bound directive — ties the 5 slots to the active round so
+            referees stamped this round are visually associated with it. */}
         <p className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-3">
-          ── select your 5 ──
+          ── you can select 5 for round {round ?? "—"} ──
         </p>
 
         <div className="flex items-center gap-3 sm:gap-4 flex-wrap mb-4">

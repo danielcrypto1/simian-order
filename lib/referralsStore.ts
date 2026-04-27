@@ -1,5 +1,6 @@
 import { readJSON, writeJSON } from "./gistStore";
 import { codeForWallet, REFERRAL_LIMIT as RL } from "./referralCode";
+import { getRound } from "./roundStore";
 
 export const REFERRAL_LIMIT = RL;
 
@@ -10,6 +11,15 @@ export type ReferralLink = {
   code: string;         // SIM-XXXXX, deterministic from wallet + secret
   referred: string[];   // wallets they've referred (lowercased, unique)
   createdAt: string;    // when the referrer first received their code
+  /**
+   * Round at the moment this wallet's referral count hit REFERRAL_LIMIT
+   * (i.e. when they earned GTD). Null until the cap is reached. Once
+   * stamped it's never overwritten — preserves the historical "round
+   * joined" record even if admin later bumps the round.
+   */
+  gtdRound?: number | null;
+  /** ISO timestamp of the same event. */
+  gtdAt?: string | null;
 };
 
 async function read(): Promise<ReferralLink[]> {
@@ -125,6 +135,22 @@ export async function addReferral(
   }
 
   link.referred.push(referee);
+
+  // Stamp GTD on the exact transition from <limit to ==limit. Idempotent:
+  // if for any reason this runs again on a fully-capped link, the existing
+  // gtdAt is preserved so the original join round stays the historical
+  // record. Round resolution failures fall back to null — admin sees "—"
+  // and can investigate.
+  if (link.referred.length >= REFERRAL_LIMIT && !link.gtdAt) {
+    try {
+      const r = await getRound();
+      link.gtdRound = r.roundNumber;
+    } catch {
+      link.gtdRound = null;
+    }
+    link.gtdAt = new Date().toISOString();
+  }
+
   await write(all);
   return { ok: true, link };
 }
