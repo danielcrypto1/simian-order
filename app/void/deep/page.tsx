@@ -115,6 +115,10 @@ export default function VoidDeepPage() {
   const [flashText, setFlashText] = useState<string | null>(null);
   const [freezeUrl, setFreezeUrl] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  // Guard so the chaos engine starts exactly once, even though the
+  // useEffect that owns it can't include `stage` in its deps without
+  // self-cancelling on the very first stage transition.
+  const startedRef = useRef(false);
 
   // Mark as visited the moment the page mounts, even if the user bails
   // — they saw enough.
@@ -175,8 +179,17 @@ export default function VoidDeepPage() {
   // All side-effects mutate refs / inline styles, never React state
   // (except the rare text flash + stage transitions). At >60Hz scroll
   // it's ~3% main-thread per second on a mid-tier mobile.
+  //
+  // BUG-FIX NOTE: this effect must NOT depend on `stage`. If it did,
+  // calling setStage("chaos") inside the effect would re-run the
+  // effect, fire the cleanup (cancelling the rAF + freeze timeout),
+  // and then return early through the guard. The engine would die
+  // 1 frame after starting. Guard via the startedRef instead so the
+  // engine boots exactly once when `ready` flips to true.
   useEffect(() => {
-    if (!ready || stage !== "preload") return;
+    if (!ready) return;
+    if (startedRef.current) return;
+    startedRef.current = true;
     setStage("chaos");
 
     const isMobile = window.matchMedia("(max-width: 640px), (pointer: coarse)").matches;
@@ -235,19 +248,35 @@ export default function VoidDeepPage() {
       cancelAnimationFrame(raf);
       window.clearTimeout(freezeAt);
     };
-  }, [ready, stage]);
+    // Intentionally only `ready` — see BUG-FIX NOTE above. The
+    // startedRef guard ensures we start exactly once, on the
+    // ready→true transition.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
-  // ── Freeze → returning → fade → home ────────────────────────────
+  // ── Freeze → returning → fading → home ──────────────────────────
+  // Each stage transition lives in its own useEffect so the cleanup
+  // of the previous one doesn't wipe the next stage's timer (same
+  // class of bug fixed on the chaos engine above). Linear progression:
+  //   freeze   (1.3s) → returning
+  //   returning (1.0s) → fading
+  //   fading   (0.7s) → router.push("/")
   useEffect(() => {
     if (stage !== "freeze") return;
-    const t1 = window.setTimeout(() => setStage("returning"), 1300); // freeze hold
-    const t2 = window.setTimeout(() => setStage("fading"), 2300);
-    const t3 = window.setTimeout(() => router.push("/"), 3000);
-    return () => {
-      window.clearTimeout(t1);
-      window.clearTimeout(t2);
-      window.clearTimeout(t3);
-    };
+    const id = window.setTimeout(() => setStage("returning"), 1300);
+    return () => window.clearTimeout(id);
+  }, [stage]);
+
+  useEffect(() => {
+    if (stage !== "returning") return;
+    const id = window.setTimeout(() => setStage("fading"), 1000);
+    return () => window.clearTimeout(id);
+  }, [stage]);
+
+  useEffect(() => {
+    if (stage !== "fading") return;
+    const id = window.setTimeout(() => router.push("/"), 700);
+    return () => window.clearTimeout(id);
   }, [stage, router]);
 
   // Determine layer count from one place — used both for the rAF loop

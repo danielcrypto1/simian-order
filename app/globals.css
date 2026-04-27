@@ -882,6 +882,46 @@ hr { border-color: #1a1a28; }
 }
 
 /* ───────────────────────────────────────────────────────────────
+   MOBILE LANDING OVERRIDES
+   The desktop entry-links carry inline rotations + translateY for
+   the off-axis cult feel. On phones those tip text past the screen
+   edge or overlap each other. Force-flatten on small viewports.
+   ─────────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  /* Entry-link cluster on the landing page: drop the per-item rotations
+     and y-offsets that look chaotic at desktop sizes but cramped on
+     phones. Stack the items in a tidy column with breathing room. */
+  .entry-gate nav .entry-link,
+  .entry-gate nav button.entry-link {
+    transform: none !important;
+    width: 100%;
+    padding: 8px 4px;
+  }
+  .entry-gate nav {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px !important;
+  }
+  /* Top-right "v0.0.1 alpha" tag — reset its tilt-r so it doesn't
+     wrap onto two lines on narrow phones. */
+  .entry-gate .tilt-r {
+    transform: none;
+  }
+  /* Headline tilt overrides — keep them flat to fit narrow viewports. */
+  .entry-gate .tilt-l,
+  .entry-gate .tilt-r {
+    transform: none;
+  }
+  /* Bottom-right cluster (audio toggle + apechain) wraps onto its
+     own row if the netstat is showing on the same y. */
+  .entry-gate [data-no-flash].absolute.bottom-3.right-3 {
+    flex-wrap: wrap;
+    max-width: 60vw;
+    justify-content: flex-end;
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────
    /VOID/DEEP — chaos experience
    Full-screen takeover, no chrome. Layers, glitch, freeze, fade.
    ─────────────────────────────────────────────────────────────── */

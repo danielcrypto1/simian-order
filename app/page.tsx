@@ -182,11 +182,13 @@ export default function LandingPage() {
       </div>
 
       {/* L3 — VOID central character with ghost duplicates.
-          On mobile the cluster shrinks so it doesn't fight the title for
-          attention, and is shifted further behind the text via lower
-          opacity (handled by the .ghost-c class globally). */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[1]">
-        <div className="relative w-[280px] h-[320px] sm:w-[580px] sm:h-[640px] -ml-2 sm:-ml-10 opacity-70 sm:opacity-100">
+          On mobile the cluster sits BEHIND text only as a low-opacity
+          atmospheric layer — much smaller (220×260) and pushed up so
+          it doesn't crowd the headline + entry links. Opacity 0.35 on
+          phones lets the title read clearly while keeping the figure
+          present. */}
+      <div className="absolute inset-0 flex items-start sm:items-center justify-center pointer-events-none z-[1] pt-12 sm:pt-0">
+        <div className="relative w-[220px] h-[260px] sm:w-[580px] sm:h-[640px] -ml-2 sm:-ml-10 opacity-35 sm:opacity-100">
           {/* Ghost clones drifting behind — lazy-loaded since they're
               decorative duplicates of the focal point. */}
           <img
