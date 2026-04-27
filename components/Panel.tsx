@@ -8,13 +8,31 @@ type PanelProps = {
   padded?: boolean;
 };
 
-export default function Panel({ title, right, children, className = "", padded = true }: PanelProps) {
+/**
+ * Hard-edged panel. No rounded corners, no soft shadow.
+ * Header is a courier-mono caps strip. Title prefix uses an angle-bracket
+ * marker rather than the usual "::" — feels more like a directory entry
+ * than a SaaS card.
+ */
+export default function Panel({
+  title,
+  right,
+  children,
+  className = "",
+  padded = true,
+}: PanelProps) {
   return (
-    <div className={`panel shadow-hard ${className}`}>
+    <div className={`panel ${className}`}>
       {title && (
         <div className="panel-header">
-          <span>:: {title}</span>
-          {right && <span className="text-ape-300 normal-case font-normal">{right}</span>}
+          <span>
+            <span className="text-elec">&gt;</span> {title}
+          </span>
+          {right && (
+            <span className="text-mute normal-case font-mono text-xxxs tracking-widest">
+              {right}
+            </span>
+          )}
         </div>
       )}
       <div className={padded ? "panel-body" : ""}>{children}</div>

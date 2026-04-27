@@ -45,6 +45,7 @@ export type Application = {
   why: string | null;
   discord: string | null;
   status: "pending" | "approved" | "rejected";
+  source: "apply" | "quest";
   createdAt: string;
 };
 export type Cfg = {
@@ -55,7 +56,7 @@ export type Cfg = {
     royalty_bps: number;
   };
   royalty_bps: number;
-  fcfs_state: { total: number; taken: number; remaining: number };
+  round_number: number;
 };
 
 export const adminApi = {
@@ -70,11 +71,6 @@ export const adminApi = {
   getConfig: () => req<Cfg>("/api/admin/config"),
   patchConfig: (patch: Record<string, unknown>) =>
     req<unknown>("/api/admin/config", { method: "PATCH", body: JSON.stringify(patch) }),
-
-  resetFcfs: () =>
-    req<{ ok: boolean; total: number; taken: number; remaining: number }>(
-      "/api/admin/fcfs/reset", { method: "POST" }
-    ),
 
   listApplications: () => req<{ items: Application[]; total: number }>("/api/admin/applications"),
   approveApplication: (w: string) =>
@@ -97,11 +93,17 @@ export const adminApi = {
   listReferrals: () =>
     req<{
       items: Array<{
-        wallet: string; code: string; count: number; limit: number; createdAt: string;
+        wallet: string;
+        code: string;
+        count: number;
+        limit: number;
+        gtd: boolean;
+        createdAt: string;
         referred: Array<{ wallet: string; twitter: string | null; status: string | null }>;
       }>;
       total: number;
       totalReferred: number;
+      gtdTotal: number;
     }>("/api/admin/referrals"),
   simulateReferral: (referrer: string, referee?: string) =>
     req<{ ok: boolean; referrer: string; referee: string }>("/api/admin/referrals/simulate", {
@@ -114,46 +116,12 @@ export const adminApi = {
       body: JSON.stringify({ referrer, referee }),
     }),
 
-  listUploads: () =>
-    req<{
-      items: Array<{
-        name: string;
-        kind: "image" | "json";
-        size: number;
-        contentType: string;
-        uploadedAt: string;
-        url: string;
-        metadata?: {
-          name?: string;
-          description?: string;
-          image?: string;
-          attributes?: Array<{ trait_type: string; value: string | number }>;
-        } | null;
-      }>;
-      total: number;
-    }>("/api/admin/uploads"),
-  uploadAsset: (file: File) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    return req<{ ok: boolean; entry: any }>("/api/admin/uploads", {
-      method: "POST",
-      body: fd,
-    });
-  },
-  deleteUpload: (name: string) =>
-    req<{ ok: boolean }>(`/api/admin/uploads/${encodeURIComponent(name)}`, {
-      method: "DELETE",
-    }),
-
   resetAllData: () =>
     req<{
       ok: boolean;
       cleared: {
         applications: number;
         referrers: number;
-        uploads: number;
-        fcfsTotalPreserved: number;
-        fcfsClaimsCleared: boolean;
         whitelist: number;
       };
     }>("/api/admin/reset", {
@@ -161,10 +129,10 @@ export const adminApi = {
       body: JSON.stringify({ confirm: true }),
     }),
 
-  runSystemTest: (only?: "application" | "approval" | "referral" | "fcfs" | "signature") =>
+  runSystemTest: (only?: "application" | "approval" | "referral" | "signature") =>
     req<{
       tests: Array<{
-        id: "application" | "approval" | "referral" | "fcfs" | "signature";
+        id: "application" | "approval" | "referral" | "signature";
         name: string;
         status: "PASS" | "FAIL";
         message: string;

@@ -16,6 +16,7 @@ export async function POST(req: Request) {
   const b = body as {
     wallet?: unknown; handle?: unknown; discord?: unknown;
     why?: unknown; referrer_input?: unknown; twitter?: unknown;
+    source?: unknown;
   };
 
   if (typeof b.wallet !== "string" || !isWallet(b.wallet)) {
@@ -42,13 +43,21 @@ export async function POST(req: Request) {
       ? b.referrer_input.trim().toUpperCase()
       : null;
 
-  // ALWAYS pending. Submission never auto-approves.
+  // Source: "apply" by default. Quest auto-submission from the tasks
+  // page passes source="quest" so admin can filter on it. Anything else
+  // is rejected so the field can never be smuggled.
+  const source: "apply" | "quest" =
+    b.source === "quest" ? "quest" : "apply";
+
+  // ALWAYS pending on a formal apply submission. Quest submissions
+  // preserve any existing admin decision (handled inside upsertApplication).
   const application = await upsertApplication({
     wallet,
     twitter,
     why,
     discord,
     referrer_input: referrerInput,
+    source,
   });
 
   // Referral linkage (best-effort, doesn't block application creation).

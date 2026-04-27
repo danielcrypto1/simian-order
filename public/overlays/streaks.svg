@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Glitch overlay 02 — vertical streaks + chromatic distortion blocks.
+  Used as a section break / mid-page accent. Layer at low opacity over
+  any content with mix-blend-mode: screen.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="none" aria-hidden="true">
+  <defs>
+    <linearGradient id="streak" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"  stop-color="#0040ff" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#0040ff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#0040ff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="streakRed" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"  stop-color="#ff2d2d" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#ff2d2d" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#ff2d2d" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Off-axis chromatic blocks -->
+  <g>
+    <rect x="120"  y="80"  width="14"  height="540" fill="#0040ff" opacity="0.18"/>
+    <rect x="134"  y="80"  width="3"   height="540" fill="#ff2d2d" opacity="0.24"/>
+
+    <rect x="780"  y="220" width="6"   height="700" fill="#ff2d2d" opacity="0.16"/>
+    <rect x="786"  y="220" width="2"   height="700" fill="#0040ff" opacity="0.22"/>
+
+    <rect x="1480" y="40"  width="10"  height="900" fill="#0040ff" opacity="0.14"/>
+    <rect x="1490" y="40"  width="3"   height="900" fill="#ff2d2d" opacity="0.18"/>
+  </g>
+
+  <!-- Long horizontal smear streaks -->
+  <rect x="0" y="180" width="1920" height="14" fill="url(#streak)" opacity="0.55"/>
+  <rect x="0" y="500" width="1920" height="22" fill="url(#streakRed)" opacity="0.45"/>
+  <rect x="0" y="820" width="1920" height="8"  fill="url(#streak)" opacity="0.55"/>
+</svg>

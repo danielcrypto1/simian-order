@@ -2,137 +2,1088 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Pixel face (used for tags, sidebar markers, sticker captions). */
+@import url("https://fonts.googleapis.com/css2?family=VT323&display=swap");
+
+/* ───────────────────────────────────────────────────────────────
+   BASE
+   Default body font is serif (Times) — sets the underground tone.
+   Mono / pixel / sys are opt-in via Tailwind utility classes.
+   ─────────────────────────────────────────────────────────────── */
 html, body {
-  background-color: #020617;
-  color: #cfd8ec;
-  font-family: Tahoma, Verdana, Geneva, sans-serif;
-  font-size: 12px;
+  background-color: #000;
+  color: #cfcfdc;
+  font-family: "Times New Roman", Times, Georgia, serif;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+body {
+  position: relative;
+  overflow-x: hidden;
+  /* very subtle vignette so plain black isn't dead-flat */
+  background-image:
+    radial-gradient(ellipse at 18% 8%,  rgba(0, 64, 255, 0.07), transparent 55%),
+    radial-gradient(ellipse at 88% 92%, rgba(255, 45, 45, 0.04), transparent 60%);
+}
+
+/* Global film-grain overlay. Sits above all content but ignores pointer events. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.085;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='220' height='220' filter='url(%23n)'/></svg>");
 }
 
 ::selection {
-  background: #1a45ad;
+  background: #0040ff;
   color: #fff;
 }
 
 a {
-  color: #6a93e8;
+  color: #e8e8e8;
   text-decoration: underline;
+  text-decoration-color: #5a5a6a;
+  text-underline-offset: 2px;
 }
-
 a:hover {
-  color: #a9c2f0;
+  color: #0040ff;
+  text-decoration-color: #ff2d2d;
 }
 
 input, textarea, select {
-  font-family: inherit;
+  font-family: "Courier New", Courier, monospace;
   font-size: 12px;
 }
 
+hr { border-color: #1a1a28; }
+
+/* ───────────────────────────────────────────────────────────────
+   COMPONENT LAYER
+   These classes are referenced throughout the app (panel, btn-old,
+   field, badge, label). Redefining them in place propagates the new
+   look everywhere with no page-level edits.
+   ─────────────────────────────────────────────────────────────── */
 @layer components {
+  /* PANEL — hard edges, no rounded corners, courier label header. */
   .panel {
-    @apply bg-panel border border-border;
+    @apply bg-panel relative;
+    border: 1px solid #1a1a28;
+    box-shadow: none;
   }
   .panel-header {
-    @apply bg-ape-800 border-b border-border px-2 py-1 text-ape-100 uppercase tracking-wide text-xxs font-bold flex items-center justify-between;
+    @apply px-2 py-1 flex items-center justify-between;
+    background: #000;
+    border-bottom: 1px solid #1a1a28;
+    color: #e8e8e8;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
   }
-  .panel-body {
-    @apply p-2;
-  }
+  .panel-body { @apply p-2; }
+
+  /* BUTTON — text-like, monochrome, harsh edge. No gradient, no shadow. */
   .btn-old {
-    @apply inline-flex items-center justify-center px-3 py-1 bg-ape-700 border border-ape-500 text-ape-100 uppercase tracking-wide text-xxs font-bold hover:bg-ape-600 active:bg-ape-800 disabled:opacity-50 disabled:cursor-not-allowed;
-    box-shadow: inset 1px 1px 0 #3b6dd6, inset -1px -1px 0 #040a1f;
-    transition: background-color 110ms ease, box-shadow 110ms ease, transform 80ms ease;
+    @apply inline-flex items-center justify-center px-2 py-1 uppercase;
+    background: transparent;
+    border: 1px solid #e8e8e8;
+    color: #e8e8e8;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-decoration: none;
+    transition: none;
+    box-shadow: none;
+    cursor: pointer;
+  }
+  .btn-old:hover:not(:disabled) {
+    background: #e8e8e8;
+    color: #000;
   }
   .btn-old:active:not(:disabled) {
     transform: translate(1px, 1px);
-    box-shadow: inset 1px 1px 0 #040a1f, inset -1px -1px 0 #3b6dd6;
+  }
+  .btn-old:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
   }
   .btn-old-primary {
-    @apply bg-ape-500 border-ape-300 text-white hover:bg-ape-400;
+    background: #0040ff;
+    border-color: #0040ff;
+    color: #fff;
+  }
+  .btn-old-primary:hover:not(:disabled) {
+    background: #ff2d2d;
+    border-color: #ff2d2d;
+    color: #000;
   }
   .btn-old-ghost {
-    @apply bg-panel border-border text-ink hover:bg-ape-800;
+    background: transparent;
+    border-color: #1a1a28;
+    color: #cfcfdc;
   }
+  .btn-old-ghost:hover:not(:disabled) {
+    background: transparent;
+    border-color: #fff;
+    color: #fff;
+  }
+
+  /* FIELD — courier input, hard 1px border, no shadow. */
   .field {
-    @apply w-full bg-ape-950 border border-border px-2 py-1 text-ink focus:outline-none focus:border-ape-400;
-    transition: border-color 100ms ease;
+    @apply w-full px-2 py-1;
+    background: #000;
+    border: 1px solid #1a1a28;
+    color: #e8e8e8;
+    font-family: "Courier New", Courier, monospace;
   }
+  .field:focus {
+    outline: none;
+    border-color: #0040ff;
+  }
+
   .label {
-    @apply block text-ape-200 text-xxs uppercase tracking-wide mb-1;
+    @apply block uppercase mb-1;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 10px;
+    color: #5a5a6a;
+    letter-spacing: 0.2em;
   }
+
+  /* BADGE — outline only, dot prefix, courier caps. */
   .badge {
-    @apply inline-flex items-center gap-1 px-2 py-[2px] text-xxs uppercase font-bold border tracking-wider;
-    letter-spacing: 0.08em;
+    @apply inline-flex items-center gap-1 px-2 py-[2px] uppercase;
+    border: 1px solid currentColor;
+    background: transparent;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 9px;
+    letter-spacing: 0.22em;
   }
   .badge::before {
     content: "";
     display: inline-block;
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
     background: currentColor;
-    margin-right: 1px;
     flex-shrink: 0;
   }
+
   .divider-old {
-    @apply border-t border-border my-2;
+    border-top: 1px dashed #1a1a28;
+    @apply my-2;
   }
-  .row-hover {
-    transition: background-color 80ms linear;
+
+  .row-hover { transition: none; }
+  .row-hover:hover { background: rgba(0, 64, 255, 0.10); }
+
+  /* TEXT-LINK — replaces buttons in places where a link is more honest. */
+  .text-link {
+    @apply uppercase no-underline;
+    color: #e8e8e8;
+    border-bottom: 1px dashed #5a5a6a;
+    letter-spacing: 0.12em;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 11px;
+    padding-bottom: 1px;
   }
-  .row-hover:hover {
-    background: #091638;
+  .text-link:hover {
+    color: #0040ff;
+    border-bottom-color: #0040ff;
+  }
+
+  /* TILT helpers — used sparingly to break perfect alignment. */
+  .tilt-l   { transform: rotate(-0.4deg); }
+  .tilt-r   { transform: rotate( 0.4deg); }
+  .tilt-l2  { transform: rotate(-1.2deg); }
+  .tilt-r2  { transform: rotate( 1.2deg); }
+  .tilt-l3  { transform: rotate(-2.4deg); }
+  .tilt-r3  { transform: rotate( 2.4deg); }
+
+  /* STICKER — small rotated red tag. */
+  .sticker {
+    @apply inline-block px-2 py-[2px] uppercase;
+    background: #ff2d2d;
+    color: #000;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    transform: rotate(-2deg);
+    box-shadow: 2px 2px 0 #000;
+  }
+
+  /* PIXEL — VT323 utility for headers & markers. */
+  .pixel {
+    font-family: "VT323", "Courier New", monospace;
+    letter-spacing: 0.02em;
   }
 }
 
+/* ───────────────────────────────────────────────────────────────
+   SCANLINE & ATMOSPHERE
+   ─────────────────────────────────────────────────────────────── */
+
 .scanline {
+  position: relative;
+}
+.scanline::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9998;
   background-image: repeating-linear-gradient(
     0deg,
-    rgba(255,255,255,0.02) 0px,
-    rgba(255,255,255,0.02) 1px,
+    rgba(255, 255, 255, 0.025) 0px,
+    rgba(255, 255, 255, 0.025) 1px,
     transparent 1px,
-    transparent 2px
+    transparent 3px
   );
 }
 
-/* CRT-style flicker on hover. Single short run per hover entry. */
+/* Subtle blurred background blobs — used behind hero content. */
+.blur-bg {
+  position: relative;
+  isolation: isolate;
+}
+.blur-bg::before {
+  content: "";
+  position: absolute;
+  inset: -40px;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 28% 32%, rgba(0, 64, 255, 0.22), transparent 55%),
+    radial-gradient(circle at 72% 78%, rgba(255, 45, 45, 0.12), transparent 55%);
+  filter: blur(60px);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   ANIMATIONS
+   ─────────────────────────────────────────────────────────────── */
+
+/* CRT flicker on hover — slightly more aggressive than before. */
 @keyframes flicker {
   0%   { opacity: 1; }
-  18%  { opacity: 0.78; }
-  22%  { opacity: 1; }
-  44%  { opacity: 0.92; }
+  10%  { opacity: 0.55; }
+  14%  { opacity: 1; }
+  44%  { opacity: 0.85; }
   48%  { opacity: 1; }
-  72%  { opacity: 0.85; }
+  72%  { opacity: 0.7; }
   78%  { opacity: 1; }
   100% { opacity: 1; }
 }
-.hover-flicker:hover {
-  animation: flicker 420ms ease-in-out;
-}
+.hover-flicker:hover { animation: flicker 380ms ease-in-out; }
 
-/* Slow ambient pulse for live indicators. */
 @keyframes pulse-soft {
   0%, 100% { opacity: 1; }
-  50%      { opacity: 0.55; }
+  50%      { opacity: 0.4; }
 }
-.pulse-soft {
-  animation: pulse-soft 1.6s ease-in-out infinite;
-}
+.pulse-soft { animation: pulse-soft 1.6s ease-in-out infinite; }
 
-/* Marquee/cursor-style blink for headline accents. */
 @keyframes blink {
-  0%, 49% { opacity: 1; }
+  0%, 49%   { opacity: 1; }
   50%, 100% { opacity: 0; }
 }
-.blink {
-  animation: blink 1.1s steps(1) infinite;
+.blink { animation: blink 0.95s steps(1) infinite; }
+
+/* Tiny RGB-split twitch on hover. */
+@keyframes glitch {
+  0%, 100% { transform: translate(0, 0); }
+  20%      { transform: translate(-1px, 1px); }
+  40%      { transform: translate(1px, -1px); }
+  60%      { transform: translate(-1px, -1px); }
+  80%      { transform: translate(1px, 1px); }
+}
+.glitch:hover { animation: glitch 220ms steps(2) infinite; }
+
+/* Sub-pixel jitter — used on hover for nav / interactive text. Cheaper feel
+   than full glitch, applied broadly. */
+@keyframes microjitter {
+  0%, 100% { transform: translate(0, 0); }
+  25%      { transform: translate(-0.5px, 0.5px); }
+  50%      { transform: translate(0.5px, -0.5px); }
+  75%      { transform: translate(-0.5px, -0.5px); }
+}
+.jitter:hover { animation: microjitter 140ms steps(2) infinite; }
+
+/* Marquee — single-line scrolling status. */
+@keyframes marquee {
+  0%   { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+.marquee {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: marquee 40s linear infinite;
 }
 
-/* Aggressive headline treatment used on landing. */
-.headline {
-  font-family: Tahoma, Verdana, sans-serif;
-  font-weight: 900;
+/* Drift — slow lazy float on decorative items. */
+@keyframes drift {
+  0%, 100% { transform: translate(0, 0) rotate(var(--tilt, 0deg)); }
+  50%      { transform: translate(2px, -2px) rotate(var(--tilt, 0deg)); }
+}
+.drift { animation: drift 6s ease-in-out infinite; }
+
+/* ───────────────────────────────────────────────────────────────
+   ENTRY-GATE specific
+   Slow chaotic background motion, ghost-layer effects, RGB-split
+   "stutter" on click. Kept compositor-only (transform + opacity).
+   ─────────────────────────────────────────────────────────────── */
+
+/* Slow-rotating blurred blobs for the gate background. */
+@keyframes blob-rot {
+  0%   { transform: rotate(0deg)   scale(1); }
+  50%  { transform: rotate(180deg) scale(1.1); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+.blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+  will-change: transform;
+  animation: blob-rot 60s linear infinite;
+}
+
+/* Slow drifting ghost copies of the central mark. */
+@keyframes ghost-l {
+  0%, 100% { transform: translate(-12px, -8px) rotate(-2deg); }
+  50%      { transform: translate(-22px, 4px)  rotate(-3.5deg); }
+}
+@keyframes ghost-r {
+  0%, 100% { transform: translate(14px, 10px) rotate(2.5deg); }
+  50%      { transform: translate(24px, -6px) rotate(4deg); }
+}
+@keyframes ghost-c {
+  0%, 100% { transform: translate(0, 4px)   scale(1.04); }
+  50%      { transform: translate(2px, -6px) scale(1.06); }
+}
+.ghost-l { animation: ghost-l 14s ease-in-out infinite; }
+.ghost-r { animation: ghost-r 17s ease-in-out infinite; }
+.ghost-c { animation: ghost-c 11s ease-in-out infinite; }
+
+/* Hard click-glitch — fired by a class toggle on the gate root. */
+@keyframes shudder {
+  0%   { transform: translate(0, 0); }
+  20%  { transform: translate(-4px, 2px); }
+  40%  { transform: translate(5px, -3px); }
+  60%  { transform: translate(-3px, -2px); }
+  80%  { transform: translate(2px, 3px); }
+  100% { transform: translate(0, 0); }
+}
+.shudder { animation: shudder 320ms steps(2) 1; }
+
+/* RGB split, applied to the title during a click event. */
+@keyframes rgbsplit {
+  0%   { text-shadow: 1px 0 0 rgba(0,64,255,.65), -1px 0 0 rgba(255,45,45,.5); }
+  25%  { text-shadow: 6px 0 0 rgba(0,64,255,.85), -6px 0 0 rgba(255,45,45,.7); }
+  50%  { text-shadow: -4px 0 0 rgba(0,64,255,.85),  4px 0 0 rgba(255,45,45,.7); }
+  75%  { text-shadow: 2px 0 0 rgba(0,64,255,.85), -2px 0 0 rgba(255,45,45,.7); }
+  100% { text-shadow: 1px 0 0 rgba(0,64,255,.65), -1px 0 0 rgba(255,45,45,.5); }
+}
+.rgbsplit { animation: rgbsplit 320ms steps(4) 1; }
+
+/* Cursor halo — soft electric-blue glow that follows the pointer. */
+.cursor-halo {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 280px;
+  height: 280px;
+  margin-left: -140px;
+  margin-top:  -140px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, rgba(0,64,255,0.18) 0%, rgba(0,64,255,0.06) 35%, transparent 70%);
+  filter: blur(20px);
+  pointer-events: none;
+  mix-blend-mode: screen;
+  z-index: 5;
+  will-change: transform, opacity;
+  transition: opacity 200ms ease;
+}
+
+/* Entry-gate text-link — system font, courier-mono caps, dotted underline. */
+.entry-link {
+  font-family: ui-monospace, "Courier New", Courier, monospace;
   text-transform: uppercase;
-  letter-spacing: -0.01em;
-  line-height: 0.95;
-  text-shadow: 0 0 1px #6a93e8;
+  letter-spacing: 0.18em;
+  color: #e8e8e8;
+  text-decoration: none;
+  border-bottom: 1px dotted rgba(232,232,232,0.35);
+  padding: 4px 2px;
+  display: inline-block;
+  transition: color 200ms ease, border-color 200ms ease, transform 200ms ease;
+  /* The "slight delay" the user asked for — hover effect lags ~200ms in. */
+  transition-delay: 80ms;
+}
+.entry-link:hover {
+  color: #0040ff;
+  border-bottom-color: #ff2d2d;
+  animation: flicker 380ms ease-in-out;
+}
+
+/* Reveal animation for the hidden door link. */
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+.reveal { animation: reveal 600ms ease-out 1; }
+
+/* Honour the user's reduced-motion preference. */
+@media (prefers-reduced-motion: reduce) {
+  .blob, .ghost-l, .ghost-r, .ghost-c, .drift {
+    animation: none !important;
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────
+   SECTION DIVIDERS — glitch streak / noise bar / distorted line
+   Replaces clean horizontal rules. Drop one between sections to
+   imply a break without a flat line.
+   ─────────────────────────────────────────────────────────────── */
+
+/* Glitch streak — chromatic split, hard-edged, 4px tall total. */
+.divider-glitch {
+  position: relative;
+  height: 6px;
+  margin: 28px 0;
+  background:
+    linear-gradient(
+      to right,
+      transparent 0,
+      transparent 6%,
+      rgba(0,64,255,0.85) 7%,
+      rgba(0,64,255,0.85) 38%,
+      rgba(255,45,45,0.7) 39%,
+      rgba(255,45,45,0.7) 41%,
+      transparent 42%,
+      transparent 60%,
+      rgba(255,255,255,0.5) 61%,
+      rgba(255,255,255,0.5) 64%,
+      transparent 65%,
+      transparent 86%,
+      rgba(0,64,255,0.7) 87%,
+      rgba(0,64,255,0.7) 96%,
+      transparent 97%
+    );
+  border-bottom: 1px dashed #1a1a28;
+}
+
+/* Noise bar — repeating tiny rectangles, like a ribbon of static. */
+.divider-noise {
+  position: relative;
+  height: 12px;
+  margin: 24px 0;
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      rgba(255,255,255,0)    0px,
+      rgba(255,255,255,0)    3px,
+      rgba(255,255,255,0.18) 3px,
+      rgba(255,255,255,0.18) 4px,
+      rgba(0,64,255,0.20)    5px,
+      rgba(0,64,255,0.20)    6px,
+      rgba(255,45,45,0.18)   8px,
+      rgba(255,45,45,0.18)   9px
+    );
+  opacity: 0.6;
+}
+
+/* Tape-cut — diagonal cut line that looks like torn paper. */
+.divider-tape {
+  position: relative;
+  height: 14px;
+  margin: 24px 0;
+  background:
+    linear-gradient(135deg, transparent 0 49%, #1a1a28 49% 51%, transparent 51% 100%),
+    linear-gradient(135deg, transparent 0 47%, rgba(0,64,255,0.5) 47% 47.5%, transparent 47.5% 100%);
+  background-size: 12px 14px, 18px 14px;
+  background-repeat: repeat-x;
+}
+
+/* Character-cut helpers — clip a SimianCharacter to make it look like
+   the artwork is bleeding off the frame on purpose. */
+.cut-right { clip-path: inset(0 0 0 0); }
+.cut-edge-right  { mask-image: linear-gradient(to left,  transparent 0, #000 18%); -webkit-mask-image: linear-gradient(to left,  transparent 0, #000 18%); }
+.cut-edge-left   { mask-image: linear-gradient(to right, transparent 0, #000 18%); -webkit-mask-image: linear-gradient(to right, transparent 0, #000 18%); }
+.cut-edge-top    { mask-image: linear-gradient(to bottom, transparent 0, #000 18%); -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18%); }
+.cut-edge-bottom { mask-image: linear-gradient(to top, transparent 0, #000 18%);    -webkit-mask-image: linear-gradient(to top, transparent 0, #000 18%); }
+
+/* ───────────────────────────────────────────────────────────────
+   TYPOGRAPHY SYSTEM — three tiers only
+   t-display : titles                — serif, ALL CAPS, tight
+   t-ui      : ui / body / nav text  — system sans (Arial/Tahoma)
+   t-accent  : occasional pixel face — VT323
+   ─────────────────────────────────────────────────────────────── */
+
+/* Tier 1 — display titles. Heavy serif, italic, tight tracking. */
+.t-display {
+  font-family: "Times New Roman", Times, Georgia, serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+  line-height: 0.9;
+}
+.t-display.italic { font-style: italic; }
+
+/* Tier 2 — ui / body / nav. System sans for legibility, mono for code. */
+.t-ui {
+  font-family: Tahoma, Arial, Geneva, system-ui, sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+.t-ui-mono {
+  font-family: ui-monospace, "Courier New", Courier, monospace;
+  letter-spacing: 0.06em;
+}
+
+/* Tier 3 — pixel accent. Use sparingly: callouts, markers, captions. */
+.t-accent {
+  font-family: "VT323", "Courier New", monospace;
+  letter-spacing: 0.04em;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   TEXT EFFECTS — subtle, opt-in
+   ─────────────────────────────────────────────────────────────── */
+
+/* Faint blur — used on "inactive" or background text. Default 0.4px so
+   the text is still readable but visually recedes. */
+.t-blur     { filter: blur(0.4px); opacity: 0.85; }
+.t-blur-2   { filter: blur(0.8px); opacity: 0.78; }
+
+/* Random glitch shift — very subtle horizontal nudges fired at long
+   intervals so it never feels like a deliberate animation. */
+@keyframes textShift {
+  0%, 92%, 100% { transform: translateX(0); }
+  93%           { transform: translateX(-1px); }
+  95%           { transform: translateX(2px); }
+  97%           { transform: translateX(-1px); }
+}
+.t-shift  { animation: textShift 9s steps(2) infinite; will-change: transform; }
+.t-shift-2 { animation: textShift 13s steps(2) infinite 2s; will-change: transform; }
+
+/* Hover flicker — already declared (.hover-flicker). Alias for the
+   typography-system naming. */
+.t-flick:hover { animation: flicker 380ms ease-in-out; }
+
+/* Triple-shadow chromatic split (subtle), opt-in. Different from the
+   `.headline` treatment, which is heavier. */
+.t-split {
+  text-shadow:
+     1px 0 0 rgba(0, 64, 255, 0.50),
+    -1px 0 0 rgba(255, 45, 45, 0.40);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   GLITCH OVERLAY SYSTEM
+   Reusable .glitch-overlay class. Positions Glitch.png across a
+   section at low opacity. Has variants for common placements.
+   ─────────────────────────────────────────────────────────────── */
+
+.glitch-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("/media/glitch.png");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+  mix-blend-mode: screen;
+  opacity: 0.12;
+  z-index: 0;
+}
+
+/* Position variants — apply alongside .glitch-overlay */
+.glitch-overlay--top    { background-position: top center;    background-size: 120% auto; opacity: 0.16; }
+.glitch-overlay--bottom { background-position: bottom center; background-size: 120% auto; opacity: 0.18; }
+.glitch-overlay--mid    { background-position: center;        background-size: 140% 80%;  opacity: 0.14; }
+.glitch-overlay--low    { opacity: 0.07; }
+.glitch-overlay--high   { opacity: 0.22; }
+
+/* Stretch variant — wide thin horizontal smear, used as a section break */
+.glitch-overlay--stretch {
+  position: relative;
+  inset: auto;
+  height: 22px;
+  margin: 18px 0;
+  background-image: url("/media/glitch.png");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 22px;
+  mix-blend-mode: screen;
+  opacity: 0.30;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   GLITCH SECTION DIVIDER — Glitch.png stretched horizontally.
+   Use in place of <hr/> or .divider-glitch when a richer break
+   is wanted (e.g. between major page sections).
+   ─────────────────────────────────────────────────────────────── */
+
+.section-glitch {
+  position: relative;
+  height: 30px;
+  margin: 32px 0;
+  overflow: hidden;
+}
+.section-glitch::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("/media/glitch.png");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 110% 100%;
+  mix-blend-mode: screen;
+  opacity: 0.35;
+}
+.section-glitch::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  top: 50%;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    rgba(0,64,255,0.55) 30%,
+    rgba(255,45,45,0.55) 60%,
+    transparent 100%
+  );
+}
+
+/* ───────────────────────────────────────────────────────────────
+   PHOTO BACKGROUND HELPERS
+   For the page-level Background.png base layer.
+   ─────────────────────────────────────────────────────────────── */
+
+.bg-photo {
+  position: fixed;
+  inset: 0;
+  z-index: -20;
+  background-image: url("/media/background.png");
+  background-size: cover;
+  background-position: center;
+  filter: blur(3px) brightness(0.55) saturate(1.1);
+  pointer-events: none;
+}
+
+/* Slow pan — extremely subtle, 90s cycle. */
+@keyframes bgpan {
+  0%, 100% { transform: scale(1.05) translate(0, 0); }
+  50%      { transform: scale(1.05) translate(-1.2%, 1%); }
+}
+.bg-photo--pan { animation: bgpan 90s ease-in-out infinite; will-change: transform; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-photo--pan, .t-shift, .t-shift-2 { animation: none !important; }
+}
+
+/* ───────────────────────────────────────────────────────────────
+   GLOBAL INTERACTION LAYER
+   Click flash + rare glitch + first-load splash + cursor (halo
+   already declared earlier).
+   ─────────────────────────────────────────────────────────────── */
+
+/* Click flash — radial pulse centered on the click point. The CSS vars
+   --cx / --cy are set imperatively from the click handler. */
+.click-flash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 8;
+  opacity: 0;
+  background: radial-gradient(
+    circle at var(--cx, 50%) var(--cy, 50%),
+    rgba(0, 64, 255, 0.16) 0,
+    rgba(0, 64, 255, 0.06) 30%,
+    transparent 55%
+  );
+  mix-blend-mode: screen;
+}
+.click-flash.active { animation: clickflash 140ms ease-out 1; }
+@keyframes clickflash {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Rare glitch — body-level micro-shudder + hue twist. ~220ms total. */
+@keyframes rareGlitch {
+  0%   { transform: translate(0, 0); filter: none; }
+  20%  { transform: translate(-2px, 1px); filter: hue-rotate(-22deg) saturate(1.3); }
+  45%  { transform: translate(3px, -2px); filter: hue-rotate(20deg) saturate(0.85); }
+  70%  { transform: translate(-1px, -1px); filter: hue-rotate(-8deg); }
+  100% { transform: translate(0, 0); filter: none; }
+}
+.rare-glitch { animation: rareGlitch 220ms steps(2) 1; }
+
+/* First-load splash — covers the viewport for ~1.2s on first session entry. */
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  /* additional grain on top of the splash for texture */
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='220' height='220' filter='url(%23n)' opacity='0.08'/></svg>");
+}
+.splash-text {
+  font-size: 22px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  text-shadow: 1px 0 0 rgba(0,64,255,0.55), -1px 0 0 rgba(255,45,45,0.45);
+}
+.splash--fading {
+  animation: splashFade 420ms ease-out forwards;
+  pointer-events: none;
+}
+@keyframes splashFade {
+  0%   { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.015); }
+}
+
+/* Touch devices — kill the cursor halo, it's distracting on mobile. */
+@media (hover: none), (pointer: coarse) {
+  .cursor-halo { display: none !important; }
+}
+
+/* Hover delay for nav-link / entry-link — strengthen the existing weight. */
+.nav-link, .entry-link, .text-link {
+  transition-delay: 100ms;
+}
+
+/* Hidden-observer reveal — text fades in once 3 clicks unlock it. */
+.observed-mark {
+  display: inline-block;
+  margin-left: 8px;
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 380ms ease 80ms, transform 380ms ease 80ms;
+  pointer-events: none;
+  font-family: "VT323", "Courier New", monospace;
+  letter-spacing: 0.08em;
+  color: #ff2d2d;
+}
+.observed-mark.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Logo hover-2s reveal */
+.logo-watch {
+  display: inline-block;
+  font-style: italic;
+  color: #ff2d2d;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   OPENSEA EXIT OVERLAY
+   Dark, glitchy, ~950ms total. Composed of:
+     - .opensea-exit         : black backdrop + fade in/out
+     - .opensea-exit__noise  : drifting fractal grain
+     - .opensea-exit__glitch : Glitch.png stretched, low-opacity smear
+     - .opensea-exit__text   : centered courier mono caps with chromatic
+                               shadow + flicker
+     - .opensea-exit__caption: tilted system caption underneath
+   ─────────────────────────────────────────────────────────────── */
+
+.opensea-exit {
+  position: fixed;
+  inset: 0;
+  z-index: 9700;
+  background: #000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  overflow: hidden;
+  animation: openseaFadeIn 180ms ease-out forwards;
+}
+.opensea-exit--out {
+  animation: openseaFadeOut 200ms ease-in forwards;
+}
+
+@keyframes openseaFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes openseaFadeOut {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(1.015); }
+}
+
+.opensea-exit__noise {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.18;
+  mix-blend-mode: screen;
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='2' stitchTiles='stitch'/></filter><rect width='220' height='220' filter='url(%23n)'/></svg>");
+  animation: drift 5s ease-in-out infinite;
+}
+
+.opensea-exit__glitch {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("/media/glitch.png");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 110% 100%;
+  mix-blend-mode: screen;
+  opacity: 0.22;
+}
+
+.opensea-exit__text {
+  position: relative;
+  z-index: 1;
+  font-family: ui-monospace, "Courier New", Courier, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.32em;
+  color: #e8e8e8;
+  font-size: 22px;
+  text-shadow:
+     1px 0 0 rgba(0, 64, 255, 0.65),
+    -1px 0 0 rgba(255, 45, 45, 0.50);
+  /* Flicker at half-speed so it reads as atmosphere, not a strobe. */
+  animation: flicker 720ms ease-in-out infinite;
+}
+
+/* Stage-2 ("secondary market") shifts to electric blue + subtle text-shift */
+.opensea-exit--secondary .opensea-exit__text {
+  color: #0040ff;
+  animation: flicker 540ms ease-in-out infinite, textShift 320ms steps(2) 1;
+}
+
+.opensea-exit__caption {
+  position: relative;
+  z-index: 1;
+  margin-top: 18px;
+  font-family: ui-monospace, "Courier New", Courier, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: #5a5a6a;
+  font-size: 10px;
+  transform: rotate(-0.6deg);
+}
+
+/* "alignment detected" — keyboard-secret overlay. */
+.reveal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.reveal-overlay__text {
+  font-family: ui-monospace, "Courier New", Courier, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  font-size: 22px;
+  text-shadow: 1px 0 0 rgba(0,64,255,0.6), -1px 0 0 rgba(255,45,45,0.4);
+  background: rgba(0,0,0,0.55);
+  padding: 8px 16px;
+  border: 1px solid #1a1a28;
+  transform: rotate(-0.6deg);
+}
+
+/* Rare "observed" overlay — single italic word, drifts in top-right. */
+.observed-overlay {
+  position: fixed;
+  top: 12vh;
+  right: 6vw;
+  z-index: 9000;
+  pointer-events: none;
+  transform: rotate(-2deg);
+}
+.observed-overlay__text {
+  font-family: "Times New Roman", Times, serif;
+  font-style: italic;
+  font-size: 28px;
+  color: #e8e8e8;
+  text-shadow: 1px 0 0 rgba(0,64,255,0.55), -1px 0 0 rgba(255,45,45,0.45);
+  letter-spacing: 0.04em;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   FEATURE 1 — NIGHT MODE
+   Body class set by InteractionLayer when local time is 00-04.
+   Sharpen contrast slightly, drop brightness, slow major decorative
+   animations by ~25%.
+   ─────────────────────────────────────────────────────────────── */
+
+body.night-mode {
+  /* Apply a subtle filter to the whole document. Filter on body cascades
+     down to all rendered content but skips fixed elements that opt out
+     via z-index (the click-flash etc. do not need to be desaturated). */
+  filter: brightness(0.90) contrast(1.10) saturate(0.95);
+}
+
+/* Slow ambient animations during night mode (25% longer cycles). */
+body.night-mode .blob          { animation-duration: 75s, 94s, 106s; }
+body.night-mode .ghost-l       { animation-duration: 17.5s; }
+body.night-mode .ghost-r       { animation-duration: 21s; }
+body.night-mode .ghost-c       { animation-duration: 14s; }
+body.night-mode .drift         { animation-duration: 7.5s; }
+body.night-mode .bg-photo--pan { animation-duration: 112s; }
+
+/* "low signal" caption — shown only during night-mode. */
+.low-signal {
+  position: fixed;
+  bottom: 10px;
+  right: 12px;
+  z-index: 50;
+  font-family: ui-monospace, "Courier New", Courier, monospace;
+  text-transform: lowercase;
+  letter-spacing: 0.2em;
+  font-size: 9px;
+  color: #ff2d2d;
+  opacity: 0.32;
+  pointer-events: none;
+  user-select: none;
+  text-shadow: 1px 0 0 rgba(0, 64, 255, 0.4);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   FEATURE 2 — WALLET ALIGNMENT LABEL
+   Renders next to the connected address. ≤ 50% opacity, fades in.
+   ─────────────────────────────────────────────────────────────── */
+
+.alignment-label {
+  font-family: ui-monospace, "Courier New", Courier, monospace;
+  text-transform: lowercase;
+  letter-spacing: 0.18em;
+  font-size: 10px;
+  color: #aaaadd;
+  opacity: 0;
+  animation: alignFade 1100ms ease-out 220ms forwards;
+}
+@keyframes alignFade {
+  0%   { opacity: 0; transform: translateY(2px); }
+  100% { opacity: 0.5; transform: translateY(0); }
+}
+.alignment-label--observed { color: #ff2d2d; }
+.alignment-label--unverified { color: #5a5a6a; }
+
+/* ───────────────────────────────────────────────────────────────
+   FEATURE 3 — ARCHIVE OVERLAY
+   Fullscreen black overlay shown after [ archive ] is clicked.
+   Three stages: 404 → text → fade.
+   ─────────────────────────────────────────────────────────────── */
+
+.archive-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  transition: opacity 500ms ease-out;
+}
+.archive-overlay__text {
+  font-family: ui-monospace, "Courier New", Courier, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.32em;
+  font-size: 24px;
+  color: #e8e8e8;
+  text-shadow: 1px 0 0 rgba(0, 64, 255, 0.6), -1px 0 0 rgba(255, 45, 45, 0.45);
+}
+.archive-overlay--fading { opacity: 0; }
+
+/* ───────────────────────────────────────────────────────────────
+   FEATURE 6 — NETWORK STATUS BLOCK
+   Three lines fixed bottom-left, above the global watermark.
+   Mono, low opacity, recently-changed value briefly red.
+   ─────────────────────────────────────────────────────────────── */
+
+.netstat {
+  position: fixed;
+  bottom: 30px;
+  left: 12px;
+  z-index: 5;
+  font-family: ui-monospace, "Courier New", Courier, monospace;
+  text-transform: lowercase;
+  letter-spacing: 0.16em;
+  font-size: 9px;
+  line-height: 1.4;
+  color: #5a5a6a;
+  opacity: 0.45;
+  pointer-events: none;
+  user-select: none;
+}
+.netstat-row { display: flex; gap: 8px; }
+.netstat-key   { color: #5a5a6a; }
+.netstat-value { color: #aaaadd; }
+.netstat-value.is-bumped { animation: bump 600ms ease-out 1; color: #ff2d2d; }
+@keyframes bump {
+  0%   { opacity: 0.4; transform: translateY(1px); }
+  40%  { opacity: 1; }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* On phones the bottom corners get tight — hide the netstat under sm
+   to avoid overlap with the audio toggle / footer chrome. */
+@media (max-width: 480px) {
+  .netstat { display: none; }
+}
+
+/* Nav-link shorthand — applies jitter + flicker + dotted underline reveal. */
+.nav-link {
+  font-family: "Courier New", Courier, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #e8e8e8;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color 80ms linear, border-color 80ms linear;
+  display: inline-block;
+}
+.nav-link:hover {
+  color: #0040ff;
+  border-bottom-color: #ff2d2d;
+  animation: microjitter 140ms steps(2) infinite,
+             flicker 380ms ease-in-out;
+}
+.nav-link.is-active {
+  color: #fff;
+  border-bottom-color: #ff2d2d;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   HEADLINE — italic serif with chromatic offset shadow.
+   Used on landing & section titles for the "found it" feeling.
+   ─────────────────────────────────────────────────────────────── */
+.headline {
+  font-family: "Times New Roman", Times, serif;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  line-height: 0.9;
+  color: #ffffff;
+  text-shadow:
+     1px 0 0 rgba(0, 64, 255, 0.65),
+    -1px 0 0 rgba(255, 45, 45, 0.50);
+}
+
+/* Big stamped pixel header. */
+.stamp {
+  font-family: "VT323", "Courier New", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #fff;
+  text-shadow: 2px 2px 0 #0040ff;
 }

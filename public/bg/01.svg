@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Chaos background 01 — electric-blue dominant.
+  Layers: deep-black base, blue radial bloom (top-left), red radial bloom
+  (bottom-right), scattered ghost-head silhouettes, fractalNoise grain.
+  Designed to render at any aspect ratio via xMidYMid slice.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+  <defs>
+    <radialGradient id="bg1blue" cx="22%" cy="28%" r="55%">
+      <stop offset="0%" stop-color="#0040ff" stop-opacity="0.55"/>
+      <stop offset="55%" stop-color="#0040ff" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#0040ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bg1red" cx="80%" cy="78%" r="42%">
+      <stop offset="0%" stop-color="#ff2d2d" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#ff2d2d" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bg1deep" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#040816" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.85"/>
+    </radialGradient>
+    <filter id="bg1grain" x="0%" y="0%" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" stitchTiles="stitch"/>
+      <feColorMatrix values="0 0 0 0 0
+                              0 0 0 0 0
+                              0 0 0 0 0
+                              0 0 0 0.45 0"/>
+    </filter>
+    <filter id="bg1blur"><feGaussianBlur stdDeviation="6"/></filter>
+  </defs>
+
+  <!-- base -->
+  <rect width="100%" height="100%" fill="#02040a"/>
+
+  <!-- blooms -->
+  <rect width="100%" height="100%" fill="url(#bg1blue)"/>
+  <rect width="100%" height="100%" fill="url(#bg1red)"/>
+
+  <!-- scattered ghost simian heads (blurred ellipses with eye dots) -->
+  <g opacity="0.18" filter="url(#bg1blur)">
+    <g transform="translate(280 540)">
+      <ellipse cx="0" cy="0" rx="170" ry="200" fill="#000"/>
+      <circle cx="-44" cy="-30" r="8" fill="#0040ff"/>
+      <circle cx="44" cy="-30" r="8" fill="#0040ff"/>
+    </g>
+    <g transform="translate(1500 720) rotate(-4)">
+      <ellipse cx="0" cy="0" rx="180" ry="210" fill="#000"/>
+      <circle cx="-50" cy="-40" r="9" fill="#0040ff"/>
+      <circle cx="50" cy="-40" r="9" fill="#0040ff"/>
+    </g>
+    <g transform="translate(1100 320) rotate(3)" opacity="0.5">
+      <ellipse cx="0" cy="0" rx="140" ry="170" fill="#000"/>
+    </g>
+  </g>
+
+  <!-- grain on top -->
+  <rect width="100%" height="100%" filter="url(#bg1grain)" opacity="0.55"/>
+
+  <!-- deep vignette -->
+  <rect width="100%" height="100%" fill="url(#bg1deep)"/>
+</svg>

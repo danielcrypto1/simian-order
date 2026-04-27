@@ -7,5 +7,4 @@ export const navItems = [
   { href: "/dashboard/tasks", label: "Tasks" },
   { href: "/dashboard/apply", label: "Application" },
   { href: "/dashboard/referral", label: "Referral" },
-  { href: "/dashboard/mint", label: "Mint" },
 ];

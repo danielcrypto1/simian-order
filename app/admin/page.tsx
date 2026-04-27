@@ -11,36 +11,22 @@ import { adminApi, ApiError, type Application, type Cfg, type WhitelistEntry } f
 const sections = [
   { id: "whitelist-upload", label: "Whitelist Upload" },
   { id: "whitelist-table", label: "Whitelist Table" },
+  { id: "round", label: "Current Round" },
   { id: "mint", label: "Mint Controls" },
-  { id: "fcfs", label: "FCFS" },
   { id: "apps", label: "Applications" },
+  { id: "gtd", label: "GTD Users" },
   { id: "referrals", label: "Referrals" },
-  { id: "uploads", label: "Uploads" },
   { id: "audit", label: "Link Audit" },
   { id: "system-test", label: "System Test" },
   { id: "reset", label: "Reset Data" },
 ];
-
-type UploadEntry = {
-  name: string;
-  kind: "image" | "json";
-  size: number;
-  contentType: string;
-  uploadedAt: string;
-  url: string;
-  metadata?: {
-    name?: string;
-    description?: string;
-    image?: string;
-    attributes?: Array<{ trait_type: string; value: string | number }>;
-  } | null;
-};
 
 type ReferralAdminItem = {
   wallet: string;
   code: string;
   count: number;
   limit: number;
+  gtd: boolean;
   createdAt: string;
   referred: Array<{ wallet: string; twitter: string | null; status: string | null }>;
 };
@@ -53,23 +39,20 @@ export default function AdminDashboard() {
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [apps, setApps] = useState<{ items: Application[]; total: number } | null>(null);
   const [wl, setWl] = useState<{ items: WhitelistEntry[]; total: number } | null>(null);
-  const [refs, setRefs] = useState<{ items: ReferralAdminItem[]; total: number; totalReferred: number } | null>(null);
-  const [uploads, setUploads] = useState<{ items: UploadEntry[]; total: number } | null>(null);
+  const [refs, setRefs] = useState<{ items: ReferralAdminItem[]; total: number; totalReferred: number; gtdTotal: number } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [c, a, w, r, u] = await Promise.all([
+      const [c, a, w, r] = await Promise.all([
         adminApi.getConfig(),
         adminApi.listApplications(),
         adminApi.listWhitelist(),
         adminApi.listReferrals(),
-        adminApi.listUploads(),
       ]);
       setCfg(c);
       setApps(a);
       setWl(w);
       setRefs(r);
-      setUploads(u);
       setError(null);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
@@ -121,11 +104,11 @@ export default function AdminDashboard() {
 
             <WhitelistUploadSection onUploaded={refresh} />
             <WhitelistTableSection wl={wl} onChanged={refresh} />
+            <RoundSection cfg={cfg} onSaved={refresh} />
             <MintControlsSection cfg={cfg} onSaved={refresh} />
-            <FcfsSection cfg={cfg} onSaved={refresh} />
             <ApplicationsSection apps={apps} onAction={refresh} />
+            <GtdUsersSection refs={refs} />
             <ReferralsSection refs={refs} onChanged={refresh} />
-            <UploadsSection uploads={uploads} onChanged={refresh} />
             <LinkAuditSection />
             <SystemTestSection />
             <ResetSection onReset={refresh} />
@@ -341,6 +324,61 @@ function WhitelistRow({
   );
 }
 
+// ───── Current round ───────────────────────────────────────────────────
+
+function RoundSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }) {
+  const [value, setValue] = useState<number>(1);
+  const [busy, setBusy] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+
+  useEffect(() => {
+    if (!cfg) return;
+    setValue(cfg.round_number ?? 1);
+  }, [cfg]);
+
+  async function save() {
+    if (!Number.isFinite(value) || value < 1) return;
+    setBusy(true);
+    try {
+      await adminApi.patchConfig({ round_number: Math.floor(value) });
+      onSaved();
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 1500);
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div id="round">
+      <Panel
+        title="Current Round"
+        right={cfg ? <span>round {cfg.round_number}</span> : <span>loading...</span>}
+      >
+        <div className="grid sm:grid-cols-[1fr_auto] gap-3 items-end">
+          <div>
+            <label className="label">round number</label>
+            <input
+              type="number"
+              min={1}
+              step={1}
+              className="field"
+              value={value}
+              onChange={(e) => setValue(Number(e.target.value))}
+              disabled={!cfg || busy}
+            />
+            <div className="text-xxs text-mute mt-1">
+              shown in headlines, terminal bar, and the X share text on
+              the approval page. propagates immediately on save.
+            </div>
+          </div>
+          <Button variant="primary" disabled={!cfg || busy} onClick={save}>
+            {busy ? "Saving..." : savedFlash ? "Saved ✓" : "Save round"}
+          </Button>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
 // ───── Mint controls ───────────────────────────────────────────────────
 
 function MintControlsSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }) {
@@ -394,31 +432,103 @@ function MintControlsSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () =>
   );
 }
 
-// ───── FCFS ────────────────────────────────────────────────────────────
+// ───── GTD Users ───────────────────────────────────────────────────────
+// Wallets that have hit the 5-referral cap and are therefore guaranteed
+// access. Read-only list; admin can copy every wallet to the clipboard
+// with a single click for off-site use (whitelist exports, snapshots).
 
-function FcfsSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }) {
-  const [busy, setBusy] = useState(false);
-  async function reset() {
-    if (!confirm("Reset FCFS? All claimed slots will be cleared.")) return;
-    setBusy(true);
-    try { await adminApi.resetFcfs(); onSaved(); } finally { setBusy(false); }
+function GtdUsersSection({
+  refs,
+}: {
+  refs: { items: ReferralAdminItem[]; total: number; totalReferred: number; gtdTotal: number } | null;
+}) {
+  const gtdItems = (refs?.items ?? []).filter((r) => r.gtd);
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
+
+  async function copyAll() {
+    setCopyError(null);
+    if (gtdItems.length === 0) {
+      setCopyError("no GTD wallets yet");
+      return;
+    }
+    const payload = gtdItems.map((r) => r.wallet).join("\n");
+    try {
+      await navigator.clipboard.writeText(payload);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopyError("clipboard_unavailable");
+    }
   }
+
   return (
-    <div id="fcfs">
-      <Panel title="FCFS Controls" right={cfg ? <span>{cfg.fcfs_state.remaining} left</span> : null}>
-        <div className="grid sm:grid-cols-3 gap-2 text-xxs">
-          <KV label="total spots" value={cfg?.fcfs_state.total ?? "—"} />
-          <KV label="claimed" value={cfg?.fcfs_state.taken ?? "—"} />
-          <KV label="remaining" value={cfg?.fcfs_state.remaining ?? "—"} />
+    <div id="gtd">
+      <Panel
+        title="GTD Users"
+        right={
+          refs
+            ? <span>{gtdItems.length} guaranteed</span>
+            : <span>loading...</span>
+        }
+      >
+        <div className="text-xxs text-mute mb-2 leading-relaxed">
+          wallets with {REFERRAL_LIMIT_DISPLAY}/{REFERRAL_LIMIT_DISPLAY} referrals are
+          automatically marked GTD (guaranteed access). list updates as
+          referrals come in.
         </div>
-        <div className="divider-old" />
-        <Button onClick={reset} disabled={!cfg || busy}>
-          {busy ? "Resetting..." : "Reset FCFS"}
-        </Button>
+
+        <div className="flex flex-wrap items-center gap-2 mb-2">
+          <Button variant="primary" onClick={copyAll} disabled={gtdItems.length === 0}>
+            {copied ? "Copied ✓" : "Copy all GTD wallets"}
+          </Button>
+          {copyError && (
+            <span className="text-xxs text-red-300 uppercase tracking-wide">
+              {copyError}
+            </span>
+          )}
+        </div>
+
+        {gtdItems.length === 0 ? (
+          <div className="text-xxs text-mute italic">
+            no wallets have hit {REFERRAL_LIMIT_DISPLAY}/{REFERRAL_LIMIT_DISPLAY} referrals yet.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs min-w-[420px]">
+              <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
+                <tr>
+                  <th className="text-left px-3 py-1 border-b border-border">wallet</th>
+                  <th className="text-left px-3 py-1 border-b border-border">referrals</th>
+                  <th className="text-left px-3 py-1 border-b border-border">since</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {gtdItems.map((r) => (
+                  <tr key={r.wallet} className="row-hover">
+                    <td className="px-3 py-1.5 font-mono text-ape-100 break-all">
+                      {r.wallet}
+                    </td>
+                    <td className="px-3 py-1.5 text-ape-200 font-mono">
+                      {r.count}/{r.limit}
+                    </td>
+                    <td className="px-3 py-1.5 text-mute font-mono">
+                      {r.createdAt.slice(0, 10)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Panel>
     </div>
   );
 }
+
+// Display constant — kept inline so the component doesn't import the
+// store module just to render a label.
+const REFERRAL_LIMIT_DISPLAY = 5;
 
 // ───── Applications ────────────────────────────────────────────────────
 
@@ -434,6 +544,8 @@ function ApplicationsSection({
   const [bulkBusy, setBulkBusy] = useState(false);
   const [onlyValid, setOnlyValid] = useState(true);
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
+  // Source filter: "all" | "apply" | "quest". Filters the table client-side.
+  const [sourceFilter, setSourceFilter] = useState<"all" | "apply" | "quest">("all");
 
   // Auto-poll every 5s while enabled. Stops on tab hide via visibility check
   // (saves budget when admin walks away).
@@ -462,7 +574,11 @@ function ApplicationsSection({
     } finally { setBusy(null); }
   }
 
-  const pendingCount = (apps?.items ?? []).filter((a) => a.status === "pending").length;
+  const allItems = apps?.items ?? [];
+  const filteredItems = sourceFilter === "all" ? allItems : allItems.filter((a) => a.source === sourceFilter);
+  const pendingCount = allItems.filter((a) => a.status === "pending").length;
+  const questCount = allItems.filter((a) => a.source === "quest").length;
+  const applyCount = allItems.length - questCount;
 
   async function bulkAction(action: "approve" | "reject") {
     const verb = action === "approve" ? "approve" : "reject";
@@ -552,27 +668,65 @@ function ApplicationsSection({
               {bulkMessage}
             </div>
           )}
+
+          {/* Source filter — All / Standard / Quest. Filters the table
+              below client-side; bulk actions still operate on every
+              pending entry regardless of the active filter. */}
+          <div className="flex items-center gap-2 flex-wrap pt-1">
+            <span className="text-xxs uppercase tracking-wide text-mute mr-1">filter:</span>
+            <FilterTab
+              label={`All (${allItems.length})`}
+              active={sourceFilter === "all"}
+              onClick={() => setSourceFilter("all")}
+            />
+            <FilterTab
+              label={`Standard (${applyCount})`}
+              active={sourceFilter === "apply"}
+              onClick={() => setSourceFilter("apply")}
+            />
+            <FilterTab
+              label={`Quest Applicants (${questCount})`}
+              active={sourceFilter === "quest"}
+              onClick={() => setSourceFilter("quest")}
+            />
+          </div>
         </div>
 
         <div className="overflow-x-auto">
-        <table className="w-full text-xs min-w-[760px]">
+        <table className="w-full text-xs min-w-[820px]">
           <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
             <tr>
               <th className="text-left px-3 py-1 border-b border-border">wallet</th>
               <th className="text-left px-3 py-1 border-b border-border">twitter</th>
+              <th className="text-left px-3 py-1 border-b border-border">source</th>
               <th className="text-left px-3 py-1 border-b border-border">submitted</th>
               <th className="text-left px-3 py-1 border-b border-border">status</th>
               <th className="text-left px-3 py-1 border-b border-border">actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {(apps?.items ?? []).map((row) => {
+            {filteredItems.map((row) => {
               const status = row.status;
               const badge = status === "approved" ? "Approved" : status === "rejected" ? "Rejected" : "Pending";
               return (
                 <tr key={row.id} className="row-hover">
                   <td className="px-3 py-2 font-mono text-ape-100 break-all">{row.wallet}</td>
                   <td className="px-3 py-2 text-ape-200">@{row.twitter}</td>
+                  <td className="px-3 py-2">
+                    {row.source === "quest" ? (
+                      <span
+                        className="badge text-bleed"
+                        style={{ letterSpacing: "0.22em" }}
+                        title="auto-filed via tasks page"
+                      >
+                        QUEST
+                      </span>
+                    ) : (
+                      <span className="font-mono text-xxs uppercase tracking-wide text-mute">
+                        apply
+                      </span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-mute font-mono">{row.createdAt.replace("T", " ").slice(0, 16)}</td>
                   <td className="px-3 py-2"><StatusBadge status={badge as any} /></td>
                   <td className="px-3 py-2">
@@ -596,14 +750,45 @@ function ApplicationsSection({
                 </tr>
               );
             })}
-            {apps && apps.items.length === 0 && (
-              <tr><td colSpan={5} className="px-3 py-3 text-mute text-center text-xxs italic">no applications</td></tr>
+            {filteredItems.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-3 py-3 text-mute text-center text-xxs italic">
+                  {allItems.length === 0
+                    ? "no applications"
+                    : `no ${sourceFilter === "quest" ? "quest applicants" : sourceFilter === "apply" ? "standard applications" : "applications"} match this filter`}
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
         </div>
       </Panel>
     </div>
+  );
+}
+
+/** Tiny tab-style filter button used by ApplicationsSection. */
+function FilterTab({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-2 py-[2px] font-mono text-xxs uppercase tracking-wide border ${
+        active
+          ? "bg-ape-700 border-ape-300 text-white"
+          : "bg-transparent border-border text-mute hover:text-ape-100 hover:border-ape-500"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -766,228 +951,6 @@ function ReferralsSection({
   );
 }
 
-// ───── Uploads ─────────────────────────────────────────────────────────
-
-function UploadsSection({
-  uploads,
-  onChanged,
-}: {
-  uploads: { items: UploadEntry[]; total: number } | null;
-  onChanged: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
-  const [replaceTarget, setReplaceTarget] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  async function uploadFiles(files: FileList | File[], replaceName?: string) {
-    setError(null);
-    setInfo(null);
-    setBusy(true);
-    let added = 0;
-    let lastErr: string | null = null;
-    try {
-      for (const f of Array.from(files)) {
-        // For "replace": rename the file in-flight to match the target name.
-        const fileToSend = replaceName
-          ? new File([f], replaceName, { type: f.type })
-          : f;
-        try {
-          await adminApi.uploadAsset(fileToSend);
-          added++;
-        } catch (e) {
-          lastErr = e instanceof ApiError ? e.message : "upload_failed";
-        }
-      }
-      if (added > 0) setInfo(`uploaded ${added} file${added === 1 ? "" : "s"}.`);
-      if (lastErr) setError(lastErr);
-      if (added > 0) onChanged();
-    } finally {
-      setBusy(false);
-      setReplaceTarget(null);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  }
-
-  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const fs = e.target.files;
-    if (!fs || fs.length === 0) return;
-    await uploadFiles(fs, replaceTarget ?? undefined);
-  }
-
-  async function remove(name: string) {
-    if (!confirm(`Delete ${name}?`)) return;
-    setBusy(true);
-    try {
-      await adminApi.deleteUpload(name);
-      onChanged();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "delete_failed");
-    } finally { setBusy(false); }
-  }
-
-  function startReplace(name: string) {
-    setReplaceTarget(name);
-    setError(null);
-    setInfo(`replacing ${name} — choose a file…`);
-    fileRef.current?.click();
-  }
-
-  const images = (uploads?.items ?? []).filter((e) => e.kind === "image");
-  const metas = (uploads?.items ?? []).filter((e) => e.kind === "json");
-
-  function fmtBytes(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
-  }
-
-  return (
-    <div id="uploads">
-      <Panel
-        title="Uploads"
-        right={
-          uploads ? (
-            <span>{uploads.total} file{uploads.total === 1 ? "" : "s"}</span>
-          ) : (
-            <span>loading...</span>
-          )
-        }
-      >
-        <div className="space-y-3">
-          <div>
-            <label className="label">file (.json, .jpg, .png — max 5MB each)</label>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".json,.jpg,.jpeg,.png,application/json,image/jpeg,image/png"
-              multiple={!replaceTarget}
-              disabled={busy}
-              className="field"
-              onChange={onFileChange}
-            />
-            <div className="text-xxs text-mute mt-1">
-              {replaceTarget
-                ? `replace mode: file will overwrite ${replaceTarget}`
-                : "select one or more files. duplicate filenames overwrite existing entries."}
-            </div>
-          </div>
-          {info && <div className="text-xxs text-ape-200">{info}</div>}
-          {error && (
-            <div className="border border-red-700 bg-red-950 px-2 py-1 text-xxs text-red-200">
-              error: {error}
-            </div>
-          )}
-        </div>
-
-        <div className="divider-old" />
-
-        <div className="space-y-2">
-          <div className="text-xxs uppercase tracking-wide text-mute">
-            images ({images.length})
-          </div>
-          {images.length === 0 ? (
-            <div className="text-xxs text-mute italic">no images uploaded yet.</div>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-              {images.map((img) => (
-                <div
-                  key={img.name}
-                  className="border border-border bg-ape-950 p-2 space-y-2"
-                >
-                  <a href={img.url} target="_blank" rel="noreferrer" className="block">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={img.url}
-                      alt={img.name}
-                      className="w-full aspect-square object-cover border border-border"
-                    />
-                  </a>
-                  <div className="text-xxs font-mono text-ape-200 break-all">
-                    {img.name}
-                  </div>
-                  <div className="text-xxs text-mute">{fmtBytes(img.size)}</div>
-                  <div className="flex gap-1 flex-wrap">
-                    <Button onClick={() => startReplace(img.name)} disabled={busy}>
-                      Replace
-                    </Button>
-                    <Button variant="ghost" onClick={() => remove(img.name)} disabled={busy}>
-                      Delete
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="divider-old" />
-
-        <div className="space-y-2">
-          <div className="text-xxs uppercase tracking-wide text-mute">
-            metadata ({metas.length})
-          </div>
-          {metas.length === 0 ? (
-            <div className="text-xxs text-mute italic">no metadata files uploaded.</div>
-          ) : (
-            <div className="grid sm:grid-cols-2 gap-2">
-              {metas.map((m) => (
-                <div
-                  key={m.name}
-                  className="border border-border bg-ape-950 p-2 text-xxs space-y-1"
-                >
-                  <div className="font-mono text-ape-100 break-all">{m.name}</div>
-                  <dl className="grid grid-cols-[80px_1fr] gap-y-1">
-                    <dt className="text-mute uppercase">name</dt>
-                    <dd className="text-ape-100">{m.metadata?.name ?? <span className="text-mute italic">missing</span>}</dd>
-                    <dt className="text-mute uppercase">image</dt>
-                    <dd className="font-mono text-ape-200 break-all">
-                      {m.metadata?.image ? (
-                        <a href={m.metadata.image} target="_blank" rel="noreferrer">{m.metadata.image}</a>
-                      ) : (
-                        <span className="text-mute italic">missing</span>
-                      )}
-                    </dd>
-                    <dt className="text-mute uppercase">attrs</dt>
-                    <dd className="text-ape-100">{m.metadata?.attributes?.length ?? 0}</dd>
-                  </dl>
-                  {m.metadata?.attributes && m.metadata.attributes.length > 0 && (
-                    <div className="border-t border-border pt-1 space-y-0.5 max-h-28 overflow-auto">
-                      {m.metadata.attributes.map((a, i) => (
-                        <div key={i} className="flex justify-between gap-2">
-                          <span className="text-mute uppercase">{a.trait_type}</span>
-                          <span className="text-ape-200 font-mono">{String(a.value)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="flex gap-1 flex-wrap pt-1">
-                    <a
-                      href={m.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="btn-old btn-old-ghost text-xxs no-underline px-2"
-                    >
-                      View
-                    </a>
-                    <Button onClick={() => startReplace(m.name)} disabled={busy}>
-                      Replace
-                    </Button>
-                    <Button variant="ghost" onClick={() => remove(m.name)} disabled={busy}>
-                      Delete
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </Panel>
-    </div>
-  );
-}
-
 // ───── Link Audit ──────────────────────────────────────────────────────
 
 type AuditRow = {
@@ -1100,7 +1063,7 @@ function LinkAuditSection() {
 
 // ───── System Test ─────────────────────────────────────────────────────
 
-type SystemTestId = "application" | "approval" | "referral" | "fcfs" | "signature";
+type SystemTestId = "application" | "approval" | "referral" | "signature";
 type SystemTestRow = {
   id: SystemTestId;
   name: string;
@@ -1113,7 +1076,6 @@ const SYSTEM_TESTS: { id: SystemTestId; label: string; subtitle: string }[] = [
   { id: "application", label: "Application Flow", subtitle: "Submit → admin sees → cleanup" },
   { id: "approval",    label: "Approval Flow",    subtitle: "Approve → status persists → unlocks referral" },
   { id: "referral",    label: "Referral Flow",    subtitle: "Add → count++ → duplicate rejected" },
-  { id: "fcfs",        label: "FCFS Flow",        subtitle: "Claim → taken++ → re-claim 409" },
   { id: "signature",   label: "Signature",        subtitle: "Sign → recover → matches signer" },
 ];
 
@@ -1272,7 +1234,7 @@ function ResetSection({ onReset }: { onReset: () => void }) {
       const c = r.cleared;
       setResult(
         `cleared: ${c.applications} applications · ${c.referrers} referrer entries · ` +
-        `${c.uploads} uploads · ${c.whitelist} whitelist · FCFS claims wiped (cap ${c.fcfsTotalPreserved} kept)`
+        `${c.whitelist} whitelist`
       );
       setConfirmText("");
       onReset();

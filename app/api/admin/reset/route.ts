@@ -1,16 +1,13 @@
 import { NextResponse } from "next/server";
 import { clearAllApplications } from "@/lib/applicationsStore";
 import { clearAllReferrals } from "@/lib/referralsStore";
-import { clearAllUploads } from "@/lib/uploadsStore";
-import { resetFcfs } from "@/lib/fcfsStore";
 import { getStore } from "@/lib/adminStore";
 
 export const runtime = "nodejs";
 
 // Wipes every transactional store back to empty. Mint config is preserved
-// (admin-edited, not user data). FCFS `total` is preserved; only `claimed`
-// + `taken` reset. Whitelist is process-local — clears for the current
-// lambda only (matches existing semantics for whitelist).
+// (admin-edited, not user data). Whitelist is process-local — clears for
+// the current lambda only (matches existing semantics for whitelist).
 export async function POST(req: Request) {
   let body: unknown = {};
   try { body = await req.json(); } catch {}
@@ -35,20 +32,6 @@ export async function POST(req: Request) {
   try { refs = await clearAllReferrals(); }
   catch (e) { errors.referrals = (e as Error).message; }
 
-  let uploads = 0;
-  try { uploads = await clearAllUploads(); }
-  catch (e) { errors.uploads = (e as Error).message; }
-
-  let fcfsTotal = 0;
-  let fcfsCleared = false;
-  try {
-    const r = await resetFcfs();
-    fcfsTotal = r.total;
-    fcfsCleared = true;
-  } catch (e) {
-    errors.fcfs = (e as Error).message;
-  }
-
   const store = getStore();
   const whitelistCount = store.whitelist.size;
   store.whitelist.clear();
@@ -60,9 +43,6 @@ export async function POST(req: Request) {
       cleared: {
         applications: apps,
         referrers: refs,
-        uploads,
-        fcfsTotalPreserved: fcfsTotal,
-        fcfsClaimsCleared: fcfsCleared,
         whitelist: whitelistCount,
       },
       errors: Object.keys(errors).length === 0 ? undefined : errors,

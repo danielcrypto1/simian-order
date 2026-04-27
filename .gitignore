@@ -21,3 +21,6 @@ typechain-types/
 /data/
 
 .vercel
+
+# TypeScript incremental build cache
+*.tsbuildinfo

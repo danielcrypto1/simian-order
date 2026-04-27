@@ -15,3 +15,13 @@ export const TASK_LINKS = {
   PINNED_TWEET: SOCIAL.X,
   DISCORD: SOCIAL.DISCORD,
 };
+
+/**
+ * OpenSea collection URL. Resolves NEXT_PUBLIC_OPENSEA_URL at build time
+ * if the env var is set, otherwise falls back to the static SOCIAL value.
+ * Lets ops swap collection slugs (or point to a different marketplace
+ * page) without a code push.
+ */
+export const OPENSEA_URL: string =
+  (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_OPENSEA_URL) ||
+  SOCIAL.OPENSEA;

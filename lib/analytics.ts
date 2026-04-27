@@ -7,13 +7,16 @@ export type AnalyticsEvent =
   | "landing_enter_click"
   | "landing_apply_click"
   | "landing_connect_wallet"
-  | "mint_click"
-  | "mint_success"
-  | "mint_error"
+  | "landing_mystery_click"
+  | "landing_door_open"
+  | "landing_audio_on"
+  | "hidden_observed"
+  | "secret_simian"
+  | "secret_logo_deeper"
+  | "archive_404"
+  | "opensea_click"
   | "apply_submit"
-  | "apply_success"
-  | "fcfs_claim_attempt"
-  | "fcfs_claim_success";
+  | "apply_success";
 
 type Props = Record<string, string | number | boolean | null>;
 

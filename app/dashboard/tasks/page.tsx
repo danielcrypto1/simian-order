@@ -39,7 +39,6 @@ export default function TasksPage() {
     taskState,
     twitterHandle,
     submittedWallet,
-    fcfsApproved,
     tasksCompleted,
     markTaskOpened,
     markTaskCompleted,
@@ -55,20 +54,13 @@ export default function TasksPage() {
   const [twitterDraft, setTwitterDraft] = useState("");
   const [identityError, setIdentityError] = useState<string | null>(null);
 
-  const [fcfsRemaining, setFcfsRemaining] = useState<number | null>(null);
-  const [claimError, setClaimError] = useState<string | null>(null);
-  const [claiming, setClaiming] = useState(false);
-  const claimedRef = useRef(false);
-
-  // Public FCFS counter for display.
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/claim-fcfs")
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((j) => { if (alive) setFcfsRemaining(j.remaining); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, []);
+  // Quest auto-submit state. Fires once per session when both gates are
+  // satisfied (allDone + identity submitted). Posts /api/apply with
+  // source="quest". A ref prevents duplicate submits across renders.
+  const questPostedRef = useRef(false);
+  const [questSubmitting, setQuestSubmitting] = useState(false);
+  const [questSubmitted, setQuestSubmitted] = useState(false);
+  const [questError, setQuestError] = useState<string | null>(null);
 
   // Pre-fill form from persisted store + connected wallet.
   useEffect(() => {
@@ -93,40 +85,50 @@ export default function TasksPage() {
     if (allDone !== tasksCompleted) setTasksCompleted(allDone);
   }, [allDone, tasksCompleted, setTasksCompleted]);
 
-  // Trigger FCFS claim when both gates are satisfied.
+  // FCFS auto-claim removed: tasks no longer trigger an automatic
+  // approval. Completing all tasks marks the local quest log as done,
+  // but does NOT grant access. Access is via application approval or
+  // the referral path (5 referrals → GTD).
+
+  // Quest applicant submission: when a user finishes every task AND
+  // submits their identity, file a quest-tagged application with admin.
+  // The application lands as "pending" (or preserves a prior decision
+  // if the wallet was already approved/rejected via the formal apply
+  // flow). Admin reviews and decides — there is NO automatic grant.
   useEffect(() => {
     if (!allDone || !identitySubmitted) return;
-    if (fcfsApproved || claimedRef.current) return;
+    if (questPostedRef.current) return;
     const wallet = submittedWallet || address;
-    if (!wallet) return;
+    const handle = twitterHandle;
+    if (!wallet || !handle) return;
 
-    claimedRef.current = true;
-    setClaiming(true);
-    setClaimError(null);
-    fetch("/api/claim-fcfs", {
+    questPostedRef.current = true;
+    setQuestSubmitting(true);
+    setQuestError(null);
+    fetch("/api/apply", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ wallet }),
+      body: JSON.stringify({
+        wallet,
+        twitter: handle,
+        source: "quest",
+      }),
     })
       .then(async (r) => {
         const j = await r.json().catch(() => ({}));
         if (r.ok) {
-          useStore.setState({ fcfsApproved: true, mintEligible: true, fcfsRemaining: j.remaining ?? 0 });
-          setFcfsRemaining(j.remaining ?? 0);
-        } else if (r.status === 409 && j.error === "already_claimed") {
-          useStore.setState({ fcfsApproved: true, mintEligible: true });
-          setFcfsRemaining(j.remaining ?? null);
+          setQuestSubmitted(true);
         } else {
-          setClaimError(j.error || `http_${r.status}`);
-          claimedRef.current = false;
+          setQuestError(j.error || `http_${r.status}`);
+          questPostedRef.current = false; // allow retry on transient failure
         }
       })
       .catch(() => {
-        setClaimError("network_error");
-        claimedRef.current = false;
+        setQuestError("network_error");
+        questPostedRef.current = false;
       })
-      .finally(() => setClaiming(false));
-  }, [allDone, identitySubmitted, submittedWallet, address, fcfsApproved]);
+      .finally(() => setQuestSubmitting(false));
+  }, [allDone, identitySubmitted, submittedWallet, address, twitterHandle]);
 
   function open(task: Task) {
     if (typeof window !== "undefined") window.open(task.url, "_blank", "noopener,noreferrer");
@@ -183,22 +185,22 @@ export default function TasksPage() {
             />
           </div>
 
-          {allDone && identitySubmitted && (
-            <div className="mt-3 border border-ape-300 bg-ape-800 px-2 py-2 flex items-center justify-between flex-wrap gap-2">
-              <div className="text-xs text-ape-100 uppercase tracking-wide">
-                {claiming ? "claiming FCFS slot…" :
-                 fcfsApproved ? "FCFS slot granted" :
-                 claimError ? `claim failed: ${claimError}` :
-                 "FCFS waitlist full"}
-              </div>
-              <StatusBadge status={fcfsApproved ? "Approved" : claiming ? "Pending" : "Locked"} />
+          {allDone && !identitySubmitted && (
+            <div className="mt-3 border border-ape-500 bg-ape-900 px-2 py-2 text-xs text-ape-200 uppercase tracking-wide">
+              one step left — submit identity below to record your entry.
             </div>
           )}
 
-          {allDone && !identitySubmitted && (
-            <div className="mt-3 border border-ape-500 bg-ape-900 px-2 py-2 text-xs text-ape-200 uppercase tracking-wide">
-              one step left — submit identity below to claim FCFS.
-            </div>
+          {/* Easter egg — quietly fades in once every task is done.
+              Independent of identity submission so the user sees it
+              the moment they finish the last task. */}
+          {allDone && (
+            <p
+              className="mt-3 reveal font-serif italic text-sm text-bleed text-right tilt-r"
+              aria-hidden
+            >
+              &mdash; you have been observed.
+            </p>
           )}
         </Panel>
 
@@ -243,17 +245,31 @@ export default function TasksPage() {
           </ul>
         </Panel>
 
-        <Panel
-          title="Submit Identity"
-          right={<span>fcfs left: {fcfsRemaining ?? "—"}</span>}
-        >
+        <Panel title="Submit Identity">
           {identitySubmitted ? (
             <div className="space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
-                <StatusBadge status={fcfsApproved ? "Approved" : "Pending"} />
+                <StatusBadge status="Done" />
                 <span className="text-xxs uppercase tracking-wide text-mute">
                   identity recorded
                 </span>
+                {/* QUEST APPLICANT tag — only when the user finished every
+                    task AND the auto-submit succeeded. Status reflects what
+                    the server returned. */}
+                {allDone && questSubmitted && (
+                  <span
+                    className="badge text-bleed"
+                    aria-label="quest applicant tag"
+                    style={{ letterSpacing: "0.22em" }}
+                  >
+                    QUEST APPLICANT
+                  </span>
+                )}
+                {allDone && questSubmitting && (
+                  <span className="text-xxs uppercase tracking-wide text-mute font-mono">
+                    filing...
+                  </span>
+                )}
               </div>
               <dl className="text-xxs grid grid-cols-[120px_1fr] gap-y-1">
                 <dt className="text-mute uppercase">x handle</dt>
@@ -261,6 +277,16 @@ export default function TasksPage() {
                 <dt className="text-mute uppercase">wallet</dt>
                 <dd className="text-ape-100 font-mono break-all">{submittedWallet}</dd>
               </dl>
+              {allDone && questSubmitted && (
+                <p className="font-serif italic text-xs text-mute">
+                  &mdash; the order has your file. they will respond when ready.
+                </p>
+              )}
+              {allDone && questError && (
+                <p className="font-mono text-xxs text-bleed uppercase tracking-wide">
+                  // could not file: {questError}
+                </p>
+              )}
               <Button variant="ghost" onClick={clearForm}>Edit</Button>
             </div>
           ) : (
@@ -307,7 +333,7 @@ export default function TasksPage() {
                 <Button type="submit" variant="primary">Submit</Button>
                 <span className="text-xxs text-mute">
                   {allDone
-                    ? "submit to claim FCFS."
+                    ? "submit to record your entry."
                     : `${total - completedCount} task${total - completedCount === 1 ? "" : "s"} remaining — submit anytime.`}
                 </span>
               </div>

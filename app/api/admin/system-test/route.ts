@@ -28,7 +28,6 @@ const NAMES: Record<TestId, string> = {
   application: "Application Flow",
   approval: "Approval Flow",
   referral: "Referral Flow",
-  fcfs: "FCFS Flow",
   signature: "Signature",
 };
 
@@ -145,57 +144,9 @@ async function testReferral(): Promise<TestOutcome> {
   };
 }
 
-async function testFcfs(origin: string): Promise<TestOutcome> {
-  const wallet = newWallet();
-
-  // Direct call to the gist-backed store gives consistent reads regardless
-  // of which lambda instance the HTTP request lands on.
-  const { claimFcfs, getFcfsState } = await import("@/lib/fcfsStore");
-
-  const before = await getFcfsState();
-  if (before.taken >= before.total) {
-    return {
-      ok: true,
-      message: `FCFS already full (${before.taken}/${before.total}) — claim correctly rejected`,
-    };
-  }
-
-  // First claim must succeed.
-  const r1 = await claimFcfs(wallet);
-  if (!r1.ok) {
-    return { ok: false, message: `first claim unexpectedly failed: ${r1.error}` };
-  }
-  if (r1.state.taken !== before.taken + 1) {
-    return {
-      ok: false,
-      message: `taken did not increment: ${before.taken} → ${r1.state.taken}`,
-    };
-  }
-
-  // Re-claim with same wallet must report already_claimed.
-  const r2 = await claimFcfs(wallet);
-  if (r2.ok) {
-    return { ok: false, message: "re-claim with same wallet should have been rejected" };
-  }
-  if (r2.error !== "already_claimed") {
-    return { ok: false, message: `expected already_claimed, got ${r2.error}` };
-  }
-
-  // Probe the public HTTP endpoint too — verifies the route handler agrees.
-  const httpRes = await fetch(`${origin}/api/claim-fcfs`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ wallet }),
-  });
-  if (httpRes.status !== 409) {
-    return { ok: false, message: `HTTP re-claim should 409, got ${httpRes.status}` };
-  }
-
-  return {
-    ok: true,
-    message: `taken ${before.taken}→${r1.state.taken}, re-claim → 409 already_claimed`,
-  };
-}
+// FCFS test removed along with the FCFS allocation system — see
+// referral test below for the replacement guarantee path (5 referrals
+// → automatic GTD).
 
 async function testSignature(): Promise<TestOutcome> {
   const wallet = newWallet();
@@ -236,14 +187,15 @@ async function testSignature(): Promise<TestOutcome> {
 
 async function runByList(
   ids: TestId[],
-  origin: string
+  // origin no longer needed (FCFS HTTP probe removed) but kept for parity
+  // with future tests that may need an absolute base URL.
+  _origin: string
 ): Promise<TestResult[]> {
   const out: TestResult[] = [];
   for (const id of ids) {
     if (id === "application")     out.push(await runOne(id, testApplication));
     else if (id === "approval")   out.push(await runOne(id, testApproval));
     else if (id === "referral")   out.push(await runOne(id, testReferral));
-    else if (id === "fcfs")       out.push(await runOne(id, () => testFcfs(origin)));
     else if (id === "signature")  out.push(await runOne(id, testSignature));
   }
   return out;

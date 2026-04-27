@@ -1,124 +1,208 @@
 "use client";
 
 import Link from "next/link";
-import Panel from "@/components/Panel";
 import StatusBadge from "@/components/StatusBadge";
 import Button from "@/components/Button";
 import { useStore } from "@/lib/store";
+import OpenseaLink from "@/components/OpenseaLink";
+import { useRound } from "@/lib/useRound";
 
+/**
+ * Dashboard — restructured into a scattered list of "rooms".
+ *
+ * No card grid, no mint flow. Each module is a raw text block on a thin
+ * left border with its own slight tilt and uneven vertical gap — feels
+ * like a directory listing, not a SaaS overview. The marketplace lives
+ * outside the dashboard (OpenSea) since there is no public mint.
+ */
 export default function DashboardPage() {
   const {
     walletConnected,
     applicationStatus,
     tasksCompleted,
-    fcfsApproved,
     referralCount,
     referralLimit,
-    mintEligible,
   } = useStore();
+  const round = useRound();
 
   const appBadge =
     applicationStatus === "approved" ? <StatusBadge status="Approved" /> :
-    applicationStatus === "pending" ? <StatusBadge status="Pending" /> :
+    applicationStatus === "pending"  ? <StatusBadge status="Pending"  /> :
     applicationStatus === "rejected" ? <StatusBadge status="Rejected" /> :
-    <StatusBadge status="Open" />;
+                                       <StatusBadge status="Open"     />;
 
   const tasksBadge =
     tasksCompleted ? <StatusBadge status="Done" /> :
     walletConnected ? <StatusBadge status="Open" /> :
-    <StatusBadge status="Locked" />;
+                      <StatusBadge status="Locked" />;
 
   const referralsBadge =
-    applicationStatus !== "approved" ? <StatusBadge status="Locked" /> :
-    referralCount >= referralLimit ? <StatusBadge status="Done" /> :
-    <StatusBadge status="Open" />;
-
-  const mintBadge = mintEligible ? <StatusBadge status="Approved" /> : <StatusBadge status="Locked" />;
+    applicationStatus !== "approved"        ? <StatusBadge status="Locked" /> :
+    referralCount >= referralLimit          ? <StatusBadge status="Done"   /> :
+                                              <StatusBadge status="Open"   />;
 
   return (
-    <div className="space-y-4">
-      <Panel title="Welcome, primate" right={appBadge}>
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="space-y-2">
-            <div className="text-ape-100 text-lg font-bold uppercase tracking-tight leading-tight">
-              {walletConnected ? "the order recognises you." : "the order does not yet know you."}
-            </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xxs uppercase tracking-wider text-mute">
-              <span>tasks: <span className="text-ape-200">{tasksCompleted ? "complete" : "open"}</span></span>
-              <span>fcfs: <span className="text-ape-200">{fcfsApproved ? "granted" : "—"}</span></span>
-              <span>referrals: <span className="text-ape-200">{referralCount}/{referralLimit}</span></span>
-              <span>mint: <span className="text-ape-200">{mintEligible ? "eligible" : "locked"}</span></span>
-            </div>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <Link href="/dashboard/tasks"><Button variant="primary">Open Tasks</Button></Link>
-            <Link href="/dashboard/mint"><Button>Go to Mint</Button></Link>
-          </div>
+    <div>
+      {/* Greeting block — italic serif, off-axis, no panel */}
+      <section className="mb-14 tilt-l">
+        <div className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-1">
+          // greeting.txt
         </div>
-      </Panel>
+        <h1 className="headline text-4xl sm:text-5xl mb-3">
+          {walletConnected
+            ? <>the order recognises you<span className="text-bleed">.</span></>
+            : <>the order does not yet know you<span className="text-bleed">.</span></>}
+        </h1>
+        <div className="flex items-center gap-3 flex-wrap">
+          {appBadge}
+          <span className="font-serif italic text-sm text-mute">
+            &mdash; round {round ?? "—"}, applicants still considered.
+          </span>
+        </div>
+      </section>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <DashboardCard
-          title="Application"
-          value={applicationStatus === "none" ? "not submitted" : applicationStatus}
+      {/* Quick-state strip — courier mono, single line, scrollable on mobile.
+          FCFS column dropped (admin-only concern now); replaced with the
+          dynamic round indicator. */}
+      <section className="mb-16 border-t border-b border-border py-2 overflow-x-auto">
+        <div className="flex items-center gap-x-6 font-mono text-xxs uppercase tracking-widest2 whitespace-nowrap">
+          <span><span className="text-mute">round:</span> <span className="text-bone">{round ?? "—"}</span></span>
+          <span className="text-mute">/</span>
+          <span><span className="text-mute">tasks:</span> <span className="text-bone">{tasksCompleted ? "complete" : "open"}</span></span>
+          <span className="text-mute">/</span>
+          <span><span className="text-mute">refs:</span> <span className="text-bone">{referralCount}/{referralLimit}</span></span>
+          <span className="text-mute">/</span>
+          <span><span className="text-mute">market:</span> <span className="text-elec">live (opensea)</span></span>
+        </div>
+      </section>
+
+      {/* Primary CTA cluster — text-link primary + ghost. Off-center.
+          The mint button is gone; OpenSea takes its place as a quiet
+          text-link wrapped in the glitch exit transition. */}
+      <section className="mb-16 ml-2 sm:ml-8 flex flex-wrap items-center gap-x-6 gap-y-2">
+        <Link href="/dashboard/tasks" className="no-underline">
+          <Button variant="primary">&gt;&gt; open tasks</Button>
+        </Link>
+        <OpenseaLink source="dashboard-cta" className="text-link">
+          view on opensea ↗
+        </OpenseaLink>
+        <span className="font-serif italic text-mute text-sm">or wander</span>
+      </section>
+
+      {/* "Rooms" — three real entries (mint room removed) plus a quiet
+          marketplace pointer at the bottom. */}
+      <div className="space-y-12">
+        <Room
+          n="01"
+          tilt="tilt-r"
+          marginLeft="ml-0"
+          title="application"
+          state={applicationStatus === "none" ? "not submitted" : applicationStatus}
           badge={appBadge}
           href="/dashboard/apply"
           cta="manage"
+          hint="the order will respond when ready."
         />
-        <DashboardCard
-          title="Tasks"
-          value={tasksCompleted ? "complete" : walletConnected ? "in progress" : "locked"}
+
+        <Room
+          n="02"
+          tilt="tilt-l"
+          marginLeft="ml-6 sm:ml-12"
+          title="tasks"
+          state={tasksCompleted ? "complete" : walletConnected ? "in progress" : "locked"}
           badge={tasksBadge}
           href="/dashboard/tasks"
           cta="open quest log"
+          hint="finish them. quietly."
         />
-        <DashboardCard
-          title="Referrals"
-          value={`${referralCount} / ${referralLimit} slots`}
+
+        <Room
+          n="03"
+          tilt="tilt-r"
+          marginLeft="ml-2 sm:ml-4"
+          title="referrals"
+          state={`${referralCount} / ${referralLimit} slots`}
           badge={referralsBadge}
           href="/dashboard/referral"
           cta="share link"
+          hint="five trusted simians. no more."
         />
-        <DashboardCard
-          title="Mint"
-          value={mintEligible ? "eligible" : "locked"}
-          badge={mintBadge}
-          href="/dashboard/mint"
-          cta="open mint"
-        />
+
+        {/* Marketplace pointer — replaces the mint room. Routes through
+            <OpenseaLink> so even this larger entry plays the glitch
+            transition before the new tab opens. */}
+        <OpenseaLink
+          source="dashboard-room"
+          className="group block no-underline tilt-l ml-10 sm:ml-20 max-w-[520px] hover-flicker"
+        >
+          <div className="border-l-2 border-border group-hover:border-elec pl-4 py-1 transition-colors">
+            <div className="flex items-baseline gap-3 mb-1">
+              <span className="font-pixel text-bleed text-xl leading-none">04</span>
+              <span className="font-mono text-xxs uppercase tracking-widest2 text-bone">
+                market
+              </span>
+              <span className="ml-auto">
+                <StatusBadge status="Live" />
+              </span>
+            </div>
+            <div className="font-serif italic text-2xl text-bone capitalize leading-tight mb-1">
+              available via opensea
+            </div>
+            <div className="font-mono text-xxxs uppercase tracking-widest2 text-mute">
+              view collection &rarr;
+            </div>
+            <p className="font-serif italic text-xs text-mute mt-1">
+              &mdash; no public mint. entry continues there.
+            </p>
+          </div>
+        </OpenseaLink>
       </div>
     </div>
   );
 }
 
-function DashboardCard({
+/** A single dashboard "room" — text block, no panel chrome. */
+function Room({
+  n,
+  tilt,
+  marginLeft,
   title,
-  value,
+  state,
   badge,
   href,
   cta,
+  hint,
 }: {
+  n: string;
+  tilt: string;
+  marginLeft: string;
   title: string;
-  value: string;
+  state: string;
   badge: React.ReactNode;
   href: string;
   cta: string;
+  hint: string;
 }) {
   return (
-    <Link href={href} className="no-underline group block">
-      <div className="panel hover-flicker transition-colors hover:bg-ape-850 h-full">
-        <div className="panel-header">
-          <span>:: {title}</span>
+    <Link
+      href={href}
+      className={`group block no-underline ${tilt} ${marginLeft} max-w-[520px] hover-flicker`}
+    >
+      <div className="border-l-2 border-border group-hover:border-elec pl-4 py-1 transition-colors">
+        <div className="flex items-baseline gap-3 mb-1">
+          <span className="font-pixel text-bleed text-xl leading-none">{n}</span>
+          <span className="font-mono text-xxs uppercase tracking-widest2 text-bone">
+            {title}
+          </span>
+          <span className="ml-auto">{badge}</span>
         </div>
-        <div className="p-3 space-y-3">
-          <div className="text-ape-100 text-sm font-bold uppercase tracking-wide capitalize leading-tight">
-            {value}
-          </div>
-          <div>{badge}</div>
-          <div className="text-xxs text-ape-300 uppercase tracking-widest">
-            {cta} &rarr;
-          </div>
+        <div className="font-serif italic text-2xl text-bone capitalize leading-tight mb-1">
+          {state}
         </div>
+        <div className="font-mono text-xxxs uppercase tracking-widest2 text-mute">
+          {cta} &rarr;
+        </div>
+        <p className="font-serif italic text-xs text-mute mt-1">— {hint}</p>
       </div>
     </Link>
   );

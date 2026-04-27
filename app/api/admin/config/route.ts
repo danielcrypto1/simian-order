@@ -1,20 +1,16 @@
 import { NextResponse } from "next/server";
 import { getStore, MintConfig } from "@/lib/adminStore";
-import { getFcfsState, setFcfsTotal } from "@/lib/fcfsStore";
+import { getRound, setRound } from "@/lib/roundStore";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   const store = getStore();
-  const fcfs = await getFcfsState();
+  const round = await getRound();
   return NextResponse.json({
     mint: { ...store.mintConfig },
     royalty_bps: store.mintConfig.royalty_bps,
-    fcfs_state: {
-      total: fcfs.total,
-      taken: fcfs.taken,
-      remaining: Math.max(0, fcfs.total - fcfs.taken),
-    },
+    round_number: round.roundNumber,
   });
 }
 
@@ -59,10 +55,22 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "allocations_exceed_total_supply" }, { status: 400 });
   }
 
-  // Keep persistent FCFS total in sync when fcfs_allocation changes.
-  if ("fcfs_allocation" in b) {
-    await setFcfsTotal(store.mintConfig.fcfs_allocation);
+  // FCFS allocation is no longer used by any active flow — admin still
+  // edits the field for archival reasons but it doesn't drive UI.
+
+  // Round number lives in its own gist file (roundStore). Persist when set.
+  let roundOut: number | undefined;
+  if ("round_number" in b) {
+    const r = Number(b.round_number);
+    if (!Number.isFinite(r) || !Number.isInteger(r) || r < 1) {
+      return NextResponse.json({ error: "invalid_round_number" }, { status: 400 });
+    }
+    const saved = await setRound(r);
+    roundOut = saved.roundNumber;
   }
 
-  return NextResponse.json({ ...store.mintConfig });
+  return NextResponse.json({
+    ...store.mintConfig,
+    ...(roundOut !== undefined ? { round_number: roundOut } : {}),
+  });
 }

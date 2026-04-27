@@ -8,6 +8,7 @@ import { useStore } from "@/lib/store";
 import { useWallet } from "@/lib/wallet";
 import { track } from "@/lib/analytics";
 import { TWEETS, openTweet } from "@/lib/twitterShare";
+import { useRound, fetchRound } from "@/lib/useRound";
 
 type Status = "idle" | "loading" | "submitting" | "submitted" | "error";
 type ServerApp = {
@@ -23,6 +24,7 @@ type ServerApp = {
 export default function ApplyPage() {
   const { approveApplication, rejectApplication, submitApplication, resetApplication, applicationStatus } = useStore();
   const { address, connect, connecting } = useWallet();
+  const round = useRound();
 
   const [serverApp, setServerApp] = useState<ServerApp | null>(null);
   const [status, setStatus] = useState<Status>("idle");
@@ -63,6 +65,20 @@ export default function ApplyPage() {
   }, []);
 
   useEffect(() => { refresh(address ?? null); }, [address, refresh]);
+
+  // Prefill referrer code if the visitor arrived through a referral link
+  // (landing page captures `?ref=` into sessionStorage). Don't overwrite a
+  // value the user has already typed.
+  useEffect(() => {
+    try {
+      const stashed = sessionStorage.getItem("simian_ref");
+      if (stashed) {
+        setForm((f) => (f.referrer ? f : { ...f, referrer: stashed }));
+      }
+    } catch { /* storage unavailable — skip */ }
+    // intentionally only on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Reflect server state into local zustand status display.
   useEffect(() => {
@@ -135,7 +151,7 @@ export default function ApplyPage() {
       s === "approved"
         ? "you may now access the referral system and the mint."
         : s === "rejected"
-        ? "the order has declined. you may re-apply in round III."
+        ? `the order has declined. you may re-apply in round ${(round ?? 1) + 1}.`
         : "filed. the order will respond when ready.";
 
     return (
@@ -166,9 +182,16 @@ export default function ApplyPage() {
               </div>
               <Button
                 variant="primary"
-                onClick={() =>
-                  openTweet(s === "approved" ? TWEETS.approval() : TWEETS.rejection())
-                }
+                onClick={async () => {
+                  if (s === "approved") {
+                    // Resolve round on demand so the latest admin-set value
+                    // is in the tweet even if the page rendered with stale.
+                    const r = round ?? (await fetchRound());
+                    openTweet(TWEETS.approval(r));
+                  } else {
+                    openTweet(TWEETS.rejection());
+                  }
+                }}
               >
                 {s === "approved" ? "Share Approval" : "Share Rejection"}
               </Button>
@@ -186,7 +209,7 @@ export default function ApplyPage() {
   }
 
   return (
-    <Panel title="Apply to the Order" right={<span>round II open</span>}>
+    <Panel title="Apply to the Order" right={<span>round {round ?? "—"} open</span>}>
       {!address && (
         <div className="border border-border bg-ape-950 p-3 mb-3">
           <div className="text-xxs uppercase tracking-wide text-mute mb-2">wallet required</div>

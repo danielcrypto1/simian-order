@@ -11,24 +11,27 @@ export function tweetUrl(text: string): string {
 
 export const TWEETS = {
   referral: (link: string) =>
-    `Just secured access to SIMIAN ORDER.
+    `I've been given access to SIMIAN ORDER.
 
-Entry isn’t given. It’s earned.
+Only 5 can follow.
 
-Join through my link:
 ${link}
 
 #SimianOrder`,
 
-  approval: () =>
-    `I’ve been accepted into SIMIAN ORDER.
+  /**
+   * Approval share. Includes the active round number so the social
+   * post pegs the user to a specific round of admissions.
+   */
+  approval: (round: number) =>
+    `I've been accepted into SIMIAN ORDER — Round ${round}
 
-Not everyone gets in.
+Entry isn't given.
 
 #SimianOrder`,
 
   rejection: () =>
-    `Didn’t make it into SIMIAN ORDER this time.
+    `Didn't make it into SIMIAN ORDER this time.
 
 Will try again.
 

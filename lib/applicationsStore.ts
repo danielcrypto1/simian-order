@@ -4,6 +4,18 @@ const FILE = "applications.json";
 
 export type ApplicationStatus = "pending" | "approved" | "rejected";
 
+/**
+ * How the application landed in the queue.
+ *   "apply" — submitted via the formal /dashboard/apply form (default).
+ *   "quest" — auto-created when a wallet completes the quest log + submits
+ *             identity via /dashboard/tasks. Tagged in admin so review
+ *             priority can differ.
+ *
+ * Existing entries that pre-date this field read back as "apply" via the
+ * coercion in `read()`.
+ */
+export type ApplicationSource = "apply" | "quest";
+
 export type Application = {
   id: string;
   wallet: string;
@@ -12,12 +24,18 @@ export type Application = {
   discord: string | null;
   referrer_input: string | null;
   status: ApplicationStatus;
+  source: ApplicationSource;
   createdAt: string;
 };
 
 async function read(): Promise<Application[]> {
   const raw = await readJSON<Application[]>(FILE, []);
-  return Array.isArray(raw) ? raw : [];
+  if (!Array.isArray(raw)) return [];
+  // Backfill source on legacy entries written before the field existed.
+  return raw.map((a) => ({
+    ...a,
+    source: (a as Application).source === "quest" ? "quest" : "apply",
+  }));
 }
 async function write(apps: Application[]): Promise<void> {
   await writeJSON(FILE, apps);
@@ -44,25 +62,51 @@ type CreateInput = {
   why?: string | null;
   discord?: string | null;
   referrer_input?: string | null;
+  source?: ApplicationSource;
 };
 
 /**
  * Upserts an application for the given wallet. Status is always set to
  * "pending" — submission never auto-approves.
+ *
+ * Source rules:
+ *   - On a brand-new entry, use input.source (default "apply").
+ *   - If an entry already exists with source="apply", DO NOT downgrade
+ *     it to "quest" — the formal application carries more weight and
+ *     stays the canonical record.
+ *   - If existing source is "quest" and a new "apply" submit arrives,
+ *     upgrade the entry to "apply" (the user filed the formal form).
  */
 export async function upsertApplication(input: CreateInput): Promise<Application> {
   const apps = await read();
   const wallet = input.wallet.toLowerCase();
   const idx = apps.findIndex((a) => a.wallet.toLowerCase() === wallet);
+  const wantSource: ApplicationSource = input.source ?? "apply";
+  const existingSource: ApplicationSource | null =
+    idx >= 0 ? apps[idx].source : null;
+  const finalSource: ApplicationSource =
+    existingSource === "apply" ? "apply" : wantSource;
+
+  // Status rules:
+  //   - Quest auto-submission must NEVER reset an admin's prior decision,
+  //     so when an entry already exists and source="quest", preserve it.
+  //   - Standard "apply" submissions (re-applies included) reset to pending,
+  //     which is the original behaviour and lets rejected users retry.
+  const status: ApplicationStatus =
+    idx >= 0 && wantSource === "quest" ? apps[idx].status : "pending";
 
   const application: Application = {
     id: idx >= 0 ? apps[idx].id : newId(),
     wallet,
     twitter: input.twitter.replace(/^@+/, "").trim(),
-    why: input.why ?? null,
-    discord: input.discord ?? null,
-    referrer_input: input.referrer_input ?? null,
-    status: "pending",
+    // For quest submissions we don't have why/discord — preserve existing
+    // values rather than blanking the row out on second touch.
+    why: input.why ?? (idx >= 0 ? apps[idx].why : null),
+    discord: input.discord ?? (idx >= 0 ? apps[idx].discord : null),
+    referrer_input:
+      input.referrer_input ?? (idx >= 0 ? apps[idx].referrer_input : null),
+    status,
+    source: finalSource,
     createdAt: idx >= 0 ? apps[idx].createdAt : new Date().toISOString(),
   };
 

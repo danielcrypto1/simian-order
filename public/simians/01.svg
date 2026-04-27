@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Simian Order — central silhouette mark.
+  Stylised chimpanzee head: round skull, side ears, brow ridge, glowing
+  electric-blue eyes. Pure silhouette — works on any dark background.
+  Tagged via id="simian" so the landing page can clone it across layers.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 320" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+  <defs>
+    <radialGradient id="eyeGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#0040ff" stop-opacity="0.95"/>
+      <stop offset="60%"  stop-color="#0040ff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#0040ff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="1.2"/>
+    </filter>
+  </defs>
+
+  <!-- Side ears -->
+  <ellipse cx="44"  cy="156" rx="34" ry="44" fill="#000"/>
+  <ellipse cx="236" cy="156" rx="34" ry="44" fill="#000"/>
+  <ellipse cx="44"  cy="156" rx="14" ry="22" fill="#0a0a14"/>
+  <ellipse cx="236" cy="156" rx="14" ry="22" fill="#0a0a14"/>
+
+  <!-- Skull -->
+  <ellipse cx="140" cy="148" rx="92" ry="112" fill="#000"/>
+
+  <!-- Brow ridge -->
+  <ellipse cx="140" cy="120" rx="78" ry="20" fill="#040409"/>
+
+  <!-- Lower face / muzzle -->
+  <ellipse cx="140" cy="200" rx="64" ry="74" fill="#0a0a14"/>
+
+  <!-- Nose / lip area -->
+  <path d="M 108 198 Q 140 184 172 198 L 168 224 Q 140 232 112 224 Z" fill="#000"/>
+
+  <!-- Mouth slit -->
+  <path d="M 102 248 Q 140 264 178 248" stroke="#000" stroke-width="3" fill="none" stroke-linecap="round"/>
+
+  <!-- Eyes — glowing electric blue, slight asymmetry on purpose -->
+  <circle cx="108" cy="148" r="14" fill="url(#eyeGlow)"/>
+  <circle cx="172" cy="146" r="14" fill="url(#eyeGlow)"/>
+  <circle cx="108" cy="148" r="4" fill="#0040ff" filter="url(#soft)"/>
+  <circle cx="172" cy="146" r="4" fill="#0040ff" filter="url(#soft)"/>
+
+  <!-- Tiny pupil highlights -->
+  <circle cx="110" cy="146" r="1.2" fill="#fff"/>
+  <circle cx="174" cy="144" r="1.2" fill="#fff"/>
+</svg>

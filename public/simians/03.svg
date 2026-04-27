@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Simian variant 03 — crouched figure, full body silhouette.
+  Used for "peeking" placements at edges of the viewport (legs hidden,
+  shoulders cut off, etc.) Same eye-glow signature as 01 / 02.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 420" aria-hidden="true">
+  <defs>
+    <radialGradient id="eyeGlow3" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#0040ff" stop-opacity="0.95"/>
+      <stop offset="60%" stop-color="#0040ff" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#0040ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Crouched body -->
+  <path
+    d="M 65 240
+       C 45 240, 35 285, 50 360
+       C 60 400, 90 410, 120 405
+       L 200 405
+       C 230 410, 260 400, 270 360
+       C 285 285, 275 240, 255 240
+       L 220 230
+       C 200 220, 120 220, 100 230 Z"
+    fill="#000"/>
+
+  <!-- Long arms hanging -->
+  <path d="M 60 270 Q 30 320 35 380 Q 38 405 70 408" stroke="#000" stroke-width="34" fill="none" stroke-linecap="round"/>
+  <path d="M 260 270 Q 290 320 285 380 Q 282 405 250 408" stroke="#000" stroke-width="34" fill="none" stroke-linecap="round"/>
+
+  <!-- Shoulders / neck -->
+  <ellipse cx="160" cy="195" rx="80" ry="36" fill="#000"/>
+
+  <!-- Head -->
+  <ellipse cx="160" cy="120" rx="68" ry="78" fill="#000"/>
+
+  <!-- Side ears -->
+  <ellipse cx="92"  cy="125" rx="22" ry="32" fill="#000"/>
+  <ellipse cx="228" cy="125" rx="22" ry="32" fill="#000"/>
+  <ellipse cx="92"  cy="125" rx="9" ry="14" fill="#0a0a14"/>
+  <ellipse cx="228" cy="125" rx="9" ry="14" fill="#0a0a14"/>
+
+  <!-- Brow ridge -->
+  <ellipse cx="160" cy="103" rx="56" ry="14" fill="#040409"/>
+
+  <!-- Lower face -->
+  <ellipse cx="160" cy="156" rx="46" ry="50" fill="#0a0a14"/>
+  <path d="M 132 154 Q 160 142 188 154 L 184 174 Q 160 180 136 174 Z" fill="#000"/>
+  <path d="M 130 196 Q 160 210 190 196" stroke="#000" stroke-width="3" fill="none" stroke-linecap="round"/>
+
+  <!-- Eyes + glow -->
+  <circle cx="136" cy="120" r="11" fill="url(#eyeGlow3)"/>
+  <circle cx="184" cy="118" r="11" fill="url(#eyeGlow3)"/>
+  <circle cx="136" cy="120" r="3" fill="#0040ff"/>
+  <circle cx="184" cy="118" r="3" fill="#0040ff"/>
+  <circle cx="138" cy="118" r="1" fill="#fff"/>
+  <circle cx="186" cy="116" r="1" fill="#fff"/>
+</svg>

@@ -5,7 +5,6 @@ import { persist, createJSONStorage } from "zustand/middleware";
 
 export type ApplicationStatus = "none" | "pending" | "approved" | "rejected";
 
-export const FCFS_TOTAL = 50;
 export const REFERRAL_LIMIT = 5;
 
 export type TaskFlags = { opened: boolean; completed: boolean };
@@ -22,12 +21,9 @@ export type State = {
   submittedWallet: string | null;
 
   tasksCompleted: boolean;
-  fcfsApproved: boolean;
   applicationStatus: ApplicationStatus;
   referralCount: number;
   referralLimit: number;
-  mintEligible: boolean;
-  fcfsRemaining: number;
   referralCode: string | null;
   _hasHydrated: boolean;
 };
@@ -44,8 +40,6 @@ export type Actions = {
   clearIdentity: () => void;
 
   setTasksCompleted: (v: boolean) => void;
-  tryGrantFcfs: () => boolean;
-  decrementFcfs: () => void;
 
   submitApplication: () => void;
   approveApplication: () => void;
@@ -56,7 +50,6 @@ export type Actions = {
   addReferral: () => boolean;
   resetReferrals: () => void;
 
-  setMintEligible: (v: boolean) => void;
   setHasHydrated: (v: boolean) => void;
   resetAll: () => void;
 };
@@ -68,19 +61,12 @@ const initialState: State = {
   twitterHandle: null,
   submittedWallet: null,
   tasksCompleted: false,
-  fcfsApproved: false,
   applicationStatus: "none",
   referralCount: 0,
   referralLimit: REFERRAL_LIMIT,
-  mintEligible: false,
-  fcfsRemaining: FCFS_TOTAL,
   referralCode: null,
   _hasHydrated: false,
 };
-
-function computeMintEligible(s: Partial<State>) {
-  return !!(s.fcfsApproved || s.applicationStatus === "approved");
-}
 
 function makeReferralCode() {
   return "SIM-" + Math.random().toString(36).slice(2, 7).toUpperCase();
@@ -130,55 +116,10 @@ export const useStore = create<State & Actions>()(
 
       setTasksCompleted: (v) => set({ tasksCompleted: v }),
 
-      tryGrantFcfs: () => {
-        const s = get();
-        if (s.fcfsApproved) return true;
-        if (s.fcfsRemaining <= 0) return false;
-        const next = { fcfsApproved: true, fcfsRemaining: s.fcfsRemaining - 1 };
-        set({ ...next, mintEligible: computeMintEligible({ ...s, ...next }) });
-        return true;
-      },
-
-      decrementFcfs: () => {
-        const s = get();
-        if (s.fcfsRemaining > 0) set({ fcfsRemaining: s.fcfsRemaining - 1 });
-      },
-
-      submitApplication: () =>
-        set((s) => {
-          const next = { ...s, applicationStatus: "pending" as const };
-          return {
-            applicationStatus: "pending",
-            mintEligible: computeMintEligible(next),
-          };
-        }),
-
-      approveApplication: () =>
-        set((s) => {
-          const next = { ...s, applicationStatus: "approved" as const };
-          return {
-            applicationStatus: "approved",
-            mintEligible: computeMintEligible(next),
-          };
-        }),
-
-      rejectApplication: () =>
-        set((s) => {
-          const next = { ...s, applicationStatus: "rejected" as const };
-          return {
-            applicationStatus: "rejected",
-            mintEligible: computeMintEligible(next),
-          };
-        }),
-
-      resetApplication: () =>
-        set((s) => {
-          const next = { ...s, applicationStatus: "none" as const };
-          return {
-            applicationStatus: "none",
-            mintEligible: computeMintEligible(next),
-          };
-        }),
+      submitApplication: () => set({ applicationStatus: "pending" }),
+      approveApplication: () => set({ applicationStatus: "approved" }),
+      rejectApplication:  () => set({ applicationStatus: "rejected" }),
+      resetApplication:   () => set({ applicationStatus: "none" }),
 
       ensureReferralCode: () => {
         const s = get();
@@ -197,8 +138,6 @@ export const useStore = create<State & Actions>()(
 
       resetReferrals: () => set({ referralCount: 0 }),
 
-      setMintEligible: (v) => set({ mintEligible: v }),
-
       setHasHydrated: (v) => set({ _hasHydrated: v }),
 
       resetAll: () =>
@@ -207,12 +146,14 @@ export const useStore = create<State & Actions>()(
     {
       name: "simian-store",
       storage: createJSONStorage(() => localStorage),
-      version: 2,
+      // v4 strips FCFS-related fields. v3 dropped mintEligible. v2
+      // migrated legacy per-task booleans into the taskState map.
+      version: 4,
       migrate: (persisted, fromVersion) => {
-        // v1 → v2: drop legacy per-task booleans, hydrate the new taskState
-        // map from them so users mid-flow don't lose progress.
-        if (fromVersion < 2 && persisted && typeof persisted === "object") {
-          const p = persisted as Record<string, unknown>;
+        if (!persisted || typeof persisted !== "object") return persisted as State;
+        const p = persisted as Record<string, unknown>;
+
+        if (fromVersion < 2) {
           const taskState: Record<string, TaskFlags> = (p.taskState as any) ?? {};
           const adopt = (id: string, prevKey: string) => {
             if (p[prevKey] === true && !taskState[id]) {
@@ -229,16 +170,24 @@ export const useStore = create<State & Actions>()(
           delete p.tagged;
           p.taskState = taskState;
         }
-        return persisted as State;
+
+        if (fromVersion < 3) {
+          delete p.mintEligible;
+        }
+
+        if (fromVersion < 4) {
+          delete p.fcfsApproved;
+          delete p.fcfsRemaining;
+        }
+
+        return p as unknown as State;
       },
       partialize: (s) => {
-        // Exclude application/eligibility status from persistence — server is
-        // the source of truth, the client should fetch fresh on mount.
+        // Exclude application status from persistence — server is the
+        // source of truth, the client should fetch fresh on mount.
         const {
           _hasHydrated,
           applicationStatus,
-          fcfsApproved,
-          mintEligible,
           ...rest
         } = s;
         return rest;
