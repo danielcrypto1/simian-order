@@ -9,6 +9,7 @@ import { useWallet } from "@/lib/wallet";
 import { track } from "@/lib/analytics";
 import { TWEETS, openTweet } from "@/lib/twitterShare";
 import { useRound, fetchRound } from "@/lib/useRound";
+import RoundHistory from "@/components/RoundHistory";
 
 type Status = "idle" | "loading" | "submitting" | "submitted" | "error";
 type ServerApp = {
@@ -162,6 +163,7 @@ export default function ApplyPage() {
         : "filed. the order will respond when ready.";
 
     return (
+      <>
       <Panel title={title} right={statusBadge}>
         <div className="space-y-3">
           {/* Body header — kept brief on approved/pending; rejected
@@ -217,10 +219,13 @@ export default function ApplyPage() {
           )}
         </div>
       </Panel>
+      <RoundHistory />
+      </>
     );
   }
 
   return (
+    <>
     <Panel
       title={`Apply for Round ${round ?? "—"}`}
       right={<span>open</span>}
@@ -323,5 +328,7 @@ export default function ApplyPage() {
         </div>
       </form>
     </Panel>
+    <RoundHistory />
+    </>
   );
 }
