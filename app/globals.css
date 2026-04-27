@@ -881,6 +881,239 @@ hr { border-color: #1a1a28; }
   }
 }
 
+/* ───────────────────────────────────────────────────────────────
+   /VOID/DEEP — chaos experience
+   Full-screen takeover, no chrome. Layers, glitch, freeze, fade.
+   ─────────────────────────────────────────────────────────────── */
+
+.void-deep {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  color: #e8e8e8;
+  z-index: 9990;
+  /* Block any underlying interactions and stop scroll bleed. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: none;
+}
+
+/* Image layer — full-bleed, mutated by the JS rAF loop. The base
+   styles here are minimal; the engine overrides background-image,
+   background-position, opacity, filter, transform, mix-blend-mode,
+   background-size on each swap. */
+.void-deep__layer {
+  position: absolute;
+  inset: 0;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+  opacity: 0;
+  will-change: opacity, transform, filter;
+  transition: opacity 60ms linear;
+}
+
+/* Glitch overlay — Glitch.png stretched, cranked up vs. the rest of
+   the site. mix-blend-mode screen so it sits over whatever the layers
+   are showing. */
+.void-deep__glitch {
+  position: absolute;
+  inset: 0;
+  background-image: url("/media/glitch.png");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 110% 110%;
+  mix-blend-mode: screen;
+  opacity: 0.32;
+  pointer-events: none;
+  animation: glitchDrift 1.7s steps(6) infinite;
+}
+@keyframes glitchDrift {
+  0%, 100% { background-position: 50% 50%; opacity: 0.32; }
+  25%      { background-position: 52% 48%; opacity: 0.45; }
+  50%      { background-position: 48% 52%; opacity: 0.28; }
+  75%      { background-position: 51% 49%; opacity: 0.40; }
+}
+
+/* Scanline — denser than the global one, crawls slowly. */
+.void-deep__scan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(255,255,255,0.045) 0,
+    rgba(255,255,255,0.045) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  animation: scanCrawl 8s linear infinite;
+  mix-blend-mode: overlay;
+}
+@keyframes scanCrawl {
+  from { background-position: 0 0; }
+  to   { background-position: 0 12px; }
+}
+
+/* Grain — heavier than global. */
+.void-deep__grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.18;
+  mix-blend-mode: overlay;
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/></filter><rect width='220' height='220' filter='url(%23n)'/></svg>");
+}
+
+/* Pre-chaos hint while images decode. Centered, small. */
+.void-deep__hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: ui-monospace, "Courier New", Courier, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.32em;
+  font-size: 14px;
+  z-index: 5;
+}
+
+/* Random text flashes during chaos — large, centered, hard chromatic
+   shadow. Auto-cleared by JS after ~240ms. */
+.void-deep__flash {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-1deg);
+  font-family: ui-monospace, "Courier New", Courier, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 38px;
+  color: #fff;
+  text-shadow:
+     3px 0 0 rgba(0,64,255,0.85),
+    -3px 0 0 rgba(255,45,45,0.85);
+  z-index: 12;
+  pointer-events: none;
+  animation: flashIn 240ms ease-out 1;
+}
+@keyframes flashIn {
+  0%   { opacity: 0; transform: translate(-50%, -50%) rotate(-1deg) scale(0.92); }
+  20%  { opacity: 1; transform: translate(-50%, -50%) rotate(-1deg) scale(1.04); }
+  100% { opacity: 1; transform: translate(-50%, -50%) rotate(-1deg) scale(1); }
+}
+
+/* Freeze frame — single image at full bleed, sharp, 100% opacity. */
+.void-deep__freeze {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+  z-index: 6;
+  filter: contrast(1.05) saturate(1.1);
+  transition: opacity 700ms ease-out;
+}
+.void-deep__freeze.is-fading {
+  opacity: 0;
+}
+
+/* Overlay text used in freeze + returning stages. Centered, bone-
+   white, mono caps. Layered on top of the freeze image (z=10). */
+.void-deep__overlay-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: ui-monospace, "Courier New", Courier, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.32em;
+  font-size: 22px;
+  color: #fff;
+  text-shadow:
+     2px 0 0 rgba(0,64,255,0.7),
+    -2px 0 0 rgba(255,45,45,0.55);
+  background: rgba(0,0,0,0.55);
+  padding: 10px 18px;
+  border: 1px solid #1a1a28;
+  z-index: 14;
+  pointer-events: none;
+  text-align: center;
+}
+
+/* Blackout fade — final solid black layer that ramps in over 700ms. */
+.void-deep__blackout {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  z-index: 13;
+  opacity: 0;
+  animation: voidBlackout 700ms ease-in forwards;
+}
+@keyframes voidBlackout {
+  to { opacity: 1; }
+}
+
+/* Mobile-specific tweaks for the chaos engine. */
+@media (max-width: 640px) {
+  .void-deep__flash { font-size: 26px; letter-spacing: 0.14em; }
+  .void-deep__overlay-text { font-size: 16px; padding: 8px 14px; letter-spacing: 0.24em; }
+  .void-deep__glitch { opacity: 0.22; }
+}
+
+/* Honour reduced-motion — drop the engine to a single static frame
+   with no animation. The page still self-redirects after the timeout. */
+@media (prefers-reduced-motion: reduce) {
+  .void-deep__layer { transition: none !important; }
+  .void-deep__glitch, .void-deep__scan { animation: none !important; }
+}
+
+/* ───────────────────────────────────────────────────────────────
+   POST-VOID RESIDUE — applied to <body> when localStorage.void_seen
+   is "true". Subtle hints across the rest of the site that the user
+   has been deeper than they should have. */
+body.void-seen .alignment-label {
+  /* Wallet alignment label gains a "observed" coloration regardless
+     of the actual session label. The text override happens in JS via
+     <ConnectWalletButton>. */
+}
+
+.void-residue-hint {
+  position: fixed;
+  bottom: 32px;
+  right: 16px;
+  z-index: 50;
+  font-family: ui-monospace, "Courier New", Courier, monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: #ff2d2d;
+  opacity: 0.45;
+  pointer-events: none;
+  user-select: none;
+}
+
+.void-residue-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  pointer-events: none;
+  background-position: center;
+  background-size: cover;
+  opacity: 0;
+  animation: voidFlash 90ms ease-out 1;
+  mix-blend-mode: screen;
+}
+@keyframes voidFlash {
+  0%   { opacity: 0; }
+  30%  { opacity: 0.55; }
+  100% { opacity: 0; }
+}
+
 /* Mobile nav — used by TopBar at small breakpoints. Stacks the
    scattered desktop nav into a tidy single line of large tap targets. */
 .mobile-nav {

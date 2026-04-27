@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Analytics } from "@vercel/analytics/next";
 import InteractionLayer from "@/components/InteractionLayer";
 import NetworkStatus from "@/components/NetworkStatus";
+import VoidResidue from "@/components/VoidResidue";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -46,6 +47,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         {/* Cosmetic telemetry block (network/latency/nodes). */}
         <NetworkStatus />
+
+        {/* Post-/void/deep residue — corner hint + rare image flashes
+            + body.void-seen marker. Renders nothing for visitors who
+            haven't been deeper. */}
+        <VoidResidue />
 
         {/* Vercel Web Analytics — pageviews are tracked automatically.
             Custom events go through track() in lib/analytics.ts. */}

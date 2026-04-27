@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * /void — hidden page. No nav link points here.
@@ -21,6 +22,8 @@ import { useEffect, useRef } from "react";
  */
 export default function VoidPage() {
   const titleRef = useRef<HTMLHeadingElement>(null);
+  const router = useRouter();
+  const [stayed, setStayed] = useState(false);
 
   // Subtle one-time RGB-split twitch when the page mounts.
   useEffect(() => {
@@ -32,6 +35,24 @@ export default function VoidPage() {
     }, 380);
     return () => window.clearTimeout(id);
   }, []);
+
+  // After 6 seconds of staying, surface "you stayed" then auto-redirect
+  // into /void/deep. Respects the cooldown — if the user just came back
+  // from the deep within the last 10 minutes, we don't pull them in
+  // again. The deep page sets `void_last_seen`; we only escalate when
+  // the timestamp is missing or older than the cooldown.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const COOLDOWN_MS = 10 * 60 * 1000;
+    const last = Number(localStorage.getItem("void_last_seen") || "0");
+    if (last && Date.now() - last < COOLDOWN_MS) return; // skip — recent visit
+    const reveal = window.setTimeout(() => setStayed(true), 5400);
+    const go = window.setTimeout(() => router.push("/void/deep"), 6000);
+    return () => {
+      window.clearTimeout(reveal);
+      window.clearTimeout(go);
+    };
+  }, [router]);
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-black text-bone select-none">
@@ -106,6 +127,15 @@ export default function VoidPage() {
               or stay. it doesn&rsquo;t matter.
             </span>
           </div>
+
+          {/* "you stayed" — appears at t=5.4s, ~600ms before the deep
+              redirect. Italic serif red, subtle, doesn't compete with
+              the headline. */}
+          {stayed && (
+            <p className="reveal mt-6 font-serif italic text-sm text-bleed">
+              &mdash; you stayed.
+            </p>
+          )}
         </div>
       </div>
 

@@ -56,6 +56,13 @@ export default function ReferralPage() {
   const applicationStatus = useStore((s) => s.applicationStatus);
   const { address } = useWallet();
   const round = useRound();
+  // Post-void clearance hint — flips the status tag from "200 / clearance"
+  // to "200 / clearance: partial" once the user has been deeper.
+  const [voidSeen, setVoidSeen] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setVoidSeen(localStorage.getItem("void_seen") === "true");
+  }, []);
 
   const [data, setData] = useState<ReferralData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -166,7 +173,7 @@ export default function ReferralPage() {
       {/* ── HEADER ─────────────────────────────────────────────────── */}
       <header>
         <p className="font-mono text-xxxs uppercase tracking-widest2 text-elec mb-2">
-          ── status / 200 / clearance ──
+          ── status / 200 / clearance{voidSeen && <span className="text-bleed">: partial</span>} ──
         </p>
         <h1 className="headline text-[32px] sm:text-6xl leading-tight mb-2">
           access granted<span className="blink text-bleed">.</span>
