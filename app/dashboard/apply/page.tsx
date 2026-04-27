@@ -147,21 +147,31 @@ export default function ApplyPage() {
     // is anchored to the cycle they were considered in.
     const title =
       s === "approved" ? `Accepted — Round ${round ?? "—"}` :
-      s === "rejected" ? `Application Rejected — Round ${round ?? "—"}` :
+      // Spec rewrite: rejected users see a softened, round-bound title
+      // that doesn't lean into the "rejection" framing.
+      s === "rejected" ? `Not Selected — Round ${round ?? "—"}` :
       `Application Submitted — Round ${round ?? "—"}`;
+    // Rejection message is intentionally hedged — "further rounds may
+    // open" carries no commitment, satisfies the "do not promise
+    // future access" rule.
     const message =
       s === "approved"
         ? "you may now access the referral system and the mint."
         : s === "rejected"
-        ? `the order has declined. you may re-apply in round ${(round ?? 1) + 1}.`
+        ? "further rounds may open."
         : "filed. the order will respond when ready.";
 
     return (
       <Panel title={title} right={statusBadge}>
         <div className="space-y-3">
-          <div className="text-ape-100 text-base font-bold uppercase">
-            {s === "approved" ? "welcome." : s === "rejected" ? "denied." : "filed."}
-          </div>
+          {/* Body header — kept brief on approved/pending; rejected
+              branch has nothing here so the copy stays minimal and
+              the hedged "further rounds may open" carries the line. */}
+          {s !== "rejected" && (
+            <div className="text-ape-100 text-base font-bold uppercase">
+              {s === "approved" ? "welcome." : "filed."}
+            </div>
+          )}
           <p className="text-xxs text-mute leading-relaxed">{message}</p>
           <div className="divider-old" />
           <dl className="text-xxs grid grid-cols-[120px_1fr] gap-y-1">
@@ -215,6 +225,14 @@ export default function ApplyPage() {
       title={`Apply for Round ${round ?? "—"}`}
       right={<span>open</span>}
     >
+      {/* Subtle psychological layer — round-bound intake state + scarcity
+          cue. Two mono caps lines, electric for "active", red for
+          "limited". Reads as system telemetry, not marketing copy. */}
+      <div className="font-mono text-xxxs uppercase tracking-widest2 leading-relaxed mb-3">
+        <p className="text-elec">// round {round ?? "—"} intake active</p>
+        <p className="text-bleed">// selection is limited</p>
+      </div>
+
       {!address && (
         <div className="border border-border bg-ape-950 p-3 mb-3">
           <div className="text-xxs uppercase tracking-wide text-mute mb-2">wallet required</div>
