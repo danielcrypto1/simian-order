@@ -151,33 +151,41 @@ export default function LandingPage() {
         blur={2}
       />
 
-      {/* L2 — edge characters: real character.png peeks in from edges */}
+      {/* L2 — edge characters: real character.png peeks in from edges.
+          Hidden on mobile to keep the small-screen composition clean —
+          the central void character below carries the visual weight on
+          phones. */}
 
-      {/* Top-right — character.png peeking down, cut at top+right */}
-      <SimianCharacter
-        variant={4}
-        position="top-right"
-        opacity={0.55}
-        blur={1}
-        size="26vw"
-        rotate={6}
-        className="cut-edge-right cut-edge-top"
-      />
+      <div className="hidden sm:block">
+        <SimianCharacter
+          variant={4}
+          position="top-right"
+          opacity={0.55}
+          blur={1}
+          size="26vw"
+          rotate={6}
+          className="cut-edge-right cut-edge-top"
+        />
+      </div>
 
-      {/* Bottom-left — character.png crouched, partially cut */}
-      <SimianCharacter
-        variant={4}
-        position="bottom-left"
-        opacity={0.40}
-        blur={0}
-        size="32vw"
-        rotate={-4}
-        className="cut-edge-bottom cut-edge-left"
-      />
+      <div className="hidden sm:block">
+        <SimianCharacter
+          variant={4}
+          position="bottom-left"
+          opacity={0.40}
+          blur={0}
+          size="32vw"
+          rotate={-4}
+          className="cut-edge-bottom cut-edge-left"
+        />
+      </div>
 
-      {/* L3 — VOID central character with ghost duplicates */}
+      {/* L3 — VOID central character with ghost duplicates.
+          On mobile the cluster shrinks so it doesn't fight the title for
+          attention, and is shifted further behind the text via lower
+          opacity (handled by the .ghost-c class globally). */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[1]">
-        <div className="relative w-[460px] h-[520px] sm:w-[580px] sm:h-[640px] -ml-2 sm:-ml-10">
+        <div className="relative w-[280px] h-[320px] sm:w-[580px] sm:h-[640px] -ml-2 sm:-ml-10 opacity-70 sm:opacity-100">
           {/* Ghost clones drifting behind — lazy-loaded since they're
               decorative duplicates of the focal point. */}
           <img
@@ -225,7 +233,7 @@ export default function LandingPage() {
 
           <h1
             ref={titleRef}
-            className="t-display italic t-split text-6xl sm:text-7xl md:text-8xl leading-[0.85] mb-4 t-shift"
+            className="t-display italic t-split text-[44px] sm:text-7xl md:text-8xl leading-[0.85] mb-4 t-shift"
             style={{ wordSpacing: "-0.04em" }}
           >
             simian
@@ -234,7 +242,7 @@ export default function LandingPage() {
             <span className="blink text-bleed">.</span>
           </h1>
 
-          <p className="t-accent text-2xl sm:text-3xl tracking-widest text-bone mb-3 tilt-r t-shift-2">
+          <p className="t-accent text-xl sm:text-3xl tracking-widest text-bone mb-3 tilt-r t-shift-2">
             ENTRY IS EARNED.
           </p>
 

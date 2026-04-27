@@ -48,7 +48,7 @@ export default function DashboardPage() {
         <div className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-1">
           // greeting.txt
         </div>
-        <h1 className="headline text-4xl sm:text-5xl mb-3">
+        <h1 className="headline text-[28px] sm:text-5xl leading-tight mb-3">
           {walletConnected
             ? <>the order recognises you<span className="text-bleed">.</span></>
             : <>the order does not yet know you<span className="text-bleed">.</span></>}

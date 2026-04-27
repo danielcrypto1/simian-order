@@ -7,6 +7,21 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "SIMIAN ORDER",
   description: "An NFT collective on ApeChain.",
+  // Favicon — small.png lives at /public/small.png. The same asset is
+  // used for the standard tab icon AND the iOS / Android home-screen
+  // icon so no resizing is needed beyond what the browser does itself.
+  icons: {
+    icon: "/small.png",
+    shortcut: "/small.png",
+    apple: "/small.png",
+  },
+  // Mobile-first viewport: include initialScale=1 so the browser
+  // doesn't apply its old "zoom out a desktop layout" heuristic.
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    viewportFit: "cover",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

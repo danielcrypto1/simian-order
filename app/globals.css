@@ -16,6 +16,16 @@ html, body {
   font-family: "Times New Roman", Times, Georgia, serif;
   font-size: 13px;
   line-height: 1.4;
+  /* Mobile-first overflow lock — characters that bleed off-edge by
+     design must NEVER push the document wider than the viewport. */
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+/* Bump base type up slightly on touch viewports so 13px doesn't read
+   as cramped on phones. Desktop stays at 13px for the dense look. */
+@media (max-width: 640px) {
+  html, body { font-size: 14px; }
 }
 
 body {
@@ -25,6 +35,12 @@ body {
   background-image:
     radial-gradient(ellipse at 18% 8%,  rgba(0, 64, 255, 0.07), transparent 55%),
     radial-gradient(ellipse at 88% 92%, rgba(255, 45, 45, 0.04), transparent 60%);
+}
+
+/* Images never overflow their container or push the layout wider. */
+img, svg, video, canvas {
+  max-width: 100%;
+  height: auto;
 }
 
 /* Global film-grain overlay. Sits above all content but ignores pointer events. */
@@ -76,7 +92,7 @@ hr { border-color: #1a1a28; }
     box-shadow: none;
   }
   .panel-header {
-    @apply px-2 py-1 flex items-center justify-between;
+    @apply px-2 py-1 flex items-center justify-between flex-wrap gap-x-2 gap-y-1;
     background: #000;
     border-bottom: 1px solid #1a1a28;
     color: #e8e8e8;
@@ -783,6 +799,90 @@ hr { border-color: #1a1a28; }
   font-style: italic;
   color: #ff2d2d;
 }
+
+/* ───────────────────────────────────────────────────────────────
+   MOBILE / TOUCH OPTIMISATIONS
+   Activated on (hover: none) / (pointer: coarse) — i.e. real touch
+   devices, not narrow desktop windows.
+   ─────────────────────────────────────────────────────────────── */
+
+@media (hover: none), (pointer: coarse) {
+  /* Tap-target minimum: every primary control should be at least
+     40px tall in CSS pixels. Buttons + entry-links + nav-links + the
+     text-link family all picked up here. The desktop look keeps its
+     compact density via the @media gate. */
+  .btn-old,
+  .entry-link,
+  .text-link,
+  .nav-link {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .field {
+    min-height: 40px;
+  }
+
+  /* Calm the rare-glitch animation on touch — the body-level filter
+     twitch reads as a real bug to a phone user (and on lower-end
+     phones spikes the GPU). Keep the cosmetic overlays, drop the
+     filter+translate jolt. */
+  body.rare-glitch { animation: none !important; }
+
+  /* Halve the cursor-halo if any code path renders it on a hybrid
+     device — defensive, since the halo is already display:none below. */
+  .cursor-halo { display: none !important; }
+
+  /* Drop the scanline overlay on phones — at smaller pixel densities
+     the 1px stripes alias into visible banding rather than texture. */
+  .scanline::before { display: none !important; }
+}
+
+/* Narrow-viewport guards (apply to mobile *and* small browser windows). */
+@media (max-width: 640px) {
+  /* Reduce the sideways pixel chapter glyph so it doesn't crowd the
+     content column. */
+  /* (the AppShell already hides it under lg, so this is belt-and-braces.) */
+
+  /* Soften the global grain — at low brightness on phones it can
+     read as a screen smudge. */
+  body::after { opacity: 0.05 !important; }
+
+  /* Glitch overlays — drop intensity. */
+  .glitch-overlay { opacity: 0.08 !important; }
+  .glitch-overlay--high { opacity: 0.12 !important; }
+  .opensea-exit__glitch { opacity: 0.14 !important; }
+
+  /* Section dividers — keep the chromatic line, drop the heavy noise
+     stamp underneath so they don't dominate. */
+  .section-glitch::before { opacity: 0.20 !important; }
+}
+
+/* Mobile nav — used by TopBar at small breakpoints. Stacks the
+   scattered desktop nav into a tidy single line of large tap targets. */
+.mobile-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 14px;
+  padding: 6px 0;
+}
+.mobile-nav a, .mobile-nav button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  font-family: ui-monospace, "Courier New", Courier, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: #e8e8e8;
+  text-decoration: none;
+  font-size: 13px;
+  border-bottom: 1px dashed transparent;
+}
+.mobile-nav a.is-active, .mobile-nav button.is-active {
+  color: #fff;
+  border-bottom-color: #ff2d2d;
+}
+.mobile-nav a:active { color: #0040ff; }
 
 /* ───────────────────────────────────────────────────────────────
    OPENSEA EXIT OVERLAY

@@ -66,8 +66,8 @@ export default function AppShell({ children, showRight = true, bgVariant = 1 }: 
           />
         </div>
 
-        {/* Bottom-left peek — variant 2 SVG silhouette, cut at left edge. */}
-        <div className="hidden md:block">
+        {/* Bottom-left peek — only on lg+ now. Phones stay clean. */}
+        <div className="hidden lg:block">
           <SimianCharacter
             variant={2}
             position="bottom-left"
@@ -78,9 +78,9 @@ export default function AppShell({ children, showRight = true, bgVariant = 1 }: 
           />
         </div>
 
-        {/* Decorative glitch band across the upper third of the page */}
+        {/* Decorative glitch band — desktop only */}
         <div
-          className="hidden md:block glitch-overlay glitch-overlay--top glitch-overlay--low"
+          className="hidden lg:block glitch-overlay glitch-overlay--top glitch-overlay--low"
           style={{ height: "45vh" }}
           aria-hidden
         />
@@ -95,10 +95,10 @@ export default function AppShell({ children, showRight = true, bgVariant = 1 }: 
           className="
             relative z-[1]
             w-full max-w-[860px]
-            px-5 sm:px-8
+            px-3 sm:px-8
             lg:ml-[80px] xl:ml-[120px]
             lg:mr-[220px]
-            pt-10 pb-24
+            pt-6 sm:pt-10 pb-16 sm:pb-24
           "
         >
           {/* "you are inside" marker — also a hidden 3-click observer */}

@@ -86,7 +86,7 @@ export default function VoidPage() {
           </p>
           <h1
             ref={titleRef}
-            className="t-display italic text-5xl sm:text-6xl md:text-7xl leading-none mb-4 t-split"
+            className="t-display italic text-[34px] sm:text-6xl md:text-7xl leading-tight mb-4 t-split"
           >
             you were not meant
             <br />

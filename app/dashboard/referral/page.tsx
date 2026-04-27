@@ -128,7 +128,7 @@ export default function ReferralPage() {
         <p className="font-mono text-xxxs uppercase tracking-widest2 text-bleed mb-2">
           ── status / 401 ──
         </p>
-        <h1 className="headline text-5xl sm:text-6xl text-bleed mb-3">
+        <h1 className="headline text-[32px] sm:text-6xl leading-tight text-bleed mb-3">
           access denied<span className="blink">.</span>
         </h1>
         <p className="font-serif italic text-base text-ape-200 mb-8">
@@ -158,7 +158,7 @@ export default function ReferralPage() {
         <p className="font-mono text-xxxs uppercase tracking-widest2 text-elec mb-2">
           ── status / 200 / clearance ──
         </p>
-        <h1 className="headline text-5xl sm:text-6xl mb-2">
+        <h1 className="headline text-[32px] sm:text-6xl leading-tight mb-2">
           access granted<span className="blink text-bleed">.</span>
         </h1>
         <p className="font-serif italic text-base text-ape-200 mb-2">
