@@ -882,6 +882,46 @@ hr { border-color: #1a1a28; }
 }
 
 /* ───────────────────────────────────────────────────────────────
+   AMBIENT AUDIO TOGGLE
+   Small mono caps pill, top-right corner, opacity 0.45 until hover.
+   Sits above any TopBar (z-50) so it stays clickable on dashboard.
+   ─────────────────────────────────────────────────────────────── */
+.ambient-audio-toggle {
+  position: fixed;
+  top: 6px;
+  right: 6px;
+  z-index: 50;
+  font-family: ui-monospace, "Courier New", Courier, monospace;
+  font-size: 9px;
+  text-transform: lowercase;
+  letter-spacing: 0.20em;
+  color: #aaaadd;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid #1a1a28;
+  padding: 4px 8px;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 200ms ease, color 200ms ease, border-color 200ms ease;
+  user-select: none;
+}
+.ambient-audio-toggle:hover {
+  opacity: 1;
+  color: #e8e8e8;
+  border-color: #0040ff;
+}
+.ambient-audio-toggle:active { transform: translate(0.5px, 0.5px); }
+@media (max-width: 640px) {
+  .ambient-audio-toggle {
+    /* On phones, sit beneath the TopBar's mobile nav row so the
+       toggle doesn't cover [enter] / [apply] tap targets. */
+    top: auto;
+    bottom: 6px;
+    right: 6px;
+    opacity: 0.65;
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────
    MOBILE LANDING OVERRIDES
    The desktop entry-links carry inline rotations + translateY for
    the off-axis cult feel. On phones those tip text past the screen
@@ -1295,22 +1335,34 @@ body.void-seen .alignment-label {
   transform: rotate(-0.6deg);
 }
 
-/* Rare "observed" overlay — single italic word, drifts in top-right. */
+/* Rare phrase overlay — italic serif, drifts in top-right. Sized to
+   fit longer brand fragments without wrapping awkwardly. */
 .observed-overlay {
   position: fixed;
   top: 12vh;
   right: 6vw;
+  max-width: 60vw;
   z-index: 9000;
   pointer-events: none;
   transform: rotate(-2deg);
+  text-align: right;
 }
 .observed-overlay__text {
   font-family: "Times New Roman", Times, serif;
   font-style: italic;
-  font-size: 28px;
+  font-size: 22px;
+  line-height: 1.2;
   color: #e8e8e8;
   text-shadow: 1px 0 0 rgba(0,64,255,0.55), -1px 0 0 rgba(255,45,45,0.45);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
+}
+@media (max-width: 640px) {
+  .observed-overlay {
+    top: 8vh;
+    right: 4vw;
+    max-width: 80vw;
+  }
+  .observed-overlay__text { font-size: 16px; }
 }
 
 /* ───────────────────────────────────────────────────────────────

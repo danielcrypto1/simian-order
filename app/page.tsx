@@ -32,8 +32,6 @@ export default function LandingPage() {
 
   const [doorOpen, setDoorOpen] = useState(false);
   const [clicks, setClicks] = useState(0);
-  const [audioOn, setAudioOn] = useState(false);
-  const audioRef = useRef<{ ctx: AudioContext; gain: GainNode } | null>(null);
   const round = useRound();
 
   // (Cursor halo lives in the global InteractionLayer — no duplicate here.)
@@ -71,54 +69,10 @@ export default function LandingPage() {
     track("landing_mystery_click");
   }, [triggerGlitch]);
 
-  // ── Optional ambient drone via Web Audio API ──────────────────────────
-  const toggleAudio = useCallback(() => {
-    if (audioOn) {
-      const a = audioRef.current;
-      if (a) {
-        try {
-          const t = a.ctx.currentTime;
-          a.gain.gain.cancelScheduledValues(t);
-          a.gain.gain.linearRampToValueAtTime(0, t + 0.4);
-          setTimeout(() => { a.ctx.close().catch(() => {}); }, 500);
-        } catch { /* noop */ }
-      }
-      audioRef.current = null;
-      setAudioOn(false);
-      return;
-    }
-    try {
-      const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new Ctor();
-      const gain = ctx.createGain();
-      gain.gain.value = 0;
-      gain.connect(ctx.destination);
-
-      const o1 = ctx.createOscillator();
-      o1.type = "sine"; o1.frequency.value = 55;
-      o1.connect(gain); o1.start();
-
-      const o2 = ctx.createOscillator();
-      o2.type = "triangle"; o2.frequency.value = 82.4;
-      const o2g = ctx.createGain(); o2g.gain.value = 0.5;
-      o2.connect(o2g).connect(gain); o2.start();
-
-      const lfo = ctx.createOscillator();
-      lfo.type = "sine"; lfo.frequency.value = 0.12;
-      const lfoGain = ctx.createGain(); lfoGain.gain.value = 0.012;
-      lfo.connect(lfoGain).connect(gain.gain); lfo.start();
-
-      gain.gain.linearRampToValueAtTime(0.038, ctx.currentTime + 0.8);
-
-      audioRef.current = { ctx, gain };
-      setAudioOn(true);
-      track("landing_audio_on");
-    } catch { /* noop */ }
-  }, [audioOn]);
-
-  useEffect(() => {
-    return () => { audioRef.current?.ctx.close().catch(() => {}); };
-  }, []);
+  // (Procedural Web Audio drone removed — site-wide ambient audio
+  // is now handled by <AmbientAudio> mounted in app/layout.tsx, which
+  // plays /audio/simian.mp3 looped at low volume after the user's
+  // first gesture and exposes its own toggle in the top-right corner.)
 
   // ── Referral capture ─────────────────────────────────────────────────
   // Links shared from the referral page use `?ref=CODE`. Capture once on
@@ -259,6 +213,11 @@ export default function LandingPage() {
             you don&rsquo;t join. you align.
           </p>
 
+          {/* Brand pillar — small, mute, reads as system telemetry. */}
+          <p className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-2">
+            // SIMIAN ORDER is a closed circle
+          </p>
+
           {/* Glitch streak between whisper and links — uses Glitch.png stretched */}
           <div className="section-glitch max-w-[280px] mb-4" aria-hidden />
 
@@ -357,15 +316,9 @@ export default function LandingPage() {
         className="absolute bottom-3 right-3 flex items-center gap-3 font-mono text-xxs z-[3]"
         data-no-glitch
       >
-        <button
-          type="button"
-          onClick={toggleAudio}
-          className="text-mute hover:text-bone uppercase tracking-widest2 text-xxxs"
-          style={{ background: "transparent", border: "none", cursor: "pointer" }}
-          aria-pressed={audioOn}
-        >
-          [ {audioOn ? "♪ on" : "♪ off"} ]
-        </button>
+        {/* Audio toggle is now global — see <AmbientAudio> mounted
+            in app/layout.tsx. The bottom-right of the landing keeps
+            only the quiet ApeChain attribution. */}
         <a
           href="https://apechain.com"
           target="_blank"
@@ -383,6 +336,31 @@ export default function LandingPage() {
           </p>
         </div>
       )}
+
+      {/* Scattered brand fragments — three lines at different positions
+          and opacities. Hidden on mobile to keep the small-screen
+          composition clean; on desktop they read as overheard whispers. */}
+      <span
+        aria-hidden
+        className="hidden md:block absolute font-mono text-xxxs uppercase tracking-widest2 text-mute pointer-events-none select-none tilt-r2 z-[3]"
+        style={{ top: "22%", right: "5%", opacity: 0.32 }}
+      >
+        some already know
+      </span>
+      <span
+        aria-hidden
+        className="hidden lg:block absolute font-serif italic text-xs text-ape-200 pointer-events-none select-none tilt-l z-[3]"
+        style={{ bottom: "28%", right: "8%", opacity: 0.28 }}
+      >
+        most are still early
+      </span>
+      <span
+        aria-hidden
+        className="hidden md:block absolute font-mono text-xxxs uppercase tracking-widest2 text-bleed pointer-events-none select-none z-[3]"
+        style={{ top: "60%", left: "62%", opacity: 0.30 }}
+      >
+        a few are already too late
+      </span>
     </main>
   );
 }

@@ -232,11 +232,15 @@ export default function ApplyPage() {
     >
       {/* Subtle psychological layer — round-bound intake state + scarcity
           cue. Two mono caps lines, electric for "active", red for
-          "limited". Reads as system telemetry, not marketing copy. */}
+          "limited". Reads as system telemetry, not marketing copy.
+          Plus a one-line tagline. */}
       <div className="font-mono text-xxxs uppercase tracking-widest2 leading-relaxed mb-3">
         <p className="text-elec">// round {round ?? "—"} intake active</p>
         <p className="text-bleed">// selection is limited</p>
       </div>
+      <p className="font-serif italic text-xs text-mute mb-3 -mt-1">
+        for real degens on ApeChain.
+      </p>
 
       {!address && (
         <div className="border border-border bg-ape-950 p-3 mb-3">

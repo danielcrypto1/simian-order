@@ -186,6 +186,9 @@ export default function ReferralPage() {
         <p className="font-mono text-xxs uppercase tracking-widest2 text-elec">
           // round {round ?? "—"} access
         </p>
+        <p className="font-serif italic text-xs text-mute mt-1">
+          no noise. no hand-holding.
+        </p>
 
         {/* Round-bound entry pulse — fades in when a new referral lands.
             Includes the active round so the timestamp on the entry is

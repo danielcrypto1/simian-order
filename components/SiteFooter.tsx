@@ -37,8 +37,11 @@ export default function SiteFooter() {
           <ArchiveLink className="text-xxs" />
         </nav>
 
-        <span className="font-serif italic text-xxs text-bleed">
-          built on ape.
+        <span className="font-serif italic text-xxs text-bleed flex flex-col items-end leading-tight">
+          <span>pure conviction. silent execution.</span>
+          <span className="text-mute text-xxxs not-italic font-mono uppercase tracking-widest2">
+            built on ape
+          </span>
         </span>
       </div>
     </footer>

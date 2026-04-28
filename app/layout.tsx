@@ -3,6 +3,7 @@ import { Analytics } from "@vercel/analytics/next";
 import InteractionLayer from "@/components/InteractionLayer";
 import NetworkStatus from "@/components/NetworkStatus";
 import VoidResidue from "@/components/VoidResidue";
+import AmbientAudio from "@/components/AmbientAudio";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -52,6 +53,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             + body.void-seen marker. Renders nothing for visitors who
             haven't been deeper. */}
         <VoidResidue />
+
+        {/* Site-wide ambient audio. Loads /audio/simian.mp3, plays
+            on first gesture, mutes on /void/deep, toggle in top-right
+            corner. No-ops gracefully if the MP3 file is missing. */}
+        <AmbientAudio />
 
         {/* Vercel Web Analytics — pageviews are tracked automatically.
             Custom events go through track() in lib/analytics.ts. */}

@@ -31,8 +31,35 @@ export default function InteractionLayer() {
 
   // Hidden message overlays (mutually independent).
   const [alignment, setAlignment] = useState(false);
-  const [observed, setObserved] = useState(false);
+  const [observed, setObserved] = useState<string | null>(null);
   const [signalUnstable, setSignalUnstable] = useState(false);
+
+  // Rare phrase pool — sampled by the rare-glitch event and the
+  // ~4% touch-tap event. "observed." is most common; the longer
+  // brand fragments surface less often so they feel like overheard
+  // signal rather than scripted copy.
+  const RARE_PHRASES: { text: string; weight: number }[] = [
+    { text: "observed.",                                                   weight: 5 },
+    { text: "some already know.",                                          weight: 2 },
+    { text: "most are still early.",                                       weight: 2 },
+    { text: "a few are already too late.",                                 weight: 2 },
+    { text: "if you've ever held when everything told you to sell, you'll understand.", weight: 1 },
+    { text: "if not, you'll watch from the outside.",                      weight: 1 },
+  ];
+  const pickRarePhrase = (): string => {
+    const total = RARE_PHRASES.reduce((s, p) => s + p.weight, 0);
+    let r = Math.random() * total;
+    for (const p of RARE_PHRASES) {
+      r -= p.weight;
+      if (r <= 0) return p.text;
+    }
+    return RARE_PHRASES[0].text;
+  };
+  const fireObserved = () => {
+    setObserved(pickRarePhrase());
+    // Longer phrases need a slightly longer dwell so they're readable.
+    window.setTimeout(() => setObserved(null), 2400);
+  };
 
   // Night-mode flag — true between 00:00 and 04:00 local.
   const [nightMode, setNightMode] = useState(false);
@@ -119,17 +146,14 @@ export default function InteractionLayer() {
   }, []);
 
   // ── 3. Rare glitch — fires once every 90-180s. ~30% of the time it
-  //       also flashes the word "observed" briefly above the cursor. ───
+  //       also flashes a phrase from the rare pool above the cursor. ───
   useEffect(() => {
     let id = 0;
     const fire = () => {
       document.body.classList.add("rare-glitch");
       window.setTimeout(() => document.body.classList.remove("rare-glitch"), 220);
-      // Observed-flash: rare bonus.
-      if (Math.random() < 0.30) {
-        setObserved(true);
-        window.setTimeout(() => setObserved(false), 1700);
-      }
+      // Phrase flash: rare bonus.
+      if (Math.random() < 0.30) fireObserved();
     };
     const schedule = () => {
       const ms = 90_000 + Math.random() * 90_000; // 90s..180s
@@ -279,12 +303,12 @@ export default function InteractionLayer() {
       // Cooldown via existing observed state — if it's already up, skip.
       if (observed) return;
       if (Math.random() >= 0.04) return; // 4% chance
-      setObserved(true);
-      window.setTimeout(() => setObserved(false), 1700);
+      fireObserved();
     };
     window.addEventListener("pointerup", onPointerUp, { passive: true });
     return () => window.removeEventListener("pointerup", onPointerUp);
     // re-bind when `observed` flips so the closure has the fresh value
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [observed]);
 
   // ── 4. Parallax — pushes scrollY into a CSS variable on body ────────
@@ -349,13 +373,14 @@ export default function InteractionLayer() {
         </div>
       )}
 
-      {/* Rare "observed" — a single italic word, fixed in the upper-right
-          quadrant, fades out after ~1.7s. Sometimes accompanies the rare
-          screen-glitch. */}
+      {/* Rare phrase flash — sampled from the pool above. "observed."
+          is the most common but the longer brand fragments surface
+          occasionally so the system feels alive rather than scripted.
+          Fixed in the upper-right quadrant, fades out after ~2.4s. */}
       {observed && (
         <div className="observed-overlay" aria-hidden data-no-flash>
           <p className="observed-overlay__text reveal">
-            observed<span className="text-bleed">.</span>
+            {observed}
           </p>
         </div>
       )}
