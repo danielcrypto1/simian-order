@@ -888,26 +888,35 @@ hr { border-color: #1a1a28; }
    ─────────────────────────────────────────────────────────────── */
 .ambient-audio-toggle {
   position: fixed;
-  top: 6px;
-  right: 6px;
+  top: 8px;
+  right: 8px;
   z-index: 50;
   font-family: ui-monospace, "Courier New", Courier, monospace;
-  font-size: 9px;
+  font-size: 11px;
   text-transform: lowercase;
   letter-spacing: 0.20em;
-  color: #aaaadd;
-  background: rgba(0, 0, 0, 0.55);
+  color: #e8e8e8;
+  background: rgba(0, 0, 0, 0.78);
   border: 1px solid #1a1a28;
-  padding: 4px 8px;
+  border-bottom-color: #0040ff;
+  padding: 6px 10px;
   cursor: pointer;
-  opacity: 0.45;
-  transition: opacity 200ms ease, color 200ms ease, border-color 200ms ease;
+  opacity: 0.85;
+  transition: opacity 200ms ease, color 200ms ease, border-color 200ms ease, background 200ms ease;
   user-select: none;
+  /* Subtle chromatic shadow so the pill stays legible on bright
+     backgrounds (e.g. the landing's photo backdrop) without going
+     full white-on-black opaque. */
+  text-shadow: 1px 0 0 rgba(0, 64, 255, 0.45), -1px 0 0 rgba(255, 45, 45, 0.30);
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
 }
 .ambient-audio-toggle:hover {
   opacity: 1;
-  color: #e8e8e8;
+  color: #fff;
   border-color: #0040ff;
+  background: rgba(0, 0, 0, 0.92);
 }
 .ambient-audio-toggle:active { transform: translate(0.5px, 0.5px); }
 @media (max-width: 640px) {
@@ -915,9 +924,11 @@ hr { border-color: #1a1a28; }
     /* On phones, sit beneath the TopBar's mobile nav row so the
        toggle doesn't cover [enter] / [apply] tap targets. */
     top: auto;
-    bottom: 6px;
-    right: 6px;
-    opacity: 0.65;
+    bottom: 8px;
+    right: 8px;
+    opacity: 0.95;
+    font-size: 12px;
+    padding: 8px 12px;
   }
 }
 
