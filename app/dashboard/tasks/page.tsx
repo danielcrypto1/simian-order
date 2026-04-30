@@ -4,9 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Panel from "@/components/Panel";
 import Button from "@/components/Button";
 import StatusBadge from "@/components/StatusBadge";
-import RouteGuard from "@/components/RouteGuard";
 import { useStore } from "@/lib/store";
-import { useWallet } from "@/lib/wallet";
 
 import { TASK_LINKS } from "@/lib/links";
 
@@ -34,8 +32,6 @@ const TASKS: Task[] = [
 
 export default function TasksPage() {
   const {
-    walletConnected,
-    walletAddress,
     taskState,
     twitterHandle,
     submittedWallet,
@@ -47,9 +43,8 @@ export default function TasksPage() {
     setTasksCompleted,
   } = useStore();
 
-  const { address } = useWallet();
-
-  // Local form state (defaulted to connected wallet + persisted handle).
+  // Local form state — pre-filled from the persisted identity. Identity is
+  // user-entered (no wallet connection); the form below collects it.
   const [walletDraft, setWalletDraft] = useState("");
   const [twitterDraft, setTwitterDraft] = useState("");
   const [identityError, setIdentityError] = useState<string | null>(null);
@@ -62,11 +57,11 @@ export default function TasksPage() {
   const [questSubmitted, setQuestSubmitted] = useState(false);
   const [questError, setQuestError] = useState<string | null>(null);
 
-  // Pre-fill form from persisted store + connected wallet.
+  // Pre-fill form from persisted store identity (apply or tasks form).
   useEffect(() => {
-    if (!walletDraft) setWalletDraft(submittedWallet || address || walletAddress || "");
+    if (!walletDraft) setWalletDraft(submittedWallet || "");
     if (!twitterDraft && twitterHandle) setTwitterDraft("@" + twitterHandle);
-  }, [submittedWallet, twitterHandle, address, walletAddress]); // eslint-disable-line
+  }, [submittedWallet, twitterHandle]); // eslint-disable-line
 
   // Compose tasks with their store flags.
   const tasks = TASKS.map((t) => {
@@ -98,7 +93,7 @@ export default function TasksPage() {
   useEffect(() => {
     if (!allDone || !identitySubmitted) return;
     if (questPostedRef.current) return;
-    const wallet = submittedWallet || address;
+    const wallet = submittedWallet;
     const handle = twitterHandle;
     if (!wallet || !handle) return;
 
@@ -128,7 +123,7 @@ export default function TasksPage() {
         questPostedRef.current = false;
       })
       .finally(() => setQuestSubmitting(false));
-  }, [allDone, identitySubmitted, submittedWallet, address, twitterHandle]);
+  }, [allDone, identitySubmitted, submittedWallet, twitterHandle]);
 
   function open(task: Task) {
     if (typeof window !== "undefined") window.open(task.url, "_blank", "noopener,noreferrer");
@@ -161,18 +156,12 @@ export default function TasksPage() {
 
   function clearForm() {
     clearIdentity();
-    setWalletDraft(address || walletAddress || "");
+    setWalletDraft("");
     setTwitterDraft("");
   }
 
   return (
-    <RouteGuard
-      allow={walletConnected}
-      title="Tasks (locked)"
-      reason="connect a wallet to unlock the quest log."
-      cta={{ href: "/dashboard", label: "Connect from top bar" }}
-    >
-      <div className="space-y-3">
+    <div className="space-y-3">
         <Panel title="Quest Log" right={<span>{completedCount}/{total} complete</span>}>
           <div className="flex justify-between text-xxs text-mute mb-2">
             <span>open the link, then mark complete.</span>
@@ -307,20 +296,15 @@ export default function TasksPage() {
                 <label className="label">ape-chain wallet</label>
                 <input
                   className="field font-mono"
-                  placeholder={address || "0x..."}
+                  placeholder="0x..."
                   value={walletDraft}
                   onChange={(e) => setWalletDraft(e.target.value)}
                   required
+                  maxLength={64}
                 />
-                {address && walletDraft !== address && (
-                  <button
-                    type="button"
-                    onClick={() => setWalletDraft(address)}
-                    className="text-xxs text-ape-300 mt-1 underline"
-                  >
-                    use connected ({address.slice(0, 6)}…{address.slice(-4)})
-                  </button>
-                )}
+                <div className="text-xxs text-mute mt-1">
+                  paste your ape-chain wallet address. no browser wallet required.
+                </div>
               </div>
 
               {identityError && (
@@ -345,6 +329,5 @@ export default function TasksPage() {
           )}
         </Panel>
       </div>
-    </RouteGuard>
   );
 }

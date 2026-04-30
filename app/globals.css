@@ -1167,11 +1167,6 @@ hr { border-color: #1a1a28; }
    POST-VOID RESIDUE — applied to <body> when localStorage.void_seen
    is "true". Subtle hints across the rest of the site that the user
    has been deeper than they should have. */
-body.void-seen .alignment-label {
-  /* Wallet alignment label gains a "observed" coloration regardless
-     of the actual session label. The text override happens in JS via
-     <ConnectWalletButton>. */
-}
 
 .void-residue-hint {
   position: fixed;
@@ -1416,25 +1411,10 @@ body.night-mode .bg-photo--pan { animation-duration: 112s; }
 }
 
 /* ───────────────────────────────────────────────────────────────
-   FEATURE 2 — WALLET ALIGNMENT LABEL
-   Renders next to the connected address. ≤ 50% opacity, fades in.
-   ─────────────────────────────────────────────────────────────── */
-
-.alignment-label {
-  font-family: ui-monospace, "Courier New", Courier, monospace;
-  text-transform: lowercase;
-  letter-spacing: 0.18em;
-  font-size: 10px;
-  color: #aaaadd;
-  opacity: 0;
-  animation: alignFade 1100ms ease-out 220ms forwards;
-}
-@keyframes alignFade {
-  0%   { opacity: 0; transform: translateY(2px); }
-  100% { opacity: 0.5; transform: translateY(0); }
-}
-.alignment-label--observed { color: #ff2d2d; }
-.alignment-label--unverified { color: #5a5a6a; }
+   FEATURE 2 (removed) — WALLET ALIGNMENT LABEL
+   Was rendered next to the connected address by ConnectWalletButton.
+   With the wallet-connect system removed, the alignment label and
+   its keyframes have been deleted. */
 
 /* ───────────────────────────────────────────────────────────────
    FEATURE 3 — ARCHIVE OVERLAY

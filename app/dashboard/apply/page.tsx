@@ -5,7 +5,6 @@ import Panel from "@/components/Panel";
 import Button from "@/components/Button";
 import StatusBadge from "@/components/StatusBadge";
 import { useStore } from "@/lib/store";
-import { useWallet } from "@/lib/wallet";
 import { track } from "@/lib/analytics";
 import { TWEETS, openTweet } from "@/lib/twitterShare";
 import { useRound, fetchRound } from "@/lib/useRound";
@@ -22,9 +21,16 @@ type ServerApp = {
   createdAt: string;
 };
 
+function isWallet(s: string): boolean {
+  return /^0x[a-fA-F0-9]{40}$/.test(s.trim());
+}
+
 export default function ApplyPage() {
-  const { approveApplication, rejectApplication, submitApplication, resetApplication, applicationStatus } = useStore();
-  const { address, connect, connecting } = useWallet();
+  const {
+    approveApplication, rejectApplication, submitApplication,
+    resetApplication, applicationStatus,
+    submittedWallet, twitterHandle, submitIdentity,
+  } = useStore();
   const round = useRound();
 
   const [serverApp, setServerApp] = useState<ServerApp | null>(null);
@@ -39,6 +45,8 @@ export default function ApplyPage() {
 
   // Public lookup so the post-submission view (and share buttons) persist
   // across reloads. /api/application returns only public-safe fields.
+  // Source of "the user's wallet" is the persisted submittedWallet — set
+  // by the most recent identity submission (this form, or the tasks form).
   const refresh = useCallback(async (wallet: string | null) => {
     if (!wallet) { setServerApp(null); setStatus("idle"); return; }
     setStatus("loading");
@@ -64,7 +72,19 @@ export default function ApplyPage() {
     setStatus("idle");
   }, []);
 
-  useEffect(() => { refresh(address ?? null); }, [address, refresh]);
+  useEffect(() => { refresh(submittedWallet ?? null); }, [submittedWallet, refresh]);
+
+  // Pre-fill the form from the persisted identity so the user doesn't
+  // have to re-type their wallet/handle on every visit.
+  useEffect(() => {
+    setForm((f) => ({
+      ...f,
+      wallet: f.wallet || submittedWallet || "",
+      handle: f.handle || (twitterHandle ? "@" + twitterHandle : ""),
+    }));
+    // intentionally only on initial hydration of these store fields
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submittedWallet, twitterHandle]);
 
   // Reflect server state into local zustand status display.
   useEffect(() => {
@@ -82,19 +102,24 @@ export default function ApplyPage() {
     e.preventDefault();
     setErrorMsg(null);
     track("apply_submit");
-    if (!address) {
-      setErrorMsg("connect a wallet first");
+    const handle = form.handle.trim().replace(/^@+/, "");
+    const wallet = form.wallet.trim().toLowerCase();
+    if (!isWallet(wallet)) {
+      setErrorMsg("invalid wallet — paste a 0x… ApeChain address");
+      return;
+    }
+    if (handle.length < 1) {
+      setErrorMsg("X / twitter handle required");
       return;
     }
     setStatus("submitting");
     try {
-      const wallet = (form.wallet.trim() || address).toLowerCase();
       const res = await fetch("/api/apply", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           wallet,
-          twitter: form.handle.trim(),
+          twitter: handle,
           discord: form.discord.trim() || null,
           why: form.why.trim() || null,
         }),
@@ -103,6 +128,9 @@ export default function ApplyPage() {
       if (!res.ok) throw new Error(j.error || `http_${res.status}`);
       // Server is source of truth — reflect the returned application.
       setServerApp(j.application as ServerApp);
+      // Persist identity so other pages (referral, dashboard) can look up
+      // this wallet's state without re-asking.
+      submitIdentity(wallet, handle);
       submitApplication();
       track("apply_success");
       setStatus("submitted");
@@ -226,15 +254,6 @@ export default function ApplyPage() {
         submit for recognition. the order chooses who walks through.
       </p>
 
-      {!address && (
-        <div className="border border-border bg-ape-950 p-3 mb-3">
-          <div className="text-xxs uppercase tracking-wide text-mute mb-2">wallet required</div>
-          <Button variant="primary" disabled={connecting} onClick={connect}>
-            {connecting ? "Connecting..." : "Connect Wallet"}
-          </Button>
-        </div>
-      )}
-
       <form onSubmit={submit} className="space-y-3">
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
@@ -245,6 +264,7 @@ export default function ApplyPage() {
               value={form.handle}
               onChange={(e) => update("handle", e.target.value)}
               required
+              maxLength={64}
             />
           </div>
           <div>
@@ -254,6 +274,7 @@ export default function ApplyPage() {
               placeholder="user#0000"
               value={form.discord}
               onChange={(e) => update("discord", e.target.value)}
+              maxLength={64}
             />
           </div>
         </div>
@@ -262,12 +283,14 @@ export default function ApplyPage() {
           <label className="label">ape-chain wallet</label>
           <input
             className="field font-mono"
-            placeholder={address || "0x..."}
+            placeholder="0x..."
             value={form.wallet}
             onChange={(e) => update("wallet", e.target.value)}
+            required
+            maxLength={64}
           />
           <div className="text-xxs text-mute mt-1">
-            leave blank to use the connected wallet ({address ? `${address.slice(0,6)}…${address.slice(-4)}` : "none"})
+            paste your ape-chain wallet address. no browser wallet required.
           </div>
         </div>
 
@@ -278,6 +301,7 @@ export default function ApplyPage() {
             placeholder="speak plainly. lore optional."
             value={form.why}
             onChange={(e) => update("why", e.target.value)}
+            maxLength={600}
           />
           <div className="text-xxs text-mute text-right mt-1">{form.why.length} / 600</div>
         </div>
@@ -291,7 +315,7 @@ export default function ApplyPage() {
         <div className="divider-old" />
 
         <div className="flex items-center gap-2 flex-wrap">
-          <Button type="submit" variant="primary" disabled={status === "submitting" || !address}>
+          <Button type="submit" variant="primary" disabled={status === "submitting"}>
             {status === "submitting" ? "Submitting…" : "Submit for Recognition"}
           </Button>
           <Button

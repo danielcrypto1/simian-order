@@ -8,13 +8,13 @@ export type ApplicationStatus = "none" | "pending" | "approved" | "rejected";
 export type TaskFlags = { opened: boolean; completed: boolean };
 
 export type State = {
-  walletConnected: boolean;
-  walletAddress: string | null;
-
   // New tasks model — keyed by task id (e.g. "follow", "retweet").
   taskState: Record<string, TaskFlags>;
 
-  // Identity submitted via the tasks form.
+  // The user's manually-entered identity. Set by submitIdentity from
+  // either the tasks page form or the apply form. Acts as the canonical
+  // "current wallet" across the site now that the auto-connect wallet
+  // system has been removed.
   twitterHandle: string | null;
   submittedWallet: string | null;
 
@@ -24,9 +24,6 @@ export type State = {
 };
 
 export type Actions = {
-  connectWallet: (addr: string) => void;
-  disconnectWallet: () => void;
-
   markTaskOpened: (id: string) => void;
   markTaskCompleted: (id: string) => void;
   resetTask: (id: string) => void;
@@ -46,8 +43,6 @@ export type Actions = {
 };
 
 const initialState: State = {
-  walletConnected: false,
-  walletAddress: null,
   taskState: {},
   twitterHandle: null,
   submittedWallet: null,
@@ -60,12 +55,6 @@ export const useStore = create<State & Actions>()(
   persist(
     (set, get) => ({
       ...initialState,
-
-      connectWallet: (addr) =>
-        set({ walletConnected: true, walletAddress: addr }),
-
-      disconnectWallet: () =>
-        set({ walletConnected: false, walletAddress: null }),
 
       markTaskOpened: (id) =>
         set((s) => ({
@@ -113,10 +102,12 @@ export const useStore = create<State & Actions>()(
     {
       name: "simian-store",
       storage: createJSONStorage(() => localStorage),
-      // v5 strips the auto-tracked referral fields (replaced by the curated
-      // submission system, server-owned). v4 dropped FCFS fields. v3
-      // dropped mintEligible. v2 migrated per-task booleans into taskState.
-      version: 5,
+      // v6 strips wallet-connect state (walletConnected, walletAddress)
+      // — auto-connect was removed; submittedWallet is now the canonical
+      // user-entered identity. v5 stripped auto-tracked referral fields.
+      // v4 dropped FCFS fields. v3 dropped mintEligible. v2 migrated
+      // per-task booleans into taskState.
+      version: 6,
       migrate: (persisted, fromVersion) => {
         if (!persisted || typeof persisted !== "object") return persisted as State;
         const p = persisted as Record<string, unknown>;
@@ -152,6 +143,11 @@ export const useStore = create<State & Actions>()(
           delete p.referralCount;
           delete p.referralLimit;
           delete p.referralCode;
+        }
+
+        if (fromVersion < 6) {
+          delete p.walletConnected;
+          delete p.walletAddress;
         }
 
         return p as unknown as State;

@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Logo from "./Logo";
-import ConnectWalletButton from "./ConnectWalletButton";
 import OpenseaLink from "./OpenseaLink";
 import { OPENSEA_HIDDEN } from "@/lib/links";
 
@@ -82,9 +81,9 @@ export default function TopBar() {
           </nav>
         </div>
 
-        {/* Right cluster: wallet button. The slight rotation is kept
-            on desktop only — tilted clickable controls on touch read
-            as broken. */}
+        {/* Right cluster: network telemetry only. Wallet connection has
+            been removed — identity is established via the apply form's
+            wallet input field, not a browser-extension handshake. */}
         <div
           className="flex items-end gap-3 pr-1 sm:pr-6"
           style={{ transform: "rotate(0.8deg)" }}
@@ -92,7 +91,6 @@ export default function TopBar() {
           <span className="hidden md:inline font-mono text-xxxs uppercase tracking-widest2 text-bleed pb-2">
             net: ape-main
           </span>
-          <ConnectWalletButton />
         </div>
       </div>
 

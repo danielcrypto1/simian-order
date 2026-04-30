@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
-import { useWallet } from "@/lib/wallet";
 import OpenseaLink from "@/components/OpenseaLink";
 import { OPENSEA_HIDDEN } from "@/lib/links";
 import { useRound } from "@/lib/useRound";
@@ -62,8 +61,21 @@ function isWallet(s: string): boolean {
 export default function ReferralPage() {
   const hasHydrated = useStore((s) => s._hasHydrated);
   const applicationStatus = useStore((s) => s.applicationStatus);
-  const { address } = useWallet();
+  const submittedWallet = useStore((s) => s.submittedWallet);
+  const submitIdentity = useStore((s) => s.submitIdentity);
+  const twitterHandle = useStore((s) => s.twitterHandle);
   const round = useRound();
+
+  // Identity wallet — the wallet whose summoning slate this page is
+  // viewing. Defaults to the persisted submittedWallet (set when the
+  // user filed their HIGH ORDER application or completed the tasks
+  // form). If neither has happened, the page asks for a wallet first.
+  const [identityWallet, setIdentityWallet] = useState<string | null>(null);
+  const [walletLookup, setWalletLookup] = useState("");
+  const [walletLookupError, setWalletLookupError] = useState<string | null>(null);
+  useEffect(() => {
+    if (submittedWallet) setIdentityWallet(submittedWallet);
+  }, [submittedWallet]);
 
   // Post-void clearance hint — flips the status tag from "200 / clearance"
   // to "200 / clearance: partial" once the user has been deeper.
@@ -99,13 +111,13 @@ export default function ReferralPage() {
     []
   );
 
-  // Read existing submission on mount + whenever the wallet changes.
+  // Read existing submission on mount + whenever the identity wallet changes.
   const refresh = useCallback(async () => {
-    if (!address) return;
+    if (!identityWallet) return;
     setLoading(true);
     setLoadError(null);
     try {
-      const r = await fetch(`/api/referrals?wallet=${address}`, { cache: "no-store" });
+      const r = await fetch(`/api/referrals?wallet=${identityWallet}`, { cache: "no-store" });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
         throw new Error(j.error || `http_${r.status}`);
@@ -117,8 +129,49 @@ export default function ReferralPage() {
     } finally {
       setLoading(false);
     }
-  }, [address]);
+  }, [identityWallet]);
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Also refresh the user's application status from the server, so the
+  // ACCESS DENIED gate reflects the latest verdict for this wallet —
+  // important now that there's no auto-connect to drive the apply page
+  // refresh effect.
+  const approveApplication = useStore((s) => s.approveApplication);
+  const rejectApplication  = useStore((s) => s.rejectApplication);
+  const submitApplicationAct = useStore((s) => s.submitApplication);
+  const resetApplication = useStore((s) => s.resetApplication);
+  useEffect(() => {
+    if (!identityWallet) return;
+    let cancelled = false;
+    fetch(`/api/application?wallet=${identityWallet}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (cancelled) return;
+        const s = j?.application?.status as
+          | "pending" | "approved" | "rejected" | undefined;
+        if (s === "approved") approveApplication();
+        else if (s === "rejected") rejectApplication();
+        else if (s === "pending") submitApplicationAct();
+        else resetApplication();
+      })
+      .catch(() => { /* leave existing status */ });
+    return () => { cancelled = true; };
+  }, [identityWallet, approveApplication, rejectApplication, submitApplicationAct, resetApplication]);
+
+  function handleLookupSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setWalletLookupError(null);
+    const w = walletLookup.trim().toLowerCase();
+    if (!isWallet(w)) {
+      setWalletLookupError("invalid wallet — paste a 0x… ApeChain address");
+      return;
+    }
+    setIdentityWallet(w);
+    // Persist as the canonical wallet so other pages pick it up too.
+    // Use the existing submitIdentity action; if no twitter is recorded
+    // yet, leave the placeholder so the apply form can fill it later.
+    submitIdentity(w, twitterHandle ?? "");
+  }
 
   // ── HYDRATION GUARD ───────────────────────────────────────────
   if (!hasHydrated) {
@@ -126,6 +179,59 @@ export default function ReferralPage() {
       <p className="font-mono text-xxs text-mute uppercase tracking-widest2">
         &gt; restoring session<span className="blink">_</span>
       </p>
+    );
+  }
+
+  // ── NO IDENTITY YET — ASK FOR WALLET ─────────────────────────
+  // Without a connected wallet, we need the user's wallet address to
+  // look up their HIGH ORDER status and existing summoning slate.
+  if (!identityWallet) {
+    return (
+      <div className="max-w-[640px] tilt-l">
+        <p className="font-mono text-xxxs uppercase tracking-widest2 text-elec mb-2">
+          ── status / 100 / identify ──
+        </p>
+        <h1 className="headline text-[32px] sm:text-6xl leading-tight mb-3">
+          identify yourself<span className="blink text-bleed">.</span>
+        </h1>
+        <p className="font-serif italic text-base text-ape-200 mb-6">
+          paste your ape-chain wallet to view your summoning.
+        </p>
+        <div className="divider-glitch max-w-[280px] mb-6" aria-hidden />
+        <form onSubmit={handleLookupSubmit} className="space-y-3 max-w-[480px]">
+          <input
+            type="text"
+            className="field font-mono"
+            placeholder="0x..."
+            value={walletLookup}
+            onChange={(e) => setWalletLookup(e.target.value)}
+            maxLength={64}
+            aria-label="wallet address"
+            autoFocus
+          />
+          {walletLookupError && (
+            <div className="border border-red-700 bg-red-950 px-2 py-1 text-xxs text-red-200">
+              error: {walletLookupError}
+            </div>
+          )}
+          <button
+            type="submit"
+            className="text-link"
+            style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer" }}
+          >
+            [ identify ]
+          </button>
+          <p className="font-mono text-xxxs uppercase tracking-widest2 text-mute pt-2">
+            // no browser wallet required. paste only.
+          </p>
+        </form>
+        <p className="font-mono text-xs text-mute leading-relaxed mt-8">
+          haven&rsquo;t filed yet?{" "}
+          <a href="/dashboard/apply" className="text-link">
+            &gt; enter the high order
+          </a>
+        </p>
+      </div>
     );
   }
 
@@ -139,8 +245,18 @@ export default function ReferralPage() {
         <h1 className="headline text-[32px] sm:text-6xl leading-tight text-bleed mb-3">
           access denied<span className="blink">.</span>
         </h1>
-        <p className="font-serif italic text-base text-ape-200 mb-8">
+        <p className="font-serif italic text-base text-ape-200 mb-3">
           you are not permitted to summon.
+        </p>
+        <p className="font-mono text-xxs uppercase tracking-widest2 text-mute mb-6 break-all">
+          // wallet: {identityWallet}{" "}
+          <button
+            type="button"
+            onClick={() => { setIdentityWallet(null); setWalletLookup(""); }}
+            className="text-ape-300 underline"
+          >
+            change
+          </button>
         </p>
         <div className="divider-glitch max-w-[280px] mb-8" aria-hidden />
         <p className="font-mono text-xs text-mute leading-relaxed mb-6">
@@ -277,7 +393,7 @@ export default function ReferralPage() {
   }
 
   function clientValidate(): { ok: true; entries: FormRow[] } | { ok: false; error: string } {
-    if (!address) return { ok: false, error: "connect a wallet first" };
+    if (!identityWallet) return { ok: false, error: "identify your wallet first" };
     // Filter to filled rows — at least one must have content.
     const filled = rows
       .map((r) => ({
@@ -294,7 +410,7 @@ export default function ReferralPage() {
       if (!isWallet(r.wallet)) {
         return { ok: false, error: `row ${i + 1}: invalid wallet` };
       }
-      if (r.wallet === address.toLowerCase()) {
+      if (r.wallet === identityWallet.toLowerCase()) {
         return { ok: false, error: `row ${i + 1}: cannot select your own wallet` };
       }
       if (seen.has(r.wallet)) {
@@ -321,7 +437,7 @@ export default function ReferralPage() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          wallet: address,
+          wallet: identityWallet,
           entries: v.entries,
         }),
       });
@@ -383,7 +499,7 @@ export default function ReferralPage() {
           <div className="flex items-center gap-3 pt-2 flex-wrap">
             <button
               type="submit"
-              disabled={submitting || !address}
+              disabled={submitting || !identityWallet}
               className="text-link"
               style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer" }}
             >

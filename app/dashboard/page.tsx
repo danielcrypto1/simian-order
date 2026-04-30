@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import StatusBadge from "@/components/StatusBadge";
 import Button from "@/components/Button";
 import { useStore } from "@/lib/store";
-import { useWallet } from "@/lib/wallet";
 import OpenseaLink from "@/components/OpenseaLink";
 import { OPENSEA_HIDDEN } from "@/lib/links";
 import { useRound } from "@/lib/useRound";
@@ -25,25 +24,31 @@ type SubmissionLite = {
 
 export default function DashboardPage() {
   const {
-    walletConnected,
     applicationStatus,
     tasksCompleted,
+    submittedWallet,
+    twitterHandle,
   } = useStore();
-  const { address } = useWallet();
   const round = useRound();
+
+  // The user's identity is the wallet they entered on the apply or
+  // tasks form. If neither has happened yet, the dashboard reads as a
+  // pre-identity state ("the order does not yet know you") and the
+  // submission lookup is skipped.
+  const knownIdentity = !!submittedWallet;
 
   // Pull the live submission for this wallet so Room 03 surfaces the
   // server-truth state (no client-side ?count? — the order decides).
   const [submission, setSubmission] = useState<SubmissionLite>(null);
   useEffect(() => {
-    if (!address) { setSubmission(null); return; }
+    if (!submittedWallet) { setSubmission(null); return; }
     let cancelled = false;
-    fetch(`/api/referrals?wallet=${address}`, { cache: "no-store" })
+    fetch(`/api/referrals?wallet=${submittedWallet}`, { cache: "no-store" })
       .then((r) => r.ok ? r.json() : null)
       .then((j) => { if (!cancelled) setSubmission((j?.submission ?? null) as SubmissionLite); })
       .catch(() => { /* offline — leave null, Room 03 stays generic */ });
     return () => { cancelled = true; };
-  }, [address]);
+  }, [submittedWallet]);
 
   const submittedCount  = submission?.entries.length ?? 0;
   const approvedCount   = submission?.entries.filter((e) => e.status === "approved").length ?? 0;
@@ -57,8 +62,7 @@ export default function DashboardPage() {
 
   const tasksBadge =
     tasksCompleted ? <StatusBadge status="Done" /> :
-    walletConnected ? <StatusBadge status="Open" /> :
-                      <StatusBadge status="Locked" />;
+                     <StatusBadge status="Open" />;
 
   const submissionBadge =
     applicationStatus !== "approved"        ? <StatusBadge status="Locked" /> :
@@ -74,14 +78,17 @@ export default function DashboardPage() {
           // greeting.txt
         </div>
         <h1 className="headline text-[28px] sm:text-5xl leading-tight mb-3">
-          {walletConnected
+          {knownIdentity
             ? <>the order recognises you<span className="text-bleed">.</span></>
             : <>the order does not yet know you<span className="text-bleed">.</span></>}
         </h1>
         <div className="flex items-center gap-3 flex-wrap">
           {appBadge}
           <span className="font-serif italic text-sm text-mute">
-            &mdash; round {round ?? "—"}, the high order still considers.
+            &mdash; round {round ?? "—"},{" "}
+            {knownIdentity && twitterHandle
+              ? <>filed as <span className="text-bone not-italic">@{twitterHandle}</span>.</>
+              : "the high order still considers."}
           </span>
         </div>
       </section>
@@ -154,7 +161,7 @@ export default function DashboardPage() {
           tilt="tilt-l"
           marginLeft="ml-6 sm:ml-12"
           title="tasks"
-          state={tasksCompleted ? "complete" : walletConnected ? "in progress" : "locked"}
+          state={tasksCompleted ? "complete" : knownIdentity ? "in progress" : "open"}
           badge={tasksBadge}
           href="/dashboard/tasks"
           cta="open quest log"
