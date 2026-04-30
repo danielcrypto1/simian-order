@@ -25,6 +25,37 @@ function isWallet(s: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(s.trim());
 }
 
+const STORY_MAX = 1500;
+const STORY_MIN = 60;
+
+/**
+ * Four-pillar qualification manifesto rendered above the form.
+ * Each pillar is one short imperative line — no marketing copy. The
+ * tone is dossier, not landing-page.
+ */
+const PILLARS: { num: string; title: string; line: string }[] = [
+  {
+    num: "I.",
+    title: "PROVEN DEGEN STATUS",
+    line: "scars over hype. the chain remembers your address.",
+  },
+  {
+    num: "II.",
+    title: "APECHAIN ALIGNMENT",
+    line: "home is not a buzzword. you live here.",
+  },
+  {
+    num: "III.",
+    title: "DISCIPLINE OVER EMOTION",
+    line: "you sold green and held red — both with steady hands.",
+  },
+  {
+    num: "IV.",
+    title: "UNDERSTANDING THE ORDER",
+    line: "this is not a club. it does not need members.",
+  },
+];
+
 export default function ApplyPage() {
   const {
     approveApplication, rejectApplication, submitApplication,
@@ -104,12 +135,17 @@ export default function ApplyPage() {
     track("apply_submit");
     const handle = form.handle.trim().replace(/^@+/, "");
     const wallet = form.wallet.trim().toLowerCase();
+    const story = form.why.trim();
     if (!isWallet(wallet)) {
       setErrorMsg("invalid wallet — paste a 0x… ApeChain address");
       return;
     }
     if (handle.length < 1) {
       setErrorMsg("X / twitter handle required");
+      return;
+    }
+    if (story.length < STORY_MIN) {
+      setErrorMsg(`your story is too short (${story.length} / ${STORY_MIN} chars min)`);
       return;
     }
     setStatus("submitting");
@@ -121,7 +157,7 @@ export default function ApplyPage() {
           wallet,
           twitter: handle,
           discord: form.discord.trim() || null,
-          why: form.why.trim() || null,
+          why: story || null,
         }),
       });
       const j = await res.json().catch(() => ({}));
@@ -236,6 +272,9 @@ export default function ApplyPage() {
     );
   }
 
+  const storyLen = form.why.trim().length;
+  const storyShort = storyLen > 0 && storyLen < STORY_MIN;
+
   return (
     <>
     <Panel
@@ -250,14 +289,75 @@ export default function ApplyPage() {
         <p className="text-elec">// round {round ?? "—"} recognition active</p>
         <p className="text-bleed">// few will be recognised</p>
       </div>
-      <p className="font-serif italic text-xs text-mute mb-3 -mt-1">
+      <p className="font-serif italic text-xs text-mute mb-6 -mt-1">
         submit for recognition. the order chooses who walks through.
       </p>
 
-      <form onSubmit={submit} className="space-y-3">
+      {/* ─── QUALIFICATION CRITERIA ──────────────────────────────────────
+          Four-pillar manifesto block. Minimal chrome — a thin top/bottom
+          rule, mono caps header, then each pillar on its own row with
+          a pixel roman numeral, an uppercase title, and a single italic
+          serif line of substance. No card, no gradient, no buttons. */}
+      <section
+        className="mb-6 border-t border-b border-border py-5 px-1"
+        aria-label="HIGH ORDER qualification criteria"
+      >
+        <div className="flex items-baseline gap-3 mb-4 flex-wrap">
+          <span className="font-mono text-xxxs uppercase tracking-widest2 text-bleed">
+            ──
+          </span>
+          <h2 className="font-mono text-xs sm:text-sm uppercase tracking-widest2 text-bone">
+            HIGH ORDER &mdash; QUALIFICATION CRITERIA
+          </h2>
+          <span className="font-mono text-xxxs uppercase tracking-widest2 text-bleed">
+            ──
+          </span>
+        </div>
+
+        <ol className="space-y-4 list-none pl-0">
+          {PILLARS.map((p) => (
+            <li
+              key={p.num}
+              className="grid grid-cols-[44px_1fr] sm:grid-cols-[60px_1fr] gap-x-3 sm:gap-x-5 items-baseline"
+            >
+              <span
+                className="font-pixel text-bleed text-xl sm:text-2xl leading-none select-none"
+                aria-hidden
+              >
+                {p.num}
+              </span>
+              <div className="min-w-0">
+                <div className="font-mono text-xs sm:text-sm uppercase tracking-widest2 text-bone leading-tight">
+                  {p.title}
+                </div>
+                <div className="font-serif italic text-xs sm:text-sm text-ape-200 leading-snug mt-1">
+                  {p.line}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ol>
+
+        <div className="divider-glitch max-w-[220px] my-5" aria-hidden />
+
+        {/* FINAL NOTE — italic serif, slight tilt, the only flourish in
+            the section. The two lines stand alone; no surrounding chrome. */}
+        <div className="tilt-r2">
+          <p className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-2">
+            ── final note ──
+          </p>
+          <blockquote className="font-serif italic text-base sm:text-lg text-ape-100 leading-snug">
+            &ldquo;Not everyone who applies will be accepted.
+            <br />
+            And not everyone who is accepted will remain.&rdquo;
+          </blockquote>
+        </div>
+      </section>
+
+      <form onSubmit={submit} className="space-y-4">
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
-            <label className="label">x / twitter handle</label>
+            <label className="label">x username</label>
             <input
               className="field"
               placeholder="@yourhandle"
@@ -268,7 +368,7 @@ export default function ApplyPage() {
             />
           </div>
           <div>
-            <label className="label">discord</label>
+            <label className="label">discord (optional)</label>
             <input
               className="field"
               placeholder="user#0000"
@@ -294,16 +394,42 @@ export default function ApplyPage() {
           </div>
         </div>
 
+        {/* ── YOUR STORY ──
+            The substance of the application. Minimal label, strong
+            placeholder that frames the three things the order wants
+            to read about. Higher character ceiling so people can
+            actually tell the story. */}
         <div>
-          <label className="label">why the order</label>
+          <label className="label">your story</label>
+          <p className="font-serif italic text-xs text-mute mb-2 -mt-1">
+            tell the order, in your own words:
+            <br />
+            &mdash; how you got rugged.
+            <br />
+            &mdash; why you stayed.
+            <br />
+            &mdash; what you have lived through on chain.
+          </p>
           <textarea
-            className="field min-h-[120px]"
-            placeholder="speak plainly. lore optional."
+            className="field min-h-[220px] leading-relaxed"
+            placeholder="speak plainly. the order does not reward polish."
             value={form.why}
             onChange={(e) => update("why", e.target.value)}
-            maxLength={600}
+            maxLength={STORY_MAX}
+            required
           />
-          <div className="text-xxs text-mute text-right mt-1">{form.why.length} / 600</div>
+          <div className="flex items-center justify-between text-xxs mt-1 gap-3 flex-wrap">
+            <span className={storyShort ? "text-bleed" : "text-mute"}>
+              {storyShort
+                ? `${STORY_MIN - storyLen} more characters required.`
+                : storyLen === 0
+                ? `${STORY_MIN} characters minimum.`
+                : "the order reads everything."}
+            </span>
+            <span className="text-mute font-mono">
+              {form.why.length} / {STORY_MAX}
+            </span>
+          </div>
         </div>
 
         {errorMsg && (
