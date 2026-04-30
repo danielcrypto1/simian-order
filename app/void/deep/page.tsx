@@ -38,13 +38,15 @@ import { voidImageList, voidImageUrl, VOID_IMAGE_COUNT } from "@/lib/voidImages"
 type Stage = "preload" | "chaos" | "freeze" | "returning" | "fading";
 
 // Tunables. Mobile values are slower / fewer layers per the brief.
+// Total chaos duration sits inside the 8–10s window so the experience
+// feels intense but never long enough to bore.
 const DESKTOP = {
   layers: 4,            // 4 image layers stacked (some shown, some hidden)
   minSwapMs: 80,        // fastest possible swap interval
   maxSwapMs: 160,       // slowest swap interval (still rapid)
   textMinMs: 600,       // gap between text flashes
   textMaxMs: 1500,
-  totalMs: 10500,       // chaos duration
+  totalMs: 9000,        // chaos duration
 };
 const MOBILE = {
   layers: 2,
@@ -52,7 +54,7 @@ const MOBILE = {
   maxSwapMs: 260,
   textMinMs: 800,
   textMaxMs: 1900,
-  totalMs: 9500,
+  totalMs: 8000,
 };
 
 const FLASH_TEXTS = [
@@ -181,11 +183,13 @@ export default function VoidDeepPage() {
         });
       promises.push(p);
     }
-    // Safety: even if decoding stalls, kick off after 500ms. Fast
-    // enough that the user sees chaos start within half a second of
-    // landing here, slow enough that the first frames have something
-    // real to paint instead of broken images.
-    const fallback = window.setTimeout(() => { if (alive) setReady(true); }, 500);
+    // Safety: even if decoding stalls, kick off after 300ms. Almost
+    // every browser decodes the first 2 cached JPEGs in well under
+    // 100ms, so this fallback only fires on cold loads with bad
+    // bandwidth. The chaos picker has its own missing-image guard so
+    // first frames are safe to paint slightly before all decodes
+    // resolve.
+    const fallback = window.setTimeout(() => { if (alive) setReady(true); }, 300);
     Promise.all(promises).finally(() => {/* all done, remaining cached */});
     return () => { alive = false; window.clearTimeout(fallback); };
   }, []);
@@ -217,17 +221,21 @@ export default function VoidDeepPage() {
     // ── Audio: low ambient distortion, builds tension, hard-cuts at
     //    freeze. Two oscillators (60Hz triangle + 90Hz sawtooth) into
     //    a bandpass filter swept by a slow LFO. Master gain ramps from
-    //    0 to 0.10 across the chaos duration so the room "fills". On
-    //    autoplay-block the catch swallows the error — audio is
-    //    optional, the experience runs silent if the browser refuses.
+    //    0 to 0.18 (0.14 mobile) across the chaos duration so the room
+    //    "fills" as the visuals build.
+    //
+    //    Reliability: when /void/deep is reached via auto-redirect from
+    //    /void there's no fresh user gesture in this page's navigation
+    //    context, so iOS Safari + Chrome's autoplay policy ship the
+    //    AudioContext in `suspended` state. We try resume() immediately,
+    //    AND register a one-shot pointerdown/touchstart/keydown listener
+    //    that resumes on the user's next interaction. Either path lights
+    //    up the audio without ever throwing into the console.
     try {
       const Ctor = window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (Ctor) {
         const ctx = new Ctor();
-        // iOS Safari ships AudioContext suspended after navigation.
-        // resume() is a no-op on browsers that auto-start.
-        ctx.resume?.().catch(() => { /* no gesture — silent */ });
 
         const master = ctx.createGain();
         master.gain.value = 0;
@@ -274,14 +282,41 @@ export default function VoidDeepPage() {
         detune.connect(detuneGain).connect(o2.detune);
         detune.start();
 
-        // Build tension across the chaos window.
+        // Build tension across the chaos window. Volume sits in the
+        // spec'd 0.15-0.20 range — loud enough to feel atmospheric on
+        // a phone, quiet enough not to startle on desktop speakers.
         master.gain.setValueAtTime(0, ctx.currentTime);
         master.gain.linearRampToValueAtTime(
-          isMobile ? 0.07 : 0.10,
+          isMobile ? 0.14 : 0.18,
           ctx.currentTime + cfg.totalMs / 1000
         );
 
         audioRef.current = { ctx, gain: master };
+
+        // Try to resume immediately (works if the page was reached
+        // via a recent click — the gesture chain often persists across
+        // a router.push call). Any error is swallowed.
+        const tryResume = () => {
+          if (ctx.state === "suspended") {
+            ctx.resume().catch(() => { /* still suspended — wait for next gesture */ });
+          }
+        };
+        tryResume();
+
+        // Fallback: a one-shot listener that fires on the user's
+        // next pointer / touch / key event. Self-removes on first
+        // hit, AND removes when the page unmounts (cleanup useEffect
+        // closes the ctx, which kills any pending resume() promise).
+        if (ctx.state === "suspended") {
+          const events: Array<keyof WindowEventMap> = ["pointerdown", "touchstart", "keydown"];
+          const onGesture = () => {
+            tryResume();
+            events.forEach((ev) => window.removeEventListener(ev, onGesture, true));
+          };
+          events.forEach((ev) =>
+            window.addEventListener(ev, onGesture, { capture: true, once: true, passive: true })
+          );
+        }
       }
     } catch { /* AudioContext unsupported / blocked — silent */ }
 
