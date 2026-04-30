@@ -9,10 +9,11 @@ import {
   upsertApplication,
 } from "@/lib/applicationsStore";
 import {
-  addReferral,
-  getOrCreateLink,
-  removeReferral,
-} from "@/lib/referralsStore";
+  upsertSubmission,
+  setEntryStatus,
+  deleteSubmission,
+  getSubmission,
+} from "@/lib/submissionsStore";
 import { generateSignature, getSignerAddress } from "@/lib/signature";
 import { TEST_IDS, type TestId, type TestResult } from "@/lib/systemTests";
 
@@ -27,7 +28,7 @@ type TestOutcome = {
 const NAMES: Record<TestId, string> = {
   application: "Application Flow",
   approval: "Approval Flow",
-  referral: "Referral Flow",
+  submission: "Submission Flow",
   signature: "Signature",
 };
 
@@ -111,42 +112,63 @@ async function testApproval(): Promise<TestOutcome> {
   };
 }
 
-async function testReferral(): Promise<TestOutcome> {
+// Curated submission flow — exercises the full lifecycle:
+//  - referrer is application-approved
+//  - submits a list of one entry
+//  - admin approves the entry → entry status flips
+//  - cleanup deletes the submission
+async function testSubmission(): Promise<TestOutcome> {
   const referrer = newWallet();
   const referee = newWallet();
-  const before = await getOrCreateLink(referrer);
-  const before1 = before.referred.length;
+  const cleanup = async () => {
+    try { await deleteSubmission(referrer); } catch { /* noop */ }
+    try { await deleteApplication(referrer); } catch { /* noop */ }
+  };
 
-  const r = await addReferral(referrer, referee);
-  const cleanup = async () => { await removeReferral(referrer, referee); };
-  if (!r.ok) return { ok: false, message: `addReferral failed: ${r.error}`, cleanup };
+  // Set up: create an approved application for the referrer so they
+  // pass the gate inside upsertSubmission.
+  await upsertApplication({
+    wallet: referrer,
+    twitter: "test_" + referrer.slice(2, 8),
+    why: null,
+    discord: null,
+    referrer_input: null,
+    source: "apply",
+  });
+  await setStatus(referrer, "approved");
 
-  const after = await getOrCreateLink(referrer);
-  if (after.referred.length !== before1 + 1) {
-    return {
-      ok: false,
-      message: `count not incremented: ${before1} → ${after.referred.length}`,
-      cleanup,
-    };
+  const submitted = await upsertSubmission({
+    referrerWallet: referrer,
+    entries: [
+      { x: "tx_" + referee.slice(2, 6), discord: "td_" + referee.slice(2, 6), wallet: referee },
+    ],
+  });
+  if (!submitted.ok) {
+    return { ok: false, message: `upsert failed: ${submitted.error}`, cleanup };
   }
-  if (!after.referred.includes(referee)) {
-    return { ok: false, message: "referee not in referrer's list", cleanup };
+  if (submitted.submission.entries[0].status !== "pending") {
+    return { ok: false, message: "expected pending after submit", cleanup };
   }
-  const dup = await addReferral(referrer, referee);
-  if (dup.ok) return { ok: false, message: "duplicate referee should have been rejected", cleanup };
-  if (dup.error !== "already_referred") {
-    return { ok: false, message: `expected already_referred, got ${dup.error}`, cleanup };
+
+  const decided = await setEntryStatus(referrer, referee, "approved");
+  if (!decided) {
+    return { ok: false, message: "setEntryStatus returned null", cleanup };
   }
+  if (decided.entries[0].status !== "approved") {
+    return { ok: false, message: `decision did not persist: ${decided.entries[0].status}`, cleanup };
+  }
+
+  const reread = await getSubmission(referrer);
+  if (!reread || reread.entries[0].status !== "approved") {
+    return { ok: false, message: "approval did not persist on re-read", cleanup };
+  }
+
   return {
     ok: true,
-    message: `code=${after.code}, count ${before1}→${after.referred.length}, duplicate rejected`,
+    message: `submitted 1 entry, admin approve → status=approved persisted`,
     cleanup,
   };
 }
-
-// FCFS test removed along with the FCFS allocation system — see
-// referral test below for the replacement guarantee path (5 referrals
-// → automatic GTD).
 
 async function testSignature(): Promise<TestOutcome> {
   const wallet = newWallet();
@@ -195,7 +217,7 @@ async function runByList(
   for (const id of ids) {
     if (id === "application")     out.push(await runOne(id, testApplication));
     else if (id === "approval")   out.push(await runOne(id, testApproval));
-    else if (id === "referral")   out.push(await runOne(id, testReferral));
+    else if (id === "submission") out.push(await runOne(id, testSubmission));
     else if (id === "signature")  out.push(await runOne(id, testSignature));
   }
   return out;

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { upsertApplication } from "@/lib/applicationsStore";
-import { addReferral, findLinkByCode } from "@/lib/referralsStore";
 
 export const runtime = "nodejs";
 
@@ -8,6 +7,18 @@ function isWallet(s: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(s.trim());
 }
 
+/**
+ * Application submission endpoint.
+ *
+ *   POST /api/apply
+ *   body: { wallet, twitter|handle, discord?, why?, source?: "apply"|"quest" }
+ *   →  { ok: true, application }
+ *
+ * The legacy referrer_input field has been removed along with the
+ * auto-tracked referral link system. Curated referrals now flow
+ * through POST /api/referrals/submit-list (admin-approved per entry)
+ * — this endpoint no longer attempts any referral linkage.
+ */
 export async function POST(req: Request) {
   let body: unknown;
   try { body = await req.json(); } catch {
@@ -15,7 +26,7 @@ export async function POST(req: Request) {
   }
   const b = body as {
     wallet?: unknown; handle?: unknown; discord?: unknown;
-    why?: unknown; referrer_input?: unknown; twitter?: unknown;
+    why?: unknown; twitter?: unknown;
     source?: unknown;
   };
 
@@ -38,39 +49,18 @@ export async function POST(req: Request) {
   const discord = typeof b.discord === "string" && b.discord.trim()
     ? b.discord.trim().slice(0, 64)
     : null;
-  const referrerInput =
-    typeof b.referrer_input === "string" && b.referrer_input.trim().length > 0
-      ? b.referrer_input.trim().toUpperCase()
-      : null;
 
-  // Source: "apply" by default. Quest auto-submission from the tasks
-  // page passes source="quest" so admin can filter on it. Anything else
-  // is rejected so the field can never be smuggled.
   const source: "apply" | "quest" =
     b.source === "quest" ? "quest" : "apply";
 
-  // ALWAYS pending on a formal apply submission. Quest submissions
-  // preserve any existing admin decision (handled inside upsertApplication).
   const application = await upsertApplication({
     wallet,
     twitter,
     why,
     discord,
-    referrer_input: referrerInput,
+    referrer_input: null,
     source,
   });
 
-  // Referral linkage (best-effort, doesn't block application creation).
-  let referralResult: { ok: boolean; error?: string } | null = null;
-  if (referrerInput) {
-    const link = await findLinkByCode(referrerInput);
-    if (link) {
-      const r = await addReferral(link.wallet, wallet);
-      referralResult = r.ok ? { ok: true } : { ok: false, error: r.error };
-    } else {
-      referralResult = { ok: false, error: "code_not_found" };
-    }
-  }
-
-  return NextResponse.json({ ok: true, application, referral: referralResult });
+  return NextResponse.json({ ok: true, application });
 }

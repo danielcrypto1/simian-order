@@ -1,44 +1,66 @@
 import { NextResponse } from "next/server";
-import { listAllLinks, REFERRAL_LIMIT } from "@/lib/referralsStore";
-import { listApplications } from "@/lib/applicationsStore";
+import { listSubmissions, listGtdWallets } from "@/lib/submissionsStore";
+import { getKolMap } from "@/lib/kolStore";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
+/**
+ * Admin read of every curated submission across every referrer,
+ * joined with the KOL registry so the panel can render KOL badges
+ * inline with each row.
+ *
+ *   GET /api/admin/referrals
+ *   →  {
+ *        items: Array<Submission & {
+ *          referrer_isKOL: boolean,
+ *          referrer_tag: string,    // empty string if no tag
+ *        }>,
+ *        total: number,             // submissions
+ *        totalEntries: number,      // total entries across all
+ *        approvedTotal: number,     // entries with status === "approved"
+ *        pendingTotal: number,
+ *        rejectedTotal: number,
+ *        approvedWallets: string[], // GTD list — admin-approved entries
+ *      }
+ *
+ * Sorted newest-activity first via listSubmissions().
+ *
+ * Auth: gated by the existing /api/admin/* middleware (httpOnly
+ * admin-session cookie). The KOL join + status totals are computed
+ * here so the admin page doesn't have to roll them itself.
+ */
 export async function GET() {
-  const [links, apps] = await Promise.all([listAllLinks(), listApplications()]);
+  const [items, approvedWallets] = await Promise.all([
+    listSubmissions(),
+    listGtdWallets(),
+  ]);
 
-  // Hydrate each referee with their application status (if any),
-  // and compute GTD: a referrer who has hit the 5-referral cap is
-  // automatically GTD'd (their wallet is guaranteed access).
-  const items = links.map((l) => {
-    const count = l.referred.length;
-    return {
-      wallet: l.wallet,
-      code: l.code,
-      count,
-      limit: REFERRAL_LIMIT,
-      gtd: count >= REFERRAL_LIMIT,
-      // Round / timestamp at which this wallet hit the GTD cap. Null
-      // for any wallet that hasn't reached 5 referrals yet, OR that
-      // capped before this field was introduced (legacy data).
-      gtdRound: l.gtdRound ?? null,
-      gtdAt: l.gtdAt ?? null,
-      createdAt: l.createdAt,
-      referred: l.referred.map((w) => {
-        const app = apps.find((a) => a.wallet.toLowerCase() === w);
-        return {
-          wallet: w,
-          twitter: app?.twitter ?? null,
-          status: app?.status ?? null,
-        };
-      }),
-    };
-  });
+  const kolMap = await getKolMap(items.map((s) => s.referrerWallet));
+
+  const decorated = items.map((s) => ({
+    ...s,
+    referrer_isKOL: kolMap.has(s.referrerWallet),
+    referrer_tag: kolMap.get(s.referrerWallet) ?? "",
+  }));
+
+  let approvedTotal = 0, pendingTotal = 0, rejectedTotal = 0, totalEntries = 0;
+  for (const s of items) {
+    for (const e of s.entries) {
+      totalEntries++;
+      if (e.status === "approved") approvedTotal++;
+      else if (e.status === "rejected") rejectedTotal++;
+      else pendingTotal++;
+    }
+  }
 
   return NextResponse.json({
-    items,
+    items: decorated,
     total: items.length,
-    totalReferred: items.reduce((sum, i) => sum + i.count, 0),
-    gtdTotal: items.filter((i) => i.gtd).length,
+    totalEntries,
+    approvedTotal,
+    pendingTotal,
+    rejectedTotal,
+    approvedWallets,
   });
 }

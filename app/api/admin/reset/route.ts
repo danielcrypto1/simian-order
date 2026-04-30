@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { clearAllApplications } from "@/lib/applicationsStore";
-import { clearAllReferrals } from "@/lib/referralsStore";
+import { clearAllSubmissions } from "@/lib/submissionsStore";
 import { getStore } from "@/lib/adminStore";
 
 export const runtime = "nodejs";
@@ -8,6 +8,7 @@ export const runtime = "nodejs";
 // Wipes every transactional store back to empty. Mint config is preserved
 // (admin-edited, not user data). Whitelist is process-local — clears for
 // the current lambda only (matches existing semantics for whitelist).
+// KOL registry intentionally NOT cleared — it's admin-owned metadata.
 export async function POST(req: Request) {
   let body: unknown = {};
   try { body = await req.json(); } catch {}
@@ -19,18 +20,15 @@ export async function POST(req: Request) {
     );
   }
 
-  // Run sequentially. Concurrent PATCHes against the same gist race in
-  // GitHub's API and silently lose updates. Per-step try so a single
-  // failure doesn't abort the whole wipe — partial success still useful.
   const errors: Record<string, string> = {};
 
   let apps = 0;
   try { apps = await clearAllApplications(); }
   catch (e) { errors.applications = (e as Error).message; }
 
-  let refs = 0;
-  try { refs = await clearAllReferrals(); }
-  catch (e) { errors.referrals = (e as Error).message; }
+  let subs = 0;
+  try { subs = await clearAllSubmissions(); }
+  catch (e) { errors.submissions = (e as Error).message; }
 
   const store = getStore();
   const whitelistCount = store.whitelist.size;
@@ -42,7 +40,7 @@ export async function POST(req: Request) {
       ok: status === 200,
       cleared: {
         applications: apps,
-        referrers: refs,
+        submissions: subs,
         whitelist: whitelistCount,
       },
       errors: Object.keys(errors).length === 0 ? undefined : errors,

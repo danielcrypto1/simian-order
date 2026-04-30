@@ -101,32 +101,74 @@ export const adminApi = {
   deleteApplication: (w: string) =>
     req<{ ok: boolean }>(`/api/admin/applications/${w}`, { method: "DELETE" }),
 
+  /**
+   * Curated submissions (replaces the old auto-tracked referral
+   * link system). Each row is one referrer's submission, joined
+   * with the KOL registry so the panel renders KOL badges inline.
+   */
   listReferrals: () =>
     req<{
       items: Array<{
-        wallet: string;
-        code: string;
-        count: number;
-        limit: number;
-        gtd: boolean;
-        gtdRound: number | null;
-        gtdAt: string | null;
+        referrerWallet: string;
+        referrerRound: number;
+        referrer_isKOL: boolean;
+        referrer_tag: string;
+        entries: Array<{
+          x: string;
+          discord: string;
+          wallet: string;
+          status: "pending" | "approved" | "rejected";
+          decidedAt?: string;
+        }>;
         createdAt: string;
-        referred: Array<{ wallet: string; twitter: string | null; status: string | null }>;
+        updatedAt: string;
       }>;
       total: number;
-      totalReferred: number;
-      gtdTotal: number;
+      totalEntries: number;
+      approvedTotal: number;
+      pendingTotal: number;
+      rejectedTotal: number;
+      approvedWallets: string[];
     }>("/api/admin/referrals"),
-  simulateReferral: (referrer: string, referee?: string) =>
-    req<{ ok: boolean; referrer: string; referee: string }>("/api/admin/referrals/simulate", {
+  /**
+   * Approve / reject a single entry within a submission, or delete
+   * the whole submission so the referrer can re-submit.
+   */
+  decideReferralEntry: (
+    referrer: string,
+    referee: string,
+    action: "approve" | "reject"
+  ) =>
+    req<{ ok: boolean; submission?: unknown }>(
+      "/api/admin/referrals/decide",
+      {
+        method: "POST",
+        body: JSON.stringify({ referrer, referee, action }),
+      }
+    ),
+  deleteSubmission: (referrer: string) =>
+    req<{ ok: boolean }>("/api/admin/referrals/decide", {
       method: "POST",
-      body: JSON.stringify({ referrer, referee }),
+      body: JSON.stringify({ referrer, action: "delete" }),
     }),
-  removeReferral: (referrer: string, referee: string) =>
-    req<{ ok: boolean }>("/api/admin/referrals/remove", {
-      method: "POST",
-      body: JSON.stringify({ referrer, referee }),
+
+  /**
+   * KOL tag registry. Toggling a wallet on adds it; removing drops
+   * the badge in the panel. Tag is free-form text up to 64 chars.
+   */
+  listKols: () =>
+    req<{ items: Array<{ wallet: string; tag: string; addedAt: string }> }>(
+      "/api/admin/kol"
+    ),
+  setKol: (wallet: string, tag = "") =>
+    req<{ ok: boolean; entry: { wallet: string; tag: string; addedAt: string } }>(
+      "/api/admin/kol",
+      { method: "POST", body: JSON.stringify({ wallet, tag }) }
+    ),
+  removeKol: (wallet: string) =>
+    req<{ ok: boolean }>("/api/admin/kol", {
+      method: "DELETE",
+      body: JSON.stringify({ wallet }),
     }),
 
   resetAllData: () =>
@@ -134,7 +176,7 @@ export const adminApi = {
       ok: boolean;
       cleared: {
         applications: number;
-        referrers: number;
+        submissions: number;
         whitelist: number;
       };
     }>("/api/admin/reset", {
@@ -142,10 +184,10 @@ export const adminApi = {
       body: JSON.stringify({ confirm: true }),
     }),
 
-  runSystemTest: (only?: "application" | "approval" | "referral" | "signature") =>
+  runSystemTest: (only?: "application" | "approval" | "signature") =>
     req<{
       tests: Array<{
-        id: "application" | "approval" | "referral" | "signature";
+        id: "application" | "approval" | "signature";
         name: string;
         status: "PASS" | "FAIL";
         message: string;
