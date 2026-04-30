@@ -15,6 +15,7 @@ const sections = [
   { id: "mint", label: "Mint Controls" },
   { id: "apps", label: "High Order" },
   { id: "submitted-referrals", label: "The Five Summoning" },
+  { id: "backroom", label: "Back Room" },
   { id: "audit", label: "Link Audit" },
   { id: "system-test", label: "System Test" },
   { id: "reset", label: "Reset Data" },
@@ -125,6 +126,7 @@ export default function AdminDashboard() {
             <MintControlsSection cfg={cfg} onSaved={refresh} />
             <ApplicationsSection apps={apps} onAction={refresh} />
             <SubmittedReferralsSection refs={refs} onChanged={refresh} />
+            <BackroomSection />
             <LinkAuditSection />
             <SystemTestSection />
             <ResetSection onReset={refresh} />
@@ -1267,6 +1269,240 @@ function SubmittedReferralsSection({
             })}
           </div>
         )}
+      </Panel>
+    </div>
+  );
+}
+
+// ───── Back Room ───────────────────────────────────────────────────────
+// Hidden 500-claim easter egg. Admin sets the passphrase here; the
+// /backroom public page checks against it. Each correct claim mints
+// a unique XXXX-XXXX combination code stored server-side.
+
+type BackroomAdminState = {
+  passphrase: string | null;
+  total: number;
+  remaining: number;
+  claimed: number;
+  full: boolean;
+  claims: Array<{
+    code: string;
+    visitorId: string;
+    ipHash: string;
+    claimedAt: string;
+  }>;
+  updatedAt: string;
+};
+
+function BackroomSection() {
+  const [data, setData] = useState<BackroomAdminState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [revealPass, setRevealPass] = useState(false);
+  const [showCodes, setShowCodes] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const r = await adminApi.getBackroom();
+      setData(r);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "load_failed");
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Pre-fill the draft once on first hydration so admin can edit
+  // without retyping. Don't override later if they're typing.
+  useEffect(() => {
+    if (data && !draft) setDraft(data.passphrase ?? "");
+    // intentionally only on initial load
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  async function savePassphrase() {
+    setError(null);
+    if (!draft.trim()) {
+      setError("passphrase cannot be empty");
+      return;
+    }
+    setBusy(true);
+    try {
+      await adminApi.setBackroomPassphrase(draft.trim());
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 1500);
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "save_failed");
+    } finally { setBusy(false); }
+  }
+
+  async function reset(alsoClearPassphrase: boolean) {
+    const msg = alsoClearPassphrase
+      ? `Reset back-room data?\n\n  • wipes ${data?.claimed ?? 0} issued code(s)\n  • CLEARS the passphrase (door sealed)\n\nThis cannot be undone.`
+      : `Reset back-room claims?\n\n  • wipes ${data?.claimed ?? 0} issued code(s)\n  • passphrase preserved — visitors who already typed it will be able to claim again\n\nThis cannot be undone.`;
+    if (!confirm(msg)) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await adminApi.resetBackroom(alsoClearPassphrase);
+      if (alsoClearPassphrase) setDraft("");
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "reset_failed");
+    } finally { setBusy(false); }
+  }
+
+  async function copyCodes() {
+    if (!data || data.claims.length === 0) return;
+    const payload = data.claims
+      .map((c) => `${c.code}\t${c.claimedAt}`)
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(payload);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError("clipboard_unavailable");
+    }
+  }
+
+  return (
+    <div id="backroom">
+      <Panel
+        title="Back Room"
+        right={
+          data ? (
+            <span>
+              {data.full ? "FULL · " : ""}
+              {data.claimed} / {data.total} claimed · {data.remaining} remaining
+            </span>
+          ) : (
+            <span>loading...</span>
+          )
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-xxs text-mute leading-relaxed">
+            hidden /backroom page. visitors who type the passphrase get a
+            unique XXXX-XXXX code. one claim per browser cookie · cap{" "}
+            {data?.total ?? 500}. set the passphrase below; resetting wipes
+            issued codes only (passphrase preserved unless you ask).
+          </p>
+
+          {/* Passphrase row */}
+          <div className="space-y-2">
+            <label className="label">passphrase</label>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type={revealPass ? "text" : "password"}
+                className="field font-mono flex-1 min-w-[200px]"
+                placeholder="set the passphrase visitors must type"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                maxLength={128}
+              />
+              <button
+                type="button"
+                onClick={() => setRevealPass((v) => !v)}
+                className="text-xxs uppercase tracking-wide text-ape-200 hover:text-white underline"
+              >
+                {revealPass ? "hide" : "reveal"}
+              </button>
+              <Button variant="primary" onClick={savePassphrase} disabled={busy}>
+                {savedFlash ? "Saved ✓" : busy ? "Saving…" : "Save Passphrase"}
+              </Button>
+            </div>
+            <p className="text-xxs text-mute">
+              matched case-insensitively, trimmed. max 128 chars.
+              {data && !data.passphrase && (
+                <span className="text-bleed"> · door currently sealed (no passphrase set)</span>
+              )}
+            </p>
+          </div>
+
+          <div className="divider-old" />
+
+          {/* Reset controls */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="ghost" onClick={() => reset(false)} disabled={busy}>
+              Reset Claims
+            </Button>
+            <Button variant="ghost" onClick={() => reset(true)} disabled={busy}>
+              Reset + Seal Door
+            </Button>
+            {error && (
+              <span className="text-xxs text-red-300 uppercase tracking-wide">
+                error: {error}
+              </span>
+            )}
+          </div>
+
+          <div className="divider-old" />
+
+          {/* Claimed codes table */}
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCodes((v) => !v)}
+                className="text-xxs uppercase tracking-wide text-ape-200 hover:text-white underline"
+              >
+                {showCodes ? "hide" : "show"} claimed codes ({data?.claimed ?? 0})
+              </button>
+              {showCodes && data && data.claims.length > 0 && (
+                <Button variant="ghost" onClick={copyCodes}>
+                  {copied ? "Copied ✓" : "Copy codes (TSV)"}
+                </Button>
+              )}
+            </div>
+
+            {showCodes && data && (
+              data.claims.length === 0 ? (
+                <p className="text-xxs text-mute italic">
+                  no claims issued yet.
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs min-w-[560px]">
+                    <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
+                      <tr>
+                        <th className="text-left px-3 py-1 border-b border-border">#</th>
+                        <th className="text-left px-3 py-1 border-b border-border">code</th>
+                        <th className="text-left px-3 py-1 border-b border-border">claimed at</th>
+                        <th className="text-left px-3 py-1 border-b border-border">visitor (cookie hash)</th>
+                        <th className="text-left px-3 py-1 border-b border-border">ip hash</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {data.claims.map((c, idx) => (
+                        <tr key={c.code} className="row-hover">
+                          <td className="px-3 py-1.5 text-mute font-mono">{idx + 1}</td>
+                          <td className="px-3 py-1.5 font-mono text-bleed tracking-wider">
+                            {c.code}
+                          </td>
+                          <td className="px-3 py-1.5 text-mute font-mono">
+                            {c.claimedAt.replace("T", " ").slice(0, 19)}
+                          </td>
+                          <td className="px-3 py-1.5 text-ape-200 font-mono">
+                            {c.visitorId.slice(0, 8)}…{c.visitorId.slice(-4)}
+                          </td>
+                          <td className="px-3 py-1.5 text-mute font-mono">
+                            {c.ipHash}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+          </div>
+        </div>
       </Panel>
     </div>
   );

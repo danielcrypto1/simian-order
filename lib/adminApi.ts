@@ -171,6 +171,37 @@ export const adminApi = {
       body: JSON.stringify({ wallet }),
     }),
 
+  /**
+   * Back Room — hidden 500-claim easter egg system. Admin sets the
+   * passphrase; visitors who type it correctly get a unique XXXX-XXXX
+   * code. One claim per browser cookie identity.
+   */
+  getBackroom: () =>
+    req<{
+      passphrase: string | null;
+      total: number;
+      remaining: number;
+      claimed: number;
+      full: boolean;
+      claims: Array<{
+        code: string;
+        visitorId: string;
+        ipHash: string;
+        claimedAt: string;
+      }>;
+      updatedAt: string;
+    }>("/api/admin/backroom"),
+  setBackroomPassphrase: (passphrase: string) =>
+    req<{ ok: boolean; passphrase: string }>("/api/admin/backroom", {
+      method: "POST",
+      body: JSON.stringify({ passphrase }),
+    }),
+  resetBackroom: (alsoClearPassphrase = false) =>
+    req<{ ok: boolean }>("/api/admin/backroom/reset", {
+      method: "POST",
+      body: JSON.stringify({ alsoClearPassphrase }),
+    }),
+
   resetAllData: () =>
     req<{
       ok: boolean;
