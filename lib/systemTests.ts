@@ -1,13 +1,13 @@
 export type TestId =
   | "application"
   | "approval"
-  | "referral"
+  | "submission"
   | "signature";
 
 export const TEST_IDS: TestId[] = [
   "application",
   "approval",
-  "referral",
+  "submission",
   "signature",
 ];
 

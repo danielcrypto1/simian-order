@@ -74,20 +74,6 @@ export default function LandingPage() {
   // plays /audio/simian.mp3 looped at low volume after the user's
   // first gesture and exposes its own toggle in the top-right corner.)
 
-  // ── Referral capture ─────────────────────────────────────────────────
-  // Links shared from the referral page use `?ref=CODE`. Capture once on
-  // mount and stash in sessionStorage so the apply page can prefill the
-  // referrer field, regardless of which page the visitor lands on next.
-  useEffect(() => {
-    try {
-      const url = new URL(window.location.href);
-      const ref = url.searchParams.get("ref");
-      if (ref) {
-        sessionStorage.setItem("simian_ref", ref.toUpperCase().slice(0, 32));
-      }
-    } catch { /* SSR or storage blocked — skip silently */ }
-  }, []);
-
   return (
     <main
       ref={stageRef}

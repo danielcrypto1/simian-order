@@ -184,10 +184,10 @@ export const adminApi = {
       body: JSON.stringify({ confirm: true }),
     }),
 
-  runSystemTest: (only?: "application" | "approval" | "signature") =>
+  runSystemTest: (only?: "application" | "approval" | "submission" | "signature") =>
     req<{
       tests: Array<{
-        id: "application" | "approval" | "signature";
+        id: "application" | "approval" | "submission" | "signature";
         name: string;
         status: "PASS" | "FAIL";
         message: string;

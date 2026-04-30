@@ -50,7 +50,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_referee" }, { status: 400 });
   }
 
-  const sub = await setEntryStatus(b.referrer, b.referee, action);
+  const newStatus = action === "approve" ? "approved" : "rejected";
+  const sub = await setEntryStatus(b.referrer, b.referee, newStatus);
   if (!sub) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json({ ok: true, submission: sub });
 }

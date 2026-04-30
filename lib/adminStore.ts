@@ -29,9 +29,9 @@ export type Store = {
   mintConfig: MintConfig;
   // Persistent state lives in gist-backed stores:
   //   applications → lib/applicationsStore.ts
-  //   referrals    → lib/referralsStore.ts
+  //   submissions  → lib/submissionsStore.ts (curated /referral submissions)
+  //   kols         → lib/kolStore.ts
   //   uploads      → lib/uploadsStore.ts
-  //   FCFS state   → lib/fcfsStore.ts
 };
 
 declare global {

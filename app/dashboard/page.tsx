@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import StatusBadge from "@/components/StatusBadge";
 import Button from "@/components/Button";
 import { useStore } from "@/lib/store";
+import { useWallet } from "@/lib/wallet";
 import OpenseaLink from "@/components/OpenseaLink";
 import { OPENSEA_HIDDEN } from "@/lib/links";
 import { useRound } from "@/lib/useRound";
@@ -16,15 +18,36 @@ import { useRound } from "@/lib/useRound";
  * like a directory listing, not a SaaS overview. The marketplace lives
  * outside the dashboard (OpenSea) since there is no public mint.
  */
+
+type SubmissionLite = {
+  entries: Array<{ status: "pending" | "approved" | "rejected" }>;
+} | null;
+
 export default function DashboardPage() {
   const {
     walletConnected,
     applicationStatus,
     tasksCompleted,
-    referralCount,
-    referralLimit,
   } = useStore();
+  const { address } = useWallet();
   const round = useRound();
+
+  // Pull the live submission for this wallet so Room 03 surfaces the
+  // server-truth state (no client-side ?count? — the order decides).
+  const [submission, setSubmission] = useState<SubmissionLite>(null);
+  useEffect(() => {
+    if (!address) { setSubmission(null); return; }
+    let cancelled = false;
+    fetch(`/api/referrals?wallet=${address}`, { cache: "no-store" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((j) => { if (!cancelled) setSubmission((j?.submission ?? null) as SubmissionLite); })
+      .catch(() => { /* offline — leave null, Room 03 stays generic */ });
+    return () => { cancelled = true; };
+  }, [address]);
+
+  const submittedCount  = submission?.entries.length ?? 0;
+  const approvedCount   = submission?.entries.filter((e) => e.status === "approved").length ?? 0;
+  const anyDecided      = submission?.entries.some((e) => e.status !== "pending") ?? false;
 
   const appBadge =
     applicationStatus === "approved" ? <StatusBadge status="Approved" /> :
@@ -37,10 +60,11 @@ export default function DashboardPage() {
     walletConnected ? <StatusBadge status="Open" /> :
                       <StatusBadge status="Locked" />;
 
-  const referralsBadge =
+  const submissionBadge =
     applicationStatus !== "approved"        ? <StatusBadge status="Locked" /> :
-    referralCount >= referralLimit          ? <StatusBadge status="Done"   /> :
-                                              <StatusBadge status="Open"   />;
+    submission && submittedCount === 5 && approvedCount === 5 ? <StatusBadge status="Done" /> :
+    submission                              ? <StatusBadge status="Pending" /> :
+                                              <StatusBadge status="Open" />;
 
   return (
     <div>
@@ -71,7 +95,16 @@ export default function DashboardPage() {
           <span className="text-mute">/</span>
           <span><span className="text-mute">tasks:</span> <span className="text-bone">{tasksCompleted ? "complete" : "open"}</span></span>
           <span className="text-mute">/</span>
-          <span><span className="text-mute">refs:</span> <span className="text-bone">{referralCount}/{referralLimit}</span></span>
+          <span>
+            <span className="text-mute">your 5:</span>{" "}
+            <span className="text-bone">
+              {applicationStatus !== "approved"
+                ? "locked"
+                : submission
+                ? `${approvedCount}/${submittedCount} approved`
+                : "not submitted"}
+            </span>
+          </span>
           {!OPENSEA_HIDDEN && (
             <>
               <span className="text-mute">/</span>
@@ -127,12 +160,20 @@ export default function DashboardPage() {
           n="03"
           tilt="tilt-r"
           marginLeft="ml-2 sm:ml-4"
-          title="referrals"
-          state={`${referralCount} / ${referralLimit} slots`}
-          badge={referralsBadge}
+          title="select your 5"
+          state={
+            applicationStatus !== "approved"
+              ? "locked — approval required"
+              : !submission
+              ? "no submission yet"
+              : anyDecided
+              ? `${approvedCount}/${submittedCount} approved · awaiting the rest`
+              : `${submittedCount} submitted · pending review`
+          }
+          badge={submissionBadge}
           href="/dashboard/referral"
-          cta="share link"
-          hint="five trusted simians. no more."
+          cta={submission ? "open submission" : "submit list"}
+          hint="five trusted simians. no more. the order decides."
         />
 
         {/* Room 04 — marketplace pointer. Hidden behind OPENSEA_HIDDEN

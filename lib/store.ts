@@ -5,8 +5,6 @@ import { persist, createJSONStorage } from "zustand/middleware";
 
 export type ApplicationStatus = "none" | "pending" | "approved" | "rejected";
 
-export const REFERRAL_LIMIT = 5;
-
 export type TaskFlags = { opened: boolean; completed: boolean };
 
 export type State = {
@@ -22,9 +20,6 @@ export type State = {
 
   tasksCompleted: boolean;
   applicationStatus: ApplicationStatus;
-  referralCount: number;
-  referralLimit: number;
-  referralCode: string | null;
   _hasHydrated: boolean;
 };
 
@@ -46,10 +41,6 @@ export type Actions = {
   rejectApplication: () => void;
   resetApplication: () => void;
 
-  ensureReferralCode: () => string;
-  addReferral: () => boolean;
-  resetReferrals: () => void;
-
   setHasHydrated: (v: boolean) => void;
   resetAll: () => void;
 };
@@ -62,15 +53,8 @@ const initialState: State = {
   submittedWallet: null,
   tasksCompleted: false,
   applicationStatus: "none",
-  referralCount: 0,
-  referralLimit: REFERRAL_LIMIT,
-  referralCode: null,
   _hasHydrated: false,
 };
-
-function makeReferralCode() {
-  return "SIM-" + Math.random().toString(36).slice(2, 7).toUpperCase();
-}
 
 export const useStore = create<State & Actions>()(
   persist(
@@ -121,23 +105,6 @@ export const useStore = create<State & Actions>()(
       rejectApplication:  () => set({ applicationStatus: "rejected" }),
       resetApplication:   () => set({ applicationStatus: "none" }),
 
-      ensureReferralCode: () => {
-        const s = get();
-        if (s.referralCode) return s.referralCode;
-        const code = makeReferralCode();
-        set({ referralCode: code });
-        return code;
-      },
-
-      addReferral: () => {
-        const s = get();
-        if (s.referralCount >= s.referralLimit) return false;
-        set({ referralCount: s.referralCount + 1 });
-        return true;
-      },
-
-      resetReferrals: () => set({ referralCount: 0 }),
-
       setHasHydrated: (v) => set({ _hasHydrated: v }),
 
       resetAll: () =>
@@ -146,9 +113,10 @@ export const useStore = create<State & Actions>()(
     {
       name: "simian-store",
       storage: createJSONStorage(() => localStorage),
-      // v4 strips FCFS-related fields. v3 dropped mintEligible. v2
-      // migrated legacy per-task booleans into the taskState map.
-      version: 4,
+      // v5 strips the auto-tracked referral fields (replaced by the curated
+      // submission system, server-owned). v4 dropped FCFS fields. v3
+      // dropped mintEligible. v2 migrated per-task booleans into taskState.
+      version: 5,
       migrate: (persisted, fromVersion) => {
         if (!persisted || typeof persisted !== "object") return persisted as State;
         const p = persisted as Record<string, unknown>;
@@ -178,6 +146,12 @@ export const useStore = create<State & Actions>()(
         if (fromVersion < 4) {
           delete p.fcfsApproved;
           delete p.fcfsRemaining;
+        }
+
+        if (fromVersion < 5) {
+          delete p.referralCount;
+          delete p.referralLimit;
+          delete p.referralCode;
         }
 
         return p as unknown as State;

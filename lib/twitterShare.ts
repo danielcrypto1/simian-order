@@ -10,12 +10,15 @@ export function tweetUrl(text: string): string {
 }
 
 export const TWEETS = {
-  referral: (link: string) =>
-    `I've been given access to SIMIAN ORDER.
+  /**
+   * Curated-submission share. The slate is invitation-only and
+   * non-transferable — there's no link, just a pointer to the
+   * submission system.
+   */
+  submitted: () =>
+    `I've selected my 5 for SIMIAN ORDER.
 
-Only 5 can follow.
-
-${link}
+The order chooses who walks through.
 
 #SimianOrder`,
 

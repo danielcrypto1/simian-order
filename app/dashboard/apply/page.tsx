@@ -34,7 +34,6 @@ export default function ApplyPage() {
     handle: "",
     wallet: "",
     why: "",
-    referrer: "",
     discord: "",
   });
 
@@ -67,20 +66,6 @@ export default function ApplyPage() {
 
   useEffect(() => { refresh(address ?? null); }, [address, refresh]);
 
-  // Prefill referrer code if the visitor arrived through a referral link
-  // (landing page captures `?ref=` into sessionStorage). Don't overwrite a
-  // value the user has already typed.
-  useEffect(() => {
-    try {
-      const stashed = sessionStorage.getItem("simian_ref");
-      if (stashed) {
-        setForm((f) => (f.referrer ? f : { ...f, referrer: stashed }));
-      }
-    } catch { /* storage unavailable — skip */ }
-    // intentionally only on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Reflect server state into local zustand status display.
   useEffect(() => {
     if (!serverApp) return;
@@ -96,7 +81,7 @@ export default function ApplyPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErrorMsg(null);
-    track("apply_submit", { hasReferrer: form.referrer.trim().length > 0 });
+    track("apply_submit");
     if (!address) {
       setErrorMsg("connect a wallet first");
       return;
@@ -112,7 +97,6 @@ export default function ApplyPage() {
           twitter: form.handle.trim(),
           discord: form.discord.trim() || null,
           why: form.why.trim() || null,
-          referrer_input: form.referrer.trim() || null,
         }),
       });
       const j = await res.json().catch(() => ({}));
@@ -298,17 +282,6 @@ export default function ApplyPage() {
           <div className="text-xxs text-mute text-right mt-1">{form.why.length} / 600</div>
         </div>
 
-        <div>
-          <label className="label">referrer code (optional)</label>
-          <input
-            className="field font-mono"
-            placeholder="SIM-XXXXX"
-            value={form.referrer}
-            onChange={(e) => update("referrer", e.target.value.toUpperCase())}
-            maxLength={32}
-          />
-        </div>
-
         {errorMsg && (
           <div className="border border-red-700 bg-red-950 px-2 py-1 text-xxs text-red-200">
             error: {errorMsg}
@@ -324,7 +297,7 @@ export default function ApplyPage() {
           <Button
             type="button"
             variant="ghost"
-            onClick={() => { setForm({ handle: "", wallet: "", why: "", referrer: "", discord: "" }); setErrorMsg(null); setStatus("idle"); }}
+            onClick={() => { setForm({ handle: "", wallet: "", why: "", discord: "" }); setErrorMsg(null); setStatus("idle"); }}
           >
             Reset
           </Button>

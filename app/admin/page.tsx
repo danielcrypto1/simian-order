@@ -14,23 +14,38 @@ const sections = [
   { id: "round", label: "Round Control" },
   { id: "mint", label: "Mint Controls" },
   { id: "apps", label: "Applications" },
-  { id: "gtd", label: "GTD Users" },
-  { id: "referrals", label: "Referrals" },
+  { id: "submitted-referrals", label: "Submitted Referrals" },
   { id: "audit", label: "Link Audit" },
   { id: "system-test", label: "System Test" },
   { id: "reset", label: "Reset Data" },
 ];
 
-type ReferralAdminItem = {
-  wallet: string;
-  code: string;
-  count: number;
-  limit: number;
-  gtd: boolean;
-  gtdRound: number | null;
-  gtdAt: string | null;
+/** One curated submission, with the KOL join already applied by
+ *  /api/admin/referrals (referrer_isKOL + referrer_tag). */
+type SubmissionAdminItem = {
+  referrerWallet: string;
+  referrerRound: number;
+  referrer_isKOL: boolean;
+  referrer_tag: string;
+  entries: Array<{
+    x: string;
+    discord: string;
+    wallet: string;
+    status: "pending" | "approved" | "rejected";
+    decidedAt?: string;
+  }>;
   createdAt: string;
-  referred: Array<{ wallet: string; twitter: string | null; status: string | null }>;
+  updatedAt: string;
+};
+
+type ReferralListResponse = {
+  items: SubmissionAdminItem[];
+  total: number;
+  totalEntries: number;
+  approvedTotal: number;
+  pendingTotal: number;
+  rejectedTotal: number;
+  approvedWallets: string[];
 };
 
 export default function AdminDashboard() {
@@ -41,7 +56,7 @@ export default function AdminDashboard() {
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [apps, setApps] = useState<{ items: Application[]; total: number } | null>(null);
   const [wl, setWl] = useState<{ items: WhitelistEntry[]; total: number } | null>(null);
-  const [refs, setRefs] = useState<{ items: ReferralAdminItem[]; total: number; totalReferred: number; gtdTotal: number } | null>(null);
+  const [refs, setRefs] = useState<ReferralListResponse | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -109,8 +124,7 @@ export default function AdminDashboard() {
             <RoundSection cfg={cfg} onSaved={refresh} />
             <MintControlsSection cfg={cfg} onSaved={refresh} />
             <ApplicationsSection apps={apps} onAction={refresh} />
-            <GtdUsersSection refs={refs} />
-            <ReferralsSection refs={refs} onChanged={refresh} />
+            <SubmittedReferralsSection refs={refs} onChanged={refresh} />
             <LinkAuditSection />
             <SystemTestSection />
             <ResetSection onReset={refresh} />
@@ -503,114 +517,6 @@ function MintControlsSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () =>
     </div>
   );
 }
-
-// ───── GTD Users ───────────────────────────────────────────────────────
-// Wallets that have hit the 5-referral cap and are therefore guaranteed
-// access. Read-only list; admin can copy every wallet to the clipboard
-// with a single click for off-site use (whitelist exports, snapshots).
-
-function GtdUsersSection({
-  refs,
-}: {
-  refs: { items: ReferralAdminItem[]; total: number; totalReferred: number; gtdTotal: number } | null;
-}) {
-  const gtdItems = (refs?.items ?? []).filter((r) => r.gtd);
-  const [copied, setCopied] = useState(false);
-  const [copyError, setCopyError] = useState<string | null>(null);
-
-  async function copyAll() {
-    setCopyError(null);
-    if (gtdItems.length === 0) {
-      setCopyError("no GTD wallets yet");
-      return;
-    }
-    const payload = gtdItems.map((r) => r.wallet).join("\n");
-    try {
-      await navigator.clipboard.writeText(payload);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopyError("clipboard_unavailable");
-    }
-  }
-
-  return (
-    <div id="gtd">
-      <Panel
-        title="GTD Users"
-        right={
-          refs
-            ? <span>{gtdItems.length} guaranteed</span>
-            : <span>loading...</span>
-        }
-      >
-        <div className="text-xxs text-mute mb-2 leading-relaxed">
-          wallets with {REFERRAL_LIMIT_DISPLAY}/{REFERRAL_LIMIT_DISPLAY} referrals are
-          automatically marked GTD (guaranteed access). list updates as
-          referrals come in.
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 mb-2">
-          <Button variant="primary" onClick={copyAll} disabled={gtdItems.length === 0}>
-            {copied ? "Copied ✓" : "Copy all GTD wallets"}
-          </Button>
-          {copyError && (
-            <span className="text-xxs text-red-300 uppercase tracking-wide">
-              {copyError}
-            </span>
-          )}
-        </div>
-
-        {gtdItems.length === 0 ? (
-          <div className="text-xxs text-mute italic">
-            no wallets have hit {REFERRAL_LIMIT_DISPLAY}/{REFERRAL_LIMIT_DISPLAY} referrals yet.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[520px]">
-              <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
-                <tr>
-                  <th className="text-left px-3 py-1 border-b border-border">wallet</th>
-                  <th className="text-left px-3 py-1 border-b border-border">referrals</th>
-                  <th className="text-left px-3 py-1 border-b border-border">round joined</th>
-                  <th className="text-left px-3 py-1 border-b border-border">joined at</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {gtdItems.map((r) => (
-                  <tr key={r.wallet} className="row-hover">
-                    <td className="px-3 py-1.5 font-mono text-ape-100 break-all">
-                      {r.wallet}
-                    </td>
-                    <td className="px-3 py-1.5 text-ape-200 font-mono">
-                      {r.count}/{r.limit}
-                    </td>
-                    <td className="px-3 py-1.5 font-mono">
-                      {r.gtdRound != null ? (
-                        <span className="text-bleed">
-                          round {r.gtdRound}
-                        </span>
-                      ) : (
-                        <span className="text-mute">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-1.5 text-mute font-mono">
-                      {(r.gtdAt ?? r.createdAt).slice(0, 10)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
-    </div>
-  );
-}
-
-// Display constant — kept inline so the component doesn't import the
-// store module just to render a label.
-const REFERRAL_LIMIT_DISPLAY = 5;
 
 // ───── Applications ────────────────────────────────────────────────────
 
@@ -1059,160 +965,308 @@ function FilterTab({
   );
 }
 
-// ───── Referrals ───────────────────────────────────────────────────────
+// ───── Submitted Referrals ─────────────────────────────────────────────
+// Curated submission system. Each referrer (an approved applicant)
+// submits up to 5 candidates. Admin approves/rejects each entry; an
+// approved entry's wallet earns GTD. Wallet-collision and self-referral
+// are validated server-side. KOL registry is joined in by /api/admin/
+// referrals so badges + tags render inline.
 
-function ReferralsSection({
+function SubmittedReferralsSection({
   refs,
   onChanged,
 }: {
-  refs: { items: ReferralAdminItem[]; total: number; totalReferred: number } | null;
+  refs: ReferralListResponse | null;
   onChanged: () => void;
 }) {
-  const [referrer, setReferrer] = useState("");
-  const [referee, setReferee] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [openTagFor, setOpenTagFor] = useState<string | null>(null);
+  const [tagDraft, setTagDraft] = useState("");
 
-  async function simulate() {
-    if (!referrer.trim()) {
-      setErr("referrer wallet required");
-      return;
-    }
+  const items = refs?.items ?? [];
+
+  async function decide(
+    referrer: string,
+    referee: string,
+    action: "approve" | "reject"
+  ) {
+    const key = `${referrer}:${referee}:${action}`;
     setErr(null);
-    setMsg(null);
-    setBusy(true);
+    setBusy(key);
     try {
-      const r = await adminApi.simulateReferral(referrer.trim(), referee.trim() || undefined);
-      setMsg(`linked ${r.referee.slice(0, 10)}… → ${r.referrer.slice(0, 10)}…`);
-      setReferee("");
+      await adminApi.decideReferralEntry(referrer, referee, action);
       onChanged();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "unknown");
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  async function remove(refr: string, refe: string) {
-    if (!confirm(`Remove referral?\n  ${refe}\n  ← from referrer ${refr}`)) return;
-    setBusy(true);
+  async function deleteSubmission(referrer: string) {
+    if (!confirm(`Delete entire submission from\n  ${referrer}?\n\nThis lets them re-submit.`)) return;
+    setErr(null);
+    setBusy(`del:${referrer}`);
     try {
-      await adminApi.removeReferral(refr, refe);
+      await adminApi.deleteSubmission(referrer);
       onChanged();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "unknown");
     } finally {
-      setBusy(false);
+      setBusy(null);
+    }
+  }
+
+  async function toggleKol(wallet: string, isKol: boolean, currentTag: string) {
+    setErr(null);
+    if (isKol) {
+      if (!confirm(`Remove KOL tag from\n  ${wallet}?`)) return;
+      setBusy(`kol:${wallet}`);
+      try {
+        await adminApi.removeKol(wallet);
+        onChanged();
+      } catch (e) {
+        setErr(e instanceof ApiError ? e.message : "unknown");
+      } finally {
+        setBusy(null);
+      }
+    } else {
+      setOpenTagFor(wallet);
+      setTagDraft(currentTag || "");
+    }
+  }
+
+  async function saveKol(wallet: string) {
+    setErr(null);
+    setBusy(`kol:${wallet}`);
+    try {
+      await adminApi.setKol(wallet, tagDraft.trim());
+      setOpenTagFor(null);
+      setTagDraft("");
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "unknown");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function copyApproved() {
+    const wallets = refs?.approvedWallets ?? [];
+    if (wallets.length === 0) {
+      setErr("no approved entries yet");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(wallets.join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setErr("clipboard_unavailable");
     }
   }
 
   return (
-    <div id="referrals">
+    <div id="submitted-referrals">
       <Panel
-        title="Referrals"
+        title="Submitted Referrals"
         right={
           refs ? (
-            <span>{refs.total} referrer{refs.total === 1 ? "" : "s"} · {refs.totalReferred} total</span>
+            <span>
+              {refs.total} submitter{refs.total === 1 ? "" : "s"} · {refs.totalEntries} entr
+              {refs.totalEntries === 1 ? "y" : "ies"} · {refs.approvedTotal} approved
+            </span>
           ) : (
             <span>loading...</span>
           )
         }
         padded={false}
       >
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs min-w-[760px]">
-            <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
-              <tr>
-                <th className="text-left px-3 py-1 border-b border-border">referrer</th>
-                <th className="text-left px-3 py-1 border-b border-border">code</th>
-                <th className="text-left px-3 py-1 border-b border-border">count</th>
-                <th className="text-left px-3 py-1 border-b border-border">referred wallets</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {(refs?.items ?? []).map((row) => (
-                <tr key={row.wallet} className="row-hover">
-                  <td className="px-3 py-2 font-mono text-ape-100 break-all">{row.wallet}</td>
-                  <td className="px-3 py-2 font-mono text-ape-200">{row.code}</td>
-                  <td className="px-3 py-2 font-mono text-ape-100">{row.count} / {row.limit}</td>
-                  <td className="px-3 py-2">
-                    {row.referred.length === 0 ? (
-                      <span className="text-mute italic text-xxs">—</span>
-                    ) : (
-                      <ul className="space-y-1">
-                        {row.referred.map((r) => (
-                          <li key={r.wallet} className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono text-ape-100 break-all">{r.wallet}</span>
-                            {r.twitter && <span className="text-ape-200">@{r.twitter}</span>}
-                            {r.status && (
-                              <StatusBadge
-                                status={
-                                  r.status === "approved" ? "Approved" :
-                                  r.status === "rejected" ? "Rejected" : "Pending"
-                                }
-                              />
-                            )}
-                            <button
-                              onClick={() => remove(row.wallet, r.wallet)}
-                              className="text-xxs text-red-300 hover:text-red-200 underline"
-                              disabled={busy}
-                            >
-                              remove
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {refs && refs.items.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-3 py-3 text-mute text-center text-xxs italic">
-                    no referrals yet — simulate one below to test
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="border-t border-border p-3 space-y-2">
-          <div className="text-xxs text-mute uppercase tracking-wide">simulate referral · creates a real entry</div>
-          <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-2 items-end">
-            <div>
-              <label className="label">referrer wallet</label>
-              <input
-                className="field font-mono"
-                placeholder="0x..."
-                value={referrer}
-                onChange={(e) => setReferrer(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="label">referee wallet (optional)</label>
-              <input
-                className="field font-mono"
-                placeholder="0x... (random if blank)"
-                value={referee}
-                onChange={(e) => setReferee(e.target.value)}
-              />
-            </div>
-            <Button variant="primary" onClick={simulate} disabled={busy || !referrer.trim()}>
-              Simulate Referral
-            </Button>
-          </div>
-          {msg && <div className="text-xxs text-ape-200">{msg}</div>}
+        <div className="p-3 flex flex-wrap items-center gap-2 border-b border-border">
+          <Button
+            variant="primary"
+            onClick={copyApproved}
+            disabled={!refs || refs.approvedWallets.length === 0}
+          >
+            {copied ? "Copied ✓" : `Copy ${refs?.approvedWallets.length ?? 0} approved wallets`}
+          </Button>
+          <span className="text-xxs text-mute leading-relaxed">
+            approved entries earn GTD. each referrer submits up to 5 candidates
+            (X handle · discord · wallet). once any decision is made, the
+            referrer&rsquo;s slate is locked — delete the submission to let them
+            re-submit.
+          </span>
           {err && (
-            <div className="text-xxs text-red-300 uppercase">
+            <span className="text-xxs text-red-300 uppercase tracking-wide ml-auto">
               error: {err}
-              {err === "limit_reached" && " (referrer already at 5/5)"}
-              {err === "already_referred" && " (referee already referred by someone)"}
-              {err === "self_referral" && " (referrer and referee must differ)"}
-            </div>
+            </span>
           )}
         </div>
+
+        {items.length === 0 ? (
+          <div className="px-3 py-6 text-xxs text-mute italic text-center">
+            no submissions yet.
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {items.map((row) => {
+              const submissionDel = busy === `del:${row.referrerWallet}`;
+              const kolBusy = busy === `kol:${row.referrerWallet}`;
+              const tagOpen = openTagFor === row.referrerWallet;
+              return (
+                <div key={row.referrerWallet} className="p-3 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-xs text-ape-100 break-all">
+                      {row.referrerWallet}
+                    </span>
+                    <span className="text-xxs text-mute uppercase tracking-wide">
+                      round {row.referrerRound}
+                    </span>
+                    {row.referrer_isKOL && (
+                      <span className="text-xxs uppercase tracking-widest px-2 py-0.5 border border-bleed text-bleed">
+                        KOL
+                      </span>
+                    )}
+                    {row.referrer_tag && (
+                      <span className="text-xxs italic text-ape-200">
+                        “{row.referrer_tag}”
+                      </span>
+                    )}
+                    <div className="ml-auto flex items-center gap-2">
+                      <button
+                        onClick={() =>
+                          toggleKol(row.referrerWallet, row.referrer_isKOL, row.referrer_tag)
+                        }
+                        disabled={kolBusy}
+                        className="text-xxs uppercase tracking-wide text-ape-200 hover:text-bleed underline"
+                      >
+                        {row.referrer_isKOL ? "remove KOL" : "tag KOL"}
+                      </button>
+                      <button
+                        onClick={() => deleteSubmission(row.referrerWallet)}
+                        disabled={submissionDel}
+                        className="text-xxs uppercase tracking-wide text-red-300 hover:text-red-200 underline"
+                      >
+                        {submissionDel ? "deleting…" : "delete submission"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {tagOpen && (
+                    <div className="flex flex-wrap items-center gap-2 bg-ape-850 px-2 py-2 border border-border">
+                      <label className="text-xxs uppercase tracking-wide text-ape-200">
+                        tag (optional)
+                      </label>
+                      <input
+                        className="field font-mono flex-1 min-w-[140px]"
+                        placeholder="e.g. ALPHA OG, mod, partner"
+                        value={tagDraft}
+                        onChange={(e) => setTagDraft(e.target.value.slice(0, 64))}
+                      />
+                      <Button
+                        variant="primary"
+                        onClick={() => saveKol(row.referrerWallet)}
+                        disabled={kolBusy}
+                      >
+                        save KOL
+                      </Button>
+                      <button
+                        onClick={() => {
+                          setOpenTagFor(null);
+                          setTagDraft("");
+                        }}
+                        className="text-xxs uppercase tracking-wide text-mute hover:text-ape-200 underline"
+                      >
+                        cancel
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xxs min-w-[640px]">
+                      <thead className="bg-ape-850 uppercase tracking-wide text-ape-200">
+                        <tr>
+                          <th className="text-left px-2 py-1 border-b border-border">#</th>
+                          <th className="text-left px-2 py-1 border-b border-border">x</th>
+                          <th className="text-left px-2 py-1 border-b border-border">discord</th>
+                          <th className="text-left px-2 py-1 border-b border-border">wallet</th>
+                          <th className="text-left px-2 py-1 border-b border-border">status</th>
+                          <th className="text-right px-2 py-1 border-b border-border">action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {row.entries.map((entry, idx) => {
+                          const apvKey = `${row.referrerWallet}:${entry.wallet}:approve`;
+                          const rjKey = `${row.referrerWallet}:${entry.wallet}:reject`;
+                          const decided = entry.status !== "pending";
+                          return (
+                            <tr key={`${row.referrerWallet}-${idx}-${entry.wallet}`} className="row-hover">
+                              <td className="px-2 py-1.5 text-mute font-mono">{idx + 1}</td>
+                              <td className="px-2 py-1.5 text-ape-200">@{entry.x}</td>
+                              <td className="px-2 py-1.5 text-ape-200">{entry.discord || "—"}</td>
+                              <td className="px-2 py-1.5 font-mono text-ape-100 break-all">
+                                {entry.wallet}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <StatusBadge
+                                  status={
+                                    entry.status === "approved"
+                                      ? "Approved"
+                                      : entry.status === "rejected"
+                                      ? "Rejected"
+                                      : "Pending"
+                                  }
+                                />
+                              </td>
+                              <td className="px-2 py-1.5 text-right">
+                                <div className="inline-flex items-center gap-2">
+                                  <button
+                                    onClick={() =>
+                                      decide(row.referrerWallet, entry.wallet, "approve")
+                                    }
+                                    disabled={
+                                      busy === apvKey || entry.status === "approved"
+                                    }
+                                    className={`text-xxs uppercase tracking-wide underline ${
+                                      entry.status === "approved"
+                                        ? "text-mute cursor-not-allowed"
+                                        : "text-emerald-300 hover:text-emerald-200"
+                                    }`}
+                                  >
+                                    {busy === apvKey ? "…" : decided && entry.status === "approved" ? "approved" : "approve"}
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      decide(row.referrerWallet, entry.wallet, "reject")
+                                    }
+                                    disabled={busy === rjKey || entry.status === "rejected"}
+                                    className={`text-xxs uppercase tracking-wide underline ${
+                                      entry.status === "rejected"
+                                        ? "text-mute cursor-not-allowed"
+                                        : "text-red-300 hover:text-red-200"
+                                    }`}
+                                  >
+                                    {busy === rjKey ? "…" : decided && entry.status === "rejected" ? "rejected" : "reject"}
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="text-xxs text-mute font-mono">
+                    submitted {row.createdAt.slice(0, 10)} · last decision {row.updatedAt.slice(0, 10)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </Panel>
     </div>
   );
@@ -1330,7 +1384,7 @@ function LinkAuditSection() {
 
 // ───── System Test ─────────────────────────────────────────────────────
 
-type SystemTestId = "application" | "approval" | "referral" | "signature";
+type SystemTestId = "application" | "approval" | "submission" | "signature";
 type SystemTestRow = {
   id: SystemTestId;
   name: string;
@@ -1341,8 +1395,8 @@ type SystemTestRow = {
 
 const SYSTEM_TESTS: { id: SystemTestId; label: string; subtitle: string }[] = [
   { id: "application", label: "Application Flow", subtitle: "Submit → admin sees → cleanup" },
-  { id: "approval",    label: "Approval Flow",    subtitle: "Approve → status persists → unlocks referral" },
-  { id: "referral",    label: "Referral Flow",    subtitle: "Add → count++ → duplicate rejected" },
+  { id: "approval",    label: "Approval Flow",    subtitle: "Approve → status persists → unlocks submit" },
+  { id: "submission",  label: "Submission Flow",  subtitle: "Submit list → admin approves entry → status persists" },
   { id: "signature",   label: "Signature",        subtitle: "Sign → recover → matches signer" },
 ];
 
@@ -1404,7 +1458,7 @@ function SystemTestSection() {
       >
         <div className="p-3 flex items-center gap-2 flex-wrap border-b border-border">
           <Button variant="primary" onClick={runAll} disabled={allBusy}>
-            {allBusy ? "Running all…" : totalSeen >= 5 ? "Re-run all" : "Run all tests"}
+            {allBusy ? "Running all…" : totalSeen >= SYSTEM_TESTS.length ? "Re-run all" : "Run all tests"}
           </Button>
           <span className="text-xxs text-mute">
             each test seeds its own random wallet, asserts the expected store mutation,
@@ -1486,11 +1540,9 @@ function ResetSection({ onReset }: { onReset: () => void }) {
     if (!confirm(
       "Wipe ALL transactional data?\n\n" +
       "  • applications (gist)\n" +
-      "  • referrals (gist)\n" +
-      "  • uploads (gist binaries + index)\n" +
-      "  • FCFS claims (gist) — total preserved\n" +
-      "  • whitelist (in-memory)\n\n" +
-      "Mint config is preserved. This cannot be undone."
+      "  • submissions (gist) — curated /referral lists\n" +
+      "  • whitelist (gist)\n\n" +
+      "Mint config + KOL registry are preserved. This cannot be undone."
     )) return;
 
     setBusy(true);
@@ -1500,7 +1552,7 @@ function ResetSection({ onReset }: { onReset: () => void }) {
       const r = await adminApi.resetAllData();
       const c = r.cleared;
       setResult(
-        `cleared: ${c.applications} applications · ${c.referrers} referrer entries · ` +
+        `cleared: ${c.applications} applications · ${c.submissions} submissions · ` +
         `${c.whitelist} whitelist`
       );
       setConfirmText("");
