@@ -52,7 +52,7 @@ describe("SimianOrder", () => {
     it("sets immutables", async () => {
       expect(await contract.name()).to.eq(NAME);
       expect(await contract.symbol()).to.eq(SYMBOL);
-      expect(await contract.MAX_SUPPLY()).to.eq(3333);
+      expect(await contract.MAX_SUPPLY()).to.eq(5555);
       expect(await contract.signer()).to.eq(signer.address);
     });
 

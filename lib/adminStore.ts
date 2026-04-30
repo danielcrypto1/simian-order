@@ -41,7 +41,7 @@ declare global {
 
 function defaultMintConfig(): MintConfig {
   return {
-    total_supply: 3333,
+    total_supply: 5555,
     gtd_allocation: 1000,
     fcfs_allocation: 1000,
     gtd_max_mint: 1,

@@ -19,7 +19,7 @@ contract SimianOrder is ERC721A, ERC2981, Ownable, ReentrancyGuard {
 
     // ─── Constants ────────────────────────────────────────────────────────────
 
-    uint256 public constant MAX_SUPPLY          = 3333;
+    uint256 public constant MAX_SUPPLY          = 5555;
     uint96  public constant DEFAULT_ROYALTY_BPS = 690; // 6.90%
 
     uint8 public constant PHASE_GTD    = 0;

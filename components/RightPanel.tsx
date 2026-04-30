@@ -10,7 +10,7 @@ import Panel from "./Panel";
  * compile; safe to delete once nothing references it.
  */
 
-const MAX_SUPPLY = 3333;
+const MAX_SUPPLY = 5555;
 const ROYALTY_PCT = 6.9;
 
 /** Hard 1px segmented bar — no gradient, no rounded fill. */

@@ -53,7 +53,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_wallet ON task_completions(wallet_address);
 
 CREATE TABLE IF NOT EXISTS mint_config (
   id              INT PRIMARY KEY DEFAULT 1,
-  total_supply    INT NOT NULL DEFAULT 3333,
+  total_supply    INT NOT NULL DEFAULT 5555,
   gtd_allocation  INT NOT NULL DEFAULT 1000,
   fcfs_allocation INT NOT NULL DEFAULT 1000,
   gtd_max_mint    INT NOT NULL DEFAULT 1,

@@ -17,7 +17,7 @@ npx hardhat test
 | --- | --- |
 | Standard | ERC-721A 4.3 |
 | Royalty | ERC-2981, default 690 bps (6.9%) |
-| Max supply | `3333` |
+| Max supply | `5555` |
 | Token IDs | start at `1` |
 | Solidity | `0.8.24` (optimizer 800 runs) |
 

@@ -277,7 +277,7 @@ export default function LandingPage() {
           )}
 
           <p className="mt-12 font-mono text-xxxs uppercase tracking-widest2 text-mute">
-            // last entered: 04:12:33 utc &nbsp;·&nbsp; 3333 &nbsp;·&nbsp; ape-chain
+            // last entered: 04:12:33 utc &nbsp;·&nbsp; 5555 &nbsp;·&nbsp; ape-chain
             {clicks > 0 && (
               <>
                 {" "}&nbsp;·&nbsp;{" "}
