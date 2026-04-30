@@ -272,16 +272,22 @@ export default function ReferralPage() {
   }
 
   // ── COMMON HEADER ────────────────────────────────────────────
+  // System identifier (THE FIVE SUMMONING) sits in the eyebrow line as
+  // a small mono-caps banner. The page TITLE is the imperative — "select
+  // your five" — so the user reads the action, not the institution.
   const header = (
     <header>
       <p className="font-mono text-xxxs uppercase tracking-widest2 text-elec mb-2">
         ── status / 200 / clearance{voidSeen && <span className="text-bleed">: partial</span>} ──
       </p>
+      <p className="font-mono text-xxs uppercase tracking-widest2 text-bleed mb-3">
+        ── the five summoning ──
+      </p>
       <h1 className="headline text-[32px] sm:text-6xl leading-tight mb-2">
-        the five summoning<span className="blink text-bleed">.</span>
+        select your five<span className="blink text-bleed">.</span>
       </h1>
       <p className="font-serif italic text-base text-ape-200 mb-2">
-        name five. the order will weigh them.
+        choose carefully.
       </p>
       <p className="font-mono text-xxs uppercase tracking-widest2 text-elec">
         // round {round ?? "—"} access
@@ -461,11 +467,8 @@ export default function ReferralPage() {
       <div className="divider-glitch" aria-hidden />
 
       <section>
-        <p className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-3">
-          ── name five for round {round ?? "—"} ──
-        </p>
-        <p className="font-serif italic text-sm text-mute mb-4">
-          choose carefully. the order weighs each one.
+        <p className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-4">
+          ── round {round ?? "—"} · max 5 entries ──
         </p>
 
         {loadError && (

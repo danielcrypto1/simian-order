@@ -184,7 +184,7 @@ export default function DashboardPage() {
           }
           badge={submissionBadge}
           href="/dashboard/referral"
-          cta={submission ? "open summoning" : "summon the five"}
+          cta={submission ? "open summoning" : "select your five"}
           hint="five trusted simians. no more. the order decides."
         />
 
