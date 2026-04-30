@@ -90,7 +90,7 @@ export default function RightPanel() {
         <div className="absolute -top-2 left-2 sticker">notice</div>
         <p className="font-serif italic text-xs text-ape-200 leading-snug pt-2">
           The order is silent. The simians are watching.
-          Submit your application before the gate closes.
+          Enter the HIGH ORDER before the gate closes.
         </p>
       </div>
     </aside>

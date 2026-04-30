@@ -32,10 +32,10 @@ type NavItem = {
 };
 
 const NAV: NavItem[] = [
-  { href: "/dashboard",          label: "enter",    tilt: -1.2, y: 0 },
-  { href: "/dashboard/apply",    label: "apply",    tilt:  1.4, y: -2, big: true },
-  { href: "/dashboard/tasks",    label: "tasks",    tilt:  0.8, y: 2 },
-  { href: "/dashboard/referral", label: "referral", tilt: -1.4, y: -1 },
+  { href: "/dashboard",          label: "enter",            tilt: -1.2, y: 0 },
+  { href: "/dashboard/apply",    label: "high order",       tilt:  1.4, y: -2, big: true },
+  { href: "/dashboard/tasks",    label: "tasks",            tilt:  0.8, y: 2 },
+  { href: "/dashboard/referral", label: "five summoning",   tilt: -1.4, y: -1 },
 ];
 
 export default function TopBar() {

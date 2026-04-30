@@ -13,8 +13,8 @@ const sections = [
   { id: "whitelist-table", label: "Whitelist Table" },
   { id: "round", label: "Round Control" },
   { id: "mint", label: "Mint Controls" },
-  { id: "apps", label: "Applications" },
-  { id: "submitted-referrals", label: "Submitted Referrals" },
+  { id: "apps", label: "High Order" },
+  { id: "submitted-referrals", label: "The Five Summoning" },
   { id: "audit", label: "Link Audit" },
   { id: "system-test", label: "System Test" },
   { id: "reset", label: "Reset Data" },
@@ -678,7 +678,7 @@ function ApplicationsSection({
   return (
     <div id="apps">
       <Panel
-        title="Applications"
+        title="High Order — Applications"
         right={
           <span className="flex items-center gap-2">
             {apps ? `${apps.total} total` : "loading..."}
@@ -1071,12 +1071,12 @@ function SubmittedReferralsSection({
   return (
     <div id="submitted-referrals">
       <Panel
-        title="Submitted Referrals"
+        title="The Five Summoning"
         right={
           refs ? (
             <span>
-              {refs.total} submitter{refs.total === 1 ? "" : "s"} · {refs.totalEntries} entr
-              {refs.totalEntries === 1 ? "y" : "ies"} · {refs.approvedTotal} approved
+              {refs.total} summoner{refs.total === 1 ? "" : "s"} · {refs.totalEntries} name
+              {refs.totalEntries === 1 ? "" : "s"} · {refs.approvedTotal} recognised
             </span>
           ) : (
             <span>loading...</span>
@@ -1090,13 +1090,13 @@ function SubmittedReferralsSection({
             onClick={copyApproved}
             disabled={!refs || refs.approvedWallets.length === 0}
           >
-            {copied ? "Copied ✓" : `Copy ${refs?.approvedWallets.length ?? 0} approved wallets`}
+            {copied ? "Copied ✓" : `Copy ${refs?.approvedWallets.length ?? 0} recognised wallets`}
           </Button>
           <span className="text-xxs text-mute leading-relaxed">
-            approved entries earn GTD. each referrer submits up to 5 candidates
-            (X handle · discord · wallet). once any decision is made, the
-            referrer&rsquo;s slate is locked — delete the submission to let them
-            re-submit.
+            recognised names earn GTD. each summoner names up to 5 candidates
+            (X handle · discord · wallet). once any verdict is given, the
+            summoner&rsquo;s slate is locked — delete the summoning to let them
+            re-summon.
           </span>
           {err && (
             <span className="text-xxs text-red-300 uppercase tracking-wide ml-auto">
@@ -1394,10 +1394,10 @@ type SystemTestRow = {
 };
 
 const SYSTEM_TESTS: { id: SystemTestId; label: string; subtitle: string }[] = [
-  { id: "application", label: "Application Flow", subtitle: "Submit → admin sees → cleanup" },
-  { id: "approval",    label: "Approval Flow",    subtitle: "Approve → status persists → unlocks submit" },
-  { id: "submission",  label: "Submission Flow",  subtitle: "Submit list → admin approves entry → status persists" },
-  { id: "signature",   label: "Signature",        subtitle: "Sign → recover → matches signer" },
+  { id: "application", label: "High Order Flow",       subtitle: "Submit → admin sees → cleanup" },
+  { id: "approval",    label: "Recognition Flow",      subtitle: "Recognise → status persists → unlocks summoning" },
+  { id: "submission",  label: "Five Summoning Flow",   subtitle: "Summon five → admin recognises one → status persists" },
+  { id: "signature",   label: "Signature",             subtitle: "Sign → recover → matches signer" },
 ];
 
 function SystemTestSection() {

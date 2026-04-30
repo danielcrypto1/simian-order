@@ -9,23 +9,23 @@ import { useRound } from "@/lib/useRound";
 import { TWEETS, openTweet } from "@/lib/twitterShare";
 
 /**
- * Curated submission page — "SELECT YOUR 5".
+ * Curated submission page — "THE FIVE SUMMONING".
  *
- * Replaces the old auto-tracking referral link system. Approved
- * users fill in up to five candidates (X handle, Discord, wallet).
- * Admin reviews each entry one at a time; only admin-approved
- * entries earn GTD/eligibility.
+ * Replaces the old auto-tracking referral link system. Recognised
+ * users name up to five candidates (X handle, Discord, wallet).
+ * The order reviews each name one at a time; only those the order
+ * recognises earn GTD/eligibility.
  *
  * Two views:
- *   1. NO submission yet → render the form (5 rows of inputs).
- *   2. Submission exists → render the locked status list.
+ *   1. NO summoning yet → render the form (5 rows of inputs).
+ *   2. Summoning exists → render the locked status list.
  *
- * Re-submit is allowed by the API only while every entry is still
- * pending. Once any entry has a decision the row is locked, and
+ * Re-summon is allowed by the API only while every name is still
+ * pending. Once any name has a verdict the row is locked, and
  * the page swaps the form for the status view automatically on the
  * next refresh.
  *
- * Lock state for non-approved applicants is unchanged: a hard
+ * Lock state for non-recognised wallets is unchanged: a hard
  * "ACCESS DENIED" dossier with no form rendered.
  */
 
@@ -140,16 +140,16 @@ export default function ReferralPage() {
           access denied<span className="blink">.</span>
         </h1>
         <p className="font-serif italic text-base text-ape-200 mb-8">
-          you are not permitted to invite.
+          you are not permitted to summon.
         </p>
         <div className="divider-glitch max-w-[280px] mb-8" aria-hidden />
         <p className="font-mono text-xs text-mute leading-relaxed mb-6">
-          submissions are reserved for those the order has already
-          recognised. file an application. wait. the simians are not
+          the FIVE SUMMONING is reserved for those the order has already
+          recognised. enter the HIGH ORDER. wait. the simians are not
           in a hurry.
         </p>
         <a href="/dashboard/apply" className="text-link">
-          &gt; open application
+          &gt; enter the high order
         </a>
       </div>
     );
@@ -162,10 +162,10 @@ export default function ReferralPage() {
         ── status / 200 / clearance{voidSeen && <span className="text-bleed">: partial</span>} ──
       </p>
       <h1 className="headline text-[32px] sm:text-6xl leading-tight mb-2">
-        select your 5<span className="blink text-bleed">.</span>
+        the five summoning<span className="blink text-bleed">.</span>
       </h1>
       <p className="font-serif italic text-base text-ape-200 mb-2">
-        you may select five. they will be reviewed.
+        name five. the order will weigh them.
       </p>
       <p className="font-mono text-xxs uppercase tracking-widest2 text-elec">
         // round {round ?? "—"} access
@@ -192,10 +192,10 @@ export default function ReferralPage() {
         {/* SLOT STATUS — five entries with their decision state */}
         <section>
           <p className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-3">
-            ── you may select 5 for round {submission.referrerRound} ──
+            ── five summoned for round {submission.referrerRound} ──
           </p>
 
-          {/* Slot circles — count of approved/pending shows at a glance */}
+          {/* Slot circles — count of recognised/pending shows at a glance */}
           <SlotRow entries={submission.entries} onTap={() => {
             if (slotHintTimer.current !== null) clearTimeout(slotHintTimer.current);
             setSlotHint(true);
@@ -204,7 +204,7 @@ export default function ReferralPage() {
 
           <p className="font-mono text-sm uppercase tracking-widest2 text-bone mt-4">
             {submission.entries.filter((e) => e.status === "approved").length} / {submission.entries.length}{" "}
-            <span className="text-mute">approved</span>
+            <span className="text-mute">recognised</span>
           </p>
           {slotHint ? (
             <p className="reveal font-mono text-xs uppercase tracking-widest2 text-bleed mt-1">
@@ -212,7 +212,7 @@ export default function ReferralPage() {
             </p>
           ) : (
             <p className="font-serif italic text-sm text-mute mt-1">
-              {anyDecided ? "the order has decided." : "awaiting the order's review."}
+              {anyDecided ? "the order has decided." : "awaiting the order's recognition."}
             </p>
           )}
 
@@ -243,7 +243,7 @@ export default function ReferralPage() {
         <div className="flex items-baseline gap-4 flex-wrap">
           <button
             type="button"
-            onClick={() => openTweet(TWEETS.submitted())}
+            onClick={() => openTweet(TWEETS.summoned())}
             className="text-link"
             style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer" }}
           >
@@ -264,8 +264,8 @@ export default function ReferralPage() {
         )}
 
         <p className="font-mono text-xxxs uppercase tracking-widest2 text-mute pt-4 border-t border-border">
-          submitted {submission.createdAt.replace("T", " ").slice(0, 16)} utc · last
-          update {submission.updatedAt.replace("T", " ").slice(0, 16)} utc
+          summoned {submission.createdAt.replace("T", " ").slice(0, 16)} utc · last
+          verdict {submission.updatedAt.replace("T", " ").slice(0, 16)} utc
         </p>
       </div>
     );
@@ -346,10 +346,10 @@ export default function ReferralPage() {
 
       <section>
         <p className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-3">
-          ── you may select 5 for round {round ?? "—"} ──
+          ── name five for round {round ?? "—"} ──
         </p>
         <p className="font-serif italic text-sm text-mute mb-4">
-          choose carefully.
+          choose carefully. the order weighs each one.
         </p>
 
         {loadError && (
@@ -387,7 +387,7 @@ export default function ReferralPage() {
               className="text-link"
               style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer" }}
             >
-              [ {submitting ? "submitting…" : "submit list"} ]
+              [ {submitting ? "summoning…" : "summon them"} ]
             </button>
             <span className="font-serif italic text-xs text-mute">
               the order will respond when ready.
@@ -560,6 +560,11 @@ function EntryLine({ entry }: { entry: Entry }) {
     entry.wallet.length > 12
       ? `${entry.wallet.slice(0, 6)}…${entry.wallet.slice(-4)}`
       : entry.wallet;
+  // Map raw status → mystical verdict word.
+  const verdict =
+    entry.status === "approved" ? "recognised"
+      : entry.status === "rejected" ? "refused"
+      : "awaiting";
   return (
     <li className="row-hover px-1">
       <span className="text-mute">&gt;&nbsp;</span>
@@ -569,7 +574,7 @@ function EntryLine({ entry }: { entry: Entry }) {
       <span className="text-mute"> / </span>
       <span className="text-bone">{entry.discord}</span>
       <span className="text-mute"> &mdash; </span>
-      <span className={statusClass}>{entry.status}</span>
+      <span className={statusClass}>{verdict}</span>
     </li>
   );
 }

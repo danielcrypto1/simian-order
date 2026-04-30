@@ -81,7 +81,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-3 flex-wrap">
           {appBadge}
           <span className="font-serif italic text-sm text-mute">
-            &mdash; round {round ?? "—"}, applicants still considered.
+            &mdash; round {round ?? "—"}, the high order still considers.
           </span>
         </div>
       </section>
@@ -96,13 +96,13 @@ export default function DashboardPage() {
           <span><span className="text-mute">tasks:</span> <span className="text-bone">{tasksCompleted ? "complete" : "open"}</span></span>
           <span className="text-mute">/</span>
           <span>
-            <span className="text-mute">your 5:</span>{" "}
+            <span className="text-mute">summoning:</span>{" "}
             <span className="text-bone">
               {applicationStatus !== "approved"
                 ? "locked"
                 : submission
-                ? `${approvedCount}/${submittedCount} approved`
-                : "not submitted"}
+                ? `${approvedCount}/${submittedCount} recognised`
+                : "not summoned"}
             </span>
           </span>
           {!OPENSEA_HIDDEN && (
@@ -136,11 +136,16 @@ export default function DashboardPage() {
           n="01"
           tilt="tilt-r"
           marginLeft="ml-0"
-          title="application"
-          state={applicationStatus === "none" ? "not submitted" : applicationStatus}
+          title="high order"
+          state={
+            applicationStatus === "none"     ? "not yet filed" :
+            applicationStatus === "pending"  ? "submitted for recognition" :
+            applicationStatus === "approved" ? "recognised" :
+                                               "not recognised"
+          }
           badge={appBadge}
           href="/dashboard/apply"
-          cta="manage"
+          cta="enter the high order"
           hint="the order will respond when ready."
         />
 
@@ -160,19 +165,19 @@ export default function DashboardPage() {
           n="03"
           tilt="tilt-r"
           marginLeft="ml-2 sm:ml-4"
-          title="select your 5"
+          title="the five summoning"
           state={
             applicationStatus !== "approved"
-              ? "locked — approval required"
+              ? "locked — recognition required"
               : !submission
-              ? "no submission yet"
+              ? "no summoning yet"
               : anyDecided
-              ? `${approvedCount}/${submittedCount} approved · awaiting the rest`
-              : `${submittedCount} submitted · pending review`
+              ? `${approvedCount}/${submittedCount} recognised · awaiting the rest`
+              : `${submittedCount} summoned · awaiting verdict`
           }
           badge={submissionBadge}
           href="/dashboard/referral"
-          cta={submission ? "open submission" : "submit list"}
+          cta={submission ? "open summoning" : "summon the five"}
           hint="five trusted simians. no more. the order decides."
         />
 

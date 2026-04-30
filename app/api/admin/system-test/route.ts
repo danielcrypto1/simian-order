@@ -26,9 +26,9 @@ type TestOutcome = {
 };
 
 const NAMES: Record<TestId, string> = {
-  application: "Application Flow",
-  approval: "Approval Flow",
-  submission: "Submission Flow",
+  application: "High Order Flow",
+  approval: "Recognition Flow",
+  submission: "Five Summoning Flow",
   signature: "Signature",
 };
 

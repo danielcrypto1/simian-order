@@ -131,20 +131,20 @@ export default function ApplyPage() {
     // Title carries the round so the user (and any screenshot they share)
     // is anchored to the cycle they were considered in.
     const title =
-      s === "approved" ? `Accepted — Round ${round ?? "—"}` :
+      s === "approved" ? `Recognised — Round ${round ?? "—"}` :
       // Spec rewrite: rejected users see a softened, round-bound title
       // that doesn't lean into the "rejection" framing.
-      s === "rejected" ? `Not Selected — Round ${round ?? "—"}` :
-      `Application Submitted — Round ${round ?? "—"}`;
+      s === "rejected" ? `Not Recognised — Round ${round ?? "—"}` :
+      `HIGH ORDER — Filed for Round ${round ?? "—"}`;
     // Rejection message is intentionally hedged — "further rounds may
     // open" carries no commitment, satisfies the "do not promise
     // future access" rule.
     const message =
       s === "approved"
-        ? "you may now access the referral system and the mint."
+        ? "the FIVE SUMMONING is open to you."
         : s === "rejected"
         ? "further rounds may open."
-        : "filed. the order will respond when ready.";
+        : "submitted for recognition. the order will respond when ready.";
 
     return (
       <>
@@ -155,7 +155,7 @@ export default function ApplyPage() {
               the hedged "further rounds may open" carries the line. */}
           {s !== "rejected" && (
             <div className="text-ape-100 text-base font-bold uppercase">
-              {s === "approved" ? "welcome." : "filed."}
+              {s === "approved" ? "recognised." : "submitted."}
             </div>
           )}
           <p className="text-xxs text-mute leading-relaxed">{message}</p>
@@ -176,7 +176,7 @@ export default function ApplyPage() {
           {(s === "approved" || s === "rejected") && (
             <div className="pt-2">
               <div className="text-xxs uppercase tracking-wide text-mute mb-1">
-                share your status
+                share the verdict
               </div>
               <Button
                 variant="primary"
@@ -191,14 +191,14 @@ export default function ApplyPage() {
                   }
                 }}
               >
-                {s === "approved" ? "Share Approval" : "Share Rejection"}
+                {s === "approved" ? "Share Recognition" : "Share Verdict"}
               </Button>
             </div>
           )}
 
           {s !== "approved" && (
             <div className="pt-1">
-              <Button variant="ghost" onClick={reapply}>Re-submit</Button>
+              <Button variant="ghost" onClick={reapply}>Re-submit for Recognition</Button>
             </div>
           )}
         </div>
@@ -211,7 +211,7 @@ export default function ApplyPage() {
   return (
     <>
     <Panel
-      title={`Apply for Round ${round ?? "—"}`}
+      title={`Enter the HIGH ORDER — Round ${round ?? "—"}`}
       right={<span>open</span>}
     >
       {/* Subtle psychological layer — round-bound intake state + scarcity
@@ -219,11 +219,11 @@ export default function ApplyPage() {
           "limited". Reads as system telemetry, not marketing copy.
           Plus a one-line tagline. */}
       <div className="font-mono text-xxxs uppercase tracking-widest2 leading-relaxed mb-3">
-        <p className="text-elec">// round {round ?? "—"} intake active</p>
-        <p className="text-bleed">// selection is limited</p>
+        <p className="text-elec">// round {round ?? "—"} recognition active</p>
+        <p className="text-bleed">// few will be recognised</p>
       </div>
       <p className="font-serif italic text-xs text-mute mb-3 -mt-1">
-        for real degens on ApeChain.
+        submit for recognition. the order chooses who walks through.
       </p>
 
       {!address && (
@@ -292,7 +292,7 @@ export default function ApplyPage() {
 
         <div className="flex items-center gap-2 flex-wrap">
           <Button type="submit" variant="primary" disabled={status === "submitting" || !address}>
-            {status === "submitting" ? "Filing..." : "Submit Application"}
+            {status === "submitting" ? "Submitting…" : "Submit for Recognition"}
           </Button>
           <Button
             type="button"
@@ -301,7 +301,7 @@ export default function ApplyPage() {
           >
             Reset
           </Button>
-          <span className="ml-auto text-xxs text-mute">submitted as PENDING. admin reviews manually.</span>
+          <span className="ml-auto text-xxs text-mute">filed as PENDING. the order reviews manually.</span>
         </div>
       </form>
     </Panel>

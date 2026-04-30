@@ -253,21 +253,21 @@ export default function TasksPage() {
                 <span className="text-xxs uppercase tracking-wide text-mute">
                   identity recorded
                 </span>
-                {/* QUEST APPLICANT tag — only when the user finished every
+                {/* HIGH ORDER tag — only when the user finished every
                     task AND the auto-submit succeeded. Status reflects what
                     the server returned. */}
                 {allDone && questSubmitted && (
                   <span
                     className="badge text-bleed"
-                    aria-label="quest applicant tag"
+                    aria-label="filed for the high order"
                     style={{ letterSpacing: "0.22em" }}
                   >
-                    QUEST APPLICANT
+                    HIGH ORDER · FILED
                   </span>
                 )}
                 {allDone && questSubmitting && (
                   <span className="text-xxs uppercase tracking-wide text-mute font-mono">
-                    filing...
+                    submitting…
                   </span>
                 )}
               </div>

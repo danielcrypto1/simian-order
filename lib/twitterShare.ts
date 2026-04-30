@@ -11,32 +11,32 @@ export function tweetUrl(text: string): string {
 
 export const TWEETS = {
   /**
-   * Curated-submission share. The slate is invitation-only and
+   * Five-summoning share. The slate is invitation-only and
    * non-transferable — there's no link, just a pointer to the
-   * submission system.
+   * mystical summoning system.
    */
-  submitted: () =>
-    `I've selected my 5 for SIMIAN ORDER.
+  summoned: () =>
+    `I've completed THE FIVE SUMMONING for SIMIAN ORDER.
 
 The order chooses who walks through.
 
 #SimianOrder`,
 
   /**
-   * Approval share. Includes the active round number so the social
+   * Recognition share. Includes the active round number so the social
    * post pegs the user to a specific round of admissions.
    */
   approval: (round: number) =>
-    `I've been accepted into SIMIAN ORDER — Round ${round}
+    `Recognised by THE HIGH ORDER — Round ${round}
 
 Entry isn't given.
 
 #SimianOrder`,
 
   rejection: () =>
-    `Didn't make it into SIMIAN ORDER this time.
+    `Not recognised by THE HIGH ORDER this round.
 
-Will try again.
+Will summon again.
 
 #SimianOrder`,
 };

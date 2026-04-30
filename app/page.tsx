@@ -225,7 +225,7 @@ export default function LandingPage() {
               className="entry-link text-base sm:text-lg"
               style={{ transform: "rotate(0.8deg) translateY(-2px)" }}
             >
-              [ apply ]
+              [ enter the high order ]
             </DelayedLink>
             <button
               type="button"
