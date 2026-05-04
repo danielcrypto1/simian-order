@@ -4,11 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Button from "@/components/Button";
 import {
   TWEETS,
+  canShareCardFile,
   copyCardAndTextWithBlob,
   downloadShareCardBlob,
   fetchShareCardBlob,
   openTweet,
   shareCardUrl,
+  shareCardViaDevice,
 } from "@/lib/twitterShare";
 import { track } from "@/lib/analytics";
 
@@ -167,6 +169,21 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
     track("share_card_open_x");
   }, [tweetText]);
 
+  const onShareDevice = useCallback(async () => {
+    setCopyState("copying");
+    try {
+      const blob = cardBlob ?? (await fetchShareCardBlob(round, wallet));
+      await shareCardViaDevice(blob, tweetText, round);
+      setCopyState("copied");
+      track("share_card_via_device");
+    } catch (err) {
+      // AbortError = user cancelled the share sheet. Don't treat as
+      // failure; just reset to idle.
+      const isAbort = err instanceof Error && err.name === "AbortError";
+      setCopyState(isAbort ? "idle" : "fallback");
+    }
+  }, [round, wallet, tweetText, cardBlob]);
+
   const onDownload = useCallback(async () => {
     setDlState("downloading");
     try {
@@ -178,6 +195,11 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
       setDlState("err");
     }
   }, [round, wallet, cardBlob]);
+
+  // Whether to show the Web Share API button — only when the API is
+  // present AND can share this specific file type. Recomputed when the
+  // blob lands.
+  const canDeviceShare = !!cardBlob && canShareCardFile(cardBlob, round);
 
   if (!open) return null;
 
@@ -192,6 +214,11 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
       role="dialog"
       aria-modal="true"
       aria-label="Share Approval Card"
+      // Build marker so we can verify in production which version of
+      // the modal is live (minified bundle hides function names; this
+      // attribute survives). Bump when shipping fixes that need
+      // verification from the outside.
+      data-share-modal-build="2026-05-04-blob-prefetch+web-share+verify"
       onMouseDown={(e) => {
         // Only close on backdrop click (target === currentTarget),
         // not when the click started inside the panel and the user
@@ -254,14 +281,32 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
             paste in X to include your card.
           </p>
 
-          {/* Action row */}
+          {/* Action row.
+
+              When the browser supports `navigator.share` with file
+              attachments (mobile + Win11/ChromeOS desktops), the
+              primary CTA becomes "Share Card" — opens the OS share
+              sheet with the PNG attached. Picking X drops the image
+              straight into the composer, no clipboard hop. The
+              clipboard-copy path stays available for desktop browsers
+              that lack Web Share, and as a fallback for users who
+              prefer paste flows. */}
           <div className="flex flex-wrap items-center gap-2">
+            {canDeviceShare && (
+              <Button
+                variant="primary"
+                disabled={copyState === "copying"}
+                onClick={onShareDevice}
+              >
+                {copyState === "copying" ? "Sharing…" : "Share Card"}
+              </Button>
+            )}
             <Button
-              variant="primary"
+              variant={canDeviceShare ? "ghost" : "primary"}
               disabled={copyState === "copying"}
               onClick={onCopy}
             >
-              {copyState === "copying" ? "Copying…" : "Copy Card & Text"}
+              {copyState === "copying" && !canDeviceShare ? "Copying…" : "Copy Card & Text"}
             </Button>
             <Button variant="ghost" onClick={onShare}>
               Share on X

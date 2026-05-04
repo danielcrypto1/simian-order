@@ -43,10 +43,33 @@ function maskWallet(raw: string | null): string | null {
   return `${w.slice(0, 6)}…${w.slice(-4)}`.toLowerCase();
 }
 
+// Pool of void textures we sample from for the card backdrop. Each card
+// render picks one deterministically from the round number so a given
+// round always shows the same image — keeps the card stable across
+// refreshes while still varying between rounds. All paths are relative
+// to /public so the absolute URL resolves to the same Vercel deployment
+// the API route is served from.
+const VOID_TEXTURES = [
+  "/void/4.jpg",
+  "/void/12.jpg",
+  "/void/20.jpg",
+  "/void/26.jpg",
+  "/void/30.jpg",
+  "/void/36.jpg",
+  "/void/41.jpg",
+  "/void/52.jpg",
+];
+
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const round = clampRound(url.searchParams.get("round"));
   const wallet = maskWallet(url.searchParams.get("wallet"));
+
+  // Build an absolute URL to the chosen void texture so satori can
+  // fetch it. Falls back gracefully — if the fetch fails inside
+  // ImageResponse, the card still renders without the backdrop layer.
+  const voidPath = VOID_TEXTURES[round % VOID_TEXTURES.length];
+  const voidUrl = `${url.origin}${voidPath}`;
 
   // SVG fractal-noise filter — same generator we use on the site
   // body::after — encoded as a data URL so satori can paint it as a
@@ -81,6 +104,46 @@ export async function GET(req: NextRequest) {
           padding: "80px",
         }}
       >
+        {/* Void texture backdrop — varies per round (deterministic), pulled
+            from the same /void/ pool the site uses. Heavily desaturated +
+            low opacity so the foreground type stays the focus. Satori
+            requires the <img> form for raster images (it can't fetch
+            URLs through CSS background-image). */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={voidUrl}
+          alt=""
+          width={SIZE}
+          height={SIZE}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: SIZE,
+            height: SIZE,
+            objectFit: "cover",
+            opacity: 0.35,
+            filter: "grayscale(0.6) contrast(1.1)",
+          }}
+        />
+
+        {/* Dark vignette pulled OVER the texture so contrast stays high
+            in the centre where RECOGNISED sits. */}
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: "flex",
+            backgroundImage: [
+              "radial-gradient(ellipse at 50% 50%, transparent 10%, rgba(0,0,0,0.55) 70%)",
+              "linear-gradient(180deg, rgba(0,0,0,0.45), rgba(0,0,0,0.25) 40%, rgba(0,0,0,0.65))",
+            ].join(", "),
+          }}
+        />
+
         {/* Faint noise overlay — opacity-blended (no mixBlendMode in
             satori). Sits below the content (zIndex omitted; satori
             paints in document order, content divs come after this). */}
