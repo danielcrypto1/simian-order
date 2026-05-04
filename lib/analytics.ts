@@ -26,7 +26,8 @@ export type AnalyticsEvent =
   | "share_card_copy_text_only"
   | "share_card_copy_fallback_ios"
   | "share_card_open_x"
-  | "share_card_downloaded";
+  | "share_card_downloaded"
+  | "share_card_via_device";
 
 type Props = Record<string, string | number | boolean | null>;
 

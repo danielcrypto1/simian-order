@@ -240,16 +240,35 @@ export async function copyCardAndTextWithBlob(
     try {
       const item = new ClipboardItemCtor({ [blob.type || "image/png"]: blob });
       await navigator.clipboard.write([item]);
-      imageOk = true;
+      // ── Verify-after-write ────────────────────────────────────────
+      // Chromium has a long-standing bug where `clipboard.write` with
+      // an image silently no-ops (resolves successfully, image absent
+      // from clipboard). Read back to catch this — if the write didn't
+      // actually land, mark as failure so the caller surfaces the
+      // download fallback instead of telling the user "copied" when
+      // nothing was copied.
+      try {
+        const items = await navigator.clipboard.read();
+        const hasImage = items.some((it) =>
+          it.types.some((t) => t.startsWith("image/"))
+        );
+        imageOk = hasImage;
+        if (!hasImage) {
+          imageReason = "no-image-support";
+          // eslint-disable-next-line no-console
+          console.warn("[share-card] clipboard.write resolved but readback shows no image — chromium silent-fail");
+        }
+      } catch {
+        // Read may need a separate permission grant. If we can't
+        // verify, optimistically trust the write succeeded.
+        imageOk = true;
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message.toLowerCase() : "";
       imageReason =
         msg.includes("denied") || msg.includes("permission") ? "denied"
         : msg.includes("type") || msg.includes("not supported") || msg.includes("image/png") ? "no-image-support"
         : "unknown";
-      // Surface to the console so users can hand us the real error if
-      // the modal status line isn't enough — silent failures here are
-      // the worst possible debug outcome.
       // eslint-disable-next-line no-console
       console.warn("[share-card] image clipboard write failed:", err);
     }
@@ -283,4 +302,49 @@ export function downloadShareCardBlob(blob: Blob, round: number): void {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
+/**
+ * Returns true when the browser supports `navigator.share()` with
+ * file attachments — the path that reliably lands an image into the
+ * X composer (or Discord, Messages, Mail, etc.) on mobile and modern
+ * desktop browsers. Must be re-checked per blob since `canShare`
+ * inspects the file's MIME type / size.
+ */
+export function canShareCardFile(blob: Blob, round: number): boolean {
+  if (typeof navigator === "undefined") return false;
+  if (typeof navigator.share !== "function") return false;
+  if (typeof navigator.canShare !== "function") return false;
+  try {
+    const file = new File([blob], `simian-order-recognised-r${round}.png`, {
+      type: blob.type || "image/png",
+    });
+    return navigator.canShare({ files: [file] });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Opens the OS share sheet with the card as a real File attachment +
+ * the prepared tweet text. On mobile, picking "X" attaches the image
+ * directly (no clipboard hop). On Chromium desktops with Web Share
+ * Level 2 (Win 11 / ChromeOS), opens the system share dialog.
+ *
+ * Throws if the user cancels or the platform refuses — caller should
+ * fall back to clipboard / download.
+ */
+export async function shareCardViaDevice(
+  blob: Blob,
+  text: string,
+  round: number,
+): Promise<void> {
+  const file = new File([blob], `simian-order-recognised-r${round}.png`, {
+    type: blob.type || "image/png",
+  });
+  await navigator.share({
+    files: [file],
+    text,
+    title: `SIMIAN ORDER — Round ${round}`,
+  });
 }
