@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Button from "@/components/Button";
 import {
   TWEETS,
-  copyCardAndText,
-  downloadShareCard,
+  copyCardAndTextWithBlob,
+  downloadShareCardBlob,
+  fetchShareCardBlob,
   openTweet,
   shareCardUrl,
 } from "@/lib/twitterShare";
@@ -56,6 +57,11 @@ function isImageClipboardUnreliable(): boolean {
 export default function ShareApprovalModal({ open, onClose, round, wallet }: Props) {
   const [copyState, setCopyState] = useState<CopyState>("idle");
   const [dlState, setDlState] = useState<DownloadState>("idle");
+  // Pre-fetched card PNG. Loaded on open so `clipboard.write()` can
+  // run synchronously from the click handler without losing user
+  // activation across a network fetch — Chromium silently drops the
+  // image branch if the ClipboardItem promise takes too long.
+  const [cardBlob, setCardBlob] = useState<Blob | null>(null);
   // The tweet text is picked at modal-open time so the user sees a
   // stable string and isn't surprised by the random variant changing
   // on every action. Memoised on (open, round).
@@ -68,8 +74,27 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
     if (open) {
       setCopyState("idle");
       setDlState("idle");
+      setCardBlob(null);
     }
   }, [open]);
+
+  // Pre-fetch the card PNG as soon as the modal opens. If the round
+  // or wallet changes mid-open we abort the previous fetch so the
+  // wrong blob doesn't land in state.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const blob = await fetchShareCardBlob(round, wallet);
+        if (!cancelled) setCardBlob(blob);
+      } catch {
+        // Don't surface yet — onCopy/onDownload will retry the fetch
+        // and show the fallback themselves if it fails again.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, round, wallet]);
 
   // ESC to close. Bound only while open so we don't compete with
   // unrelated handlers when the modal isn't on screen.
@@ -104,8 +129,8 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
     // camera roll / Files. Text still goes to clipboard.
     if (isImageClipboardUnreliable()) {
       try {
-        await downloadShareCard(round, wallet);
-        // Best-effort text-only copy — ignore failure here.
+        const blob = cardBlob ?? (await fetchShareCardBlob(round, wallet));
+        downloadShareCardBlob(blob, round);
         try { await navigator.clipboard?.writeText(tweetText); } catch { /* noop */ }
         setCopyState("text-only");
         track("share_card_copy_fallback_ios");
@@ -115,7 +140,17 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
       return;
     }
 
-    const res = await copyCardAndText(round, tweetText, wallet);
+    // Desktop / non-iOS: use the pre-fetched blob so clipboard.write()
+    // runs synchronously inside the click handler. If the prefetch
+    // hasn't landed yet (very fast click), fall back to a fresh fetch
+    // — slightly less reliable but still works most of the time.
+    let blob = cardBlob;
+    if (!blob) {
+      try { blob = await fetchShareCardBlob(round, wallet); }
+      catch { setCopyState("fallback"); return; }
+    }
+
+    const res = await copyCardAndTextWithBlob(blob, tweetText);
     if (res.imageOk && res.textOk) {
       setCopyState("copied");
       track("share_card_copied");
@@ -125,7 +160,7 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
     } else {
       setCopyState("fallback");
     }
-  }, [round, wallet, tweetText]);
+  }, [round, wallet, tweetText, cardBlob]);
 
   const onShare = useCallback(() => {
     openTweet(tweetText);
@@ -135,13 +170,14 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
   const onDownload = useCallback(async () => {
     setDlState("downloading");
     try {
-      await downloadShareCard(round, wallet);
+      const blob = cardBlob ?? (await fetchShareCardBlob(round, wallet));
+      downloadShareCardBlob(blob, round);
       setDlState("ok");
       track("share_card_downloaded");
     } catch {
       setDlState("err");
     }
-  }, [round, wallet]);
+  }, [round, wallet, cardBlob]);
 
   if (!open) return null;
 
