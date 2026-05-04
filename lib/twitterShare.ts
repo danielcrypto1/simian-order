@@ -88,7 +88,7 @@ export function openTweet(text: string): void {
  * without waiting for max-age to expire. Bump when you change the
  * card layout, backdrop, or copy.
  */
-const SHARE_CARD_VERSION = "v3-void";
+const SHARE_CARD_VERSION = "v4-image-only";
 
 /**
  * Builds the URL to the dynamic share-card PNG for a given round.
@@ -293,6 +293,55 @@ export async function copyCardAndTextWithBlob(
   }
 
   return { imageOk, textOk, imageReason };
+}
+
+/**
+ * Copies ONLY the card PNG to the clipboard (no text). Returns true
+ * on confirmed success.
+ *
+ * Background: Chromium silently drops one branch of `clipboard.write`
+ * when both an image and text are written together — the user gets
+ * "copied" feedback but only one type actually lands. We split the
+ * two writes into separate user-gesture actions ("Copy Image" + the
+ * X intent which carries the text) instead of bundling them.
+ *
+ * Verifies the image actually landed via a `clipboard.read()` round-
+ * trip — Chromium also has a separate silent-fail bug where the
+ * single-image write succeeds but the clipboard ends up empty.
+ */
+export async function copyCardImageWithBlob(blob: Blob): Promise<boolean> {
+  if (typeof navigator === "undefined") return false;
+  const ClipboardItemCtor =
+    typeof window !== "undefined"
+      ? (window as unknown as { ClipboardItem?: typeof ClipboardItem }).ClipboardItem
+      : undefined;
+  if (!navigator.clipboard?.write || !ClipboardItemCtor) return false;
+
+  try {
+    const item = new ClipboardItemCtor({ [blob.type || "image/png"]: blob });
+    await navigator.clipboard.write([item]);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[share-card] image clipboard write failed:", err);
+    return false;
+  }
+
+  // Verify-after-write: read back and confirm an image MIME landed.
+  // If readClipboard isn't permitted we trust the write succeeded.
+  try {
+    const items = await navigator.clipboard.read();
+    const hasImage = items.some((it) =>
+      it.types.some((t) => t.startsWith("image/"))
+    );
+    if (!hasImage) {
+      // eslint-disable-next-line no-console
+      console.warn("[share-card] clipboard.write resolved but readback shows no image");
+      return false;
+    }
+    return true;
+  } catch {
+    return true;
+  }
 }
 
 /**

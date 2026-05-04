@@ -316,6 +316,23 @@ hr { border-color: #1a1a28; }
 }
 .blink { animation: blink 0.95s steps(1) infinite; }
 
+/* Cycling dots after a courier-mono "loading" label.
+   Renders as ".  ", ".. ", "..." then repeats — same vibe as the
+   classic terminal "loading…" indicator. Used inline after the
+   parent text via ::after so the markup stays clean. */
+@keyframes loading-dots {
+  0%, 24%   { content: ".  "; }
+  25%, 49%  { content: ".. "; }
+  50%, 74%  { content: "..."; }
+  75%, 100% { content: "   "; }
+}
+.loading-dots::after {
+  content: "   ";
+  font-family: "Courier New", Courier, monospace;
+  white-space: pre;
+  animation: loading-dots 1.2s steps(4) infinite;
+}
+
 /* Tiny RGB-split twitch on hover. */
 @keyframes glitch {
   0%, 100% { transform: translate(0, 0); }
