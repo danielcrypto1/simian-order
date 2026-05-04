@@ -4,13 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Button from "@/components/Button";
 import {
   TWEETS,
-  canShareCardFile,
-  copyCardAndTextWithBlob,
+  copyCardImageWithBlob,
   downloadShareCardBlob,
   fetchShareCardBlob,
   openTweet,
   shareCardUrl,
-  shareCardViaDevice,
 } from "@/lib/twitterShare";
 import { track } from "@/lib/analytics";
 
@@ -23,7 +21,7 @@ type Props = {
   wallet: string;
 };
 
-type CopyState = "idle" | "copying" | "copied" | "text-only" | "fallback";
+type CopyState = "idle" | "copying" | "copied" | "fallback";
 type DownloadState = "idle" | "downloading" | "ok" | "err";
 
 /**
@@ -44,10 +42,14 @@ function isImageClipboardUnreliable(): boolean {
 /**
  * "Share Approval Card" overlay.
  *
- * A focused, single-purpose dialog that opens from the approval screen.
- * Hosts the card preview + the two primary actions (Copy Card & Text /
- * Share on X) plus a graceful Download fallback when the image clipboard
- * write fails or isn't available.
+ * Two-step share flow (text + image are NOT copied together — Chromium
+ * silently drops one branch when both are written in the same
+ * clipboard.write call, so we keep them separate):
+ *
+ *   1. Copy Image  → puts ONLY the PNG on the clipboard
+ *   2. Share on X  → opens the intent URL with the tweet text pre-filled
+ *
+ * The user pastes the image into the X composer after the text loads.
  *
  * Visual: matches the site — black panel, courier mono header, hard 1px
  * border, no rounded corners. Backdrop is dimmed-black with a faint
@@ -64,6 +66,10 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
   // activation across a network fetch — Chromium silently drops the
   // image branch if the ClipboardItem promise takes too long.
   const [cardBlob, setCardBlob] = useState<Blob | null>(null);
+  // Whether the <img> preview has finished loading. Drives the
+  // "rendering card" skeleton overlay below — the PNG is generated
+  // on-demand server-side so the first paint can take 1-3s.
+  const [previewLoaded, setPreviewLoaded] = useState(false);
   // The tweet text is picked at modal-open time so the user sees a
   // stable string and isn't surprised by the random variant changing
   // on every action. Memoised on (open, round).
@@ -77,6 +83,7 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
       setCopyState("idle");
       setDlState("idle");
       setCardBlob(null);
+      setPreviewLoaded(false);
     }
   }, [open]);
 
@@ -122,19 +129,18 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
     if (open) panelRef.current?.focus();
   }, [open]);
 
-  const onCopy = useCallback(async () => {
+  const onCopyImage = useCallback(async () => {
     setCopyState("copying");
     track("share_card_copy_attempt");
 
-    // iOS Safari: skip the image-clipboard route entirely and run the
-    // download path so the user actually ends up with a file in their
-    // camera roll / Files. Text still goes to clipboard.
+    // iOS Safari: image clipboard is unreliable. Auto-route to a
+    // download so the user has the file in their camera roll / Files,
+    // then they can attach it in the X composer themselves.
     if (isImageClipboardUnreliable()) {
       try {
         const blob = cardBlob ?? (await fetchShareCardBlob(round, wallet));
         downloadShareCardBlob(blob, round);
-        try { await navigator.clipboard?.writeText(tweetText); } catch { /* noop */ }
-        setCopyState("text-only");
+        setCopyState("fallback");
         track("share_card_copy_fallback_ios");
       } catch {
         setCopyState("fallback");
@@ -142,47 +148,30 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
       return;
     }
 
-    // Desktop / non-iOS: use the pre-fetched blob so clipboard.write()
-    // runs synchronously inside the click handler. If the prefetch
-    // hasn't landed yet (very fast click), fall back to a fresh fetch
-    // — slightly less reliable but still works most of the time.
+    // Desktop: write image-only to clipboard. Pre-fetched blob keeps
+    // clipboard.write inside the user-activation window. Verify the
+    // image actually landed (Chromium silent-fail check) — if not,
+    // surface the download fallback instead of falsely claiming success.
     let blob = cardBlob;
     if (!blob) {
       try { blob = await fetchShareCardBlob(round, wallet); }
       catch { setCopyState("fallback"); return; }
     }
 
-    const res = await copyCardAndTextWithBlob(blob, tweetText);
-    if (res.imageOk && res.textOk) {
+    const ok = await copyCardImageWithBlob(blob);
+    if (ok) {
       setCopyState("copied");
       track("share_card_copied");
-    } else if (res.textOk) {
-      setCopyState("text-only");
-      track("share_card_copy_text_only", { reason: res.imageReason || "unknown" });
     } else {
       setCopyState("fallback");
+      track("share_card_copy_text_only", { reason: "image-write-failed" });
     }
-  }, [round, wallet, tweetText, cardBlob]);
+  }, [round, wallet, cardBlob]);
 
   const onShare = useCallback(() => {
     openTweet(tweetText);
     track("share_card_open_x");
   }, [tweetText]);
-
-  const onShareDevice = useCallback(async () => {
-    setCopyState("copying");
-    try {
-      const blob = cardBlob ?? (await fetchShareCardBlob(round, wallet));
-      await shareCardViaDevice(blob, tweetText, round);
-      setCopyState("copied");
-      track("share_card_via_device");
-    } catch (err) {
-      // AbortError = user cancelled the share sheet. Don't treat as
-      // failure; just reset to idle.
-      const isAbort = err instanceof Error && err.name === "AbortError";
-      setCopyState(isAbort ? "idle" : "fallback");
-    }
-  }, [round, wallet, tweetText, cardBlob]);
 
   const onDownload = useCallback(async () => {
     setDlState("downloading");
@@ -196,17 +185,9 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
     }
   }, [round, wallet, cardBlob]);
 
-  // Whether to show the Web Share API button — only when the API is
-  // present AND can share this specific file type. Recomputed when the
-  // blob lands.
-  const canDeviceShare = !!cardBlob && canShareCardFile(cardBlob, round);
-
   if (!open) return null;
 
-  // The "show download fallback" rule: any time the image branch failed
-  // — text-only success counts, complete failure counts.
-  const showDownloadFallback =
-    copyState === "text-only" || copyState === "fallback";
+  const showDownloadFallback = copyState === "fallback";
 
   return (
     <div
@@ -218,7 +199,7 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
       // the modal is live (minified bundle hides function names; this
       // attribute survives). Bump when shipping fixes that need
       // verification from the outside.
-      data-share-modal-build="2026-05-04-blob-prefetch+web-share+verify"
+      data-share-modal-build="2026-05-04-image-only+loading"
       onMouseDown={(e) => {
         // Only close on backdrop click (target === currentTarget),
         // not when the click started inside the panel and the user
@@ -260,11 +241,12 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
         </div>
 
         <div className="panel-body space-y-3">
-          {/* Card preview — square, fills available width up to 420px.
-              Decorative; the real PNG is downloaded/copied via the
-              actions below. The bg-black + 1px border matches the
-              inline preview look used elsewhere. */}
-          <div className="border border-border bg-black">
+          {/* Card preview area. The PNG is generated on-demand server-
+              side and can take 1-3s on a cold edge instance, so we
+              show a courier-mono "rendering" skeleton until the <img>
+              fires onLoad. Aspect-ratio square keeps the panel from
+              jumping when the image arrives. */}
+          <div className="relative border border-border bg-black aspect-square">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={shareCardUrl(round, wallet)}
@@ -272,41 +254,51 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
               className="block w-full h-auto"
               width={1200}
               height={1200}
+              onLoad={() => setPreviewLoaded(true)}
+              onError={() => setPreviewLoaded(true)}
+              style={{ opacity: previewLoaded ? 1 : 0, transition: "opacity 200ms" }}
             />
+
+            {!previewLoaded && (
+              <div
+                className="absolute inset-0 flex flex-col items-center justify-center gap-2 select-none"
+                aria-hidden
+              >
+                {/* Mono caps "system" line — same vibe as the round
+                    badge / status strips elsewhere on the site. */}
+                <div className="font-mono text-xxs uppercase tracking-widest2 text-mute">
+                  // rendering card<span className="loading-dots" />
+                </div>
+                {/* Italic serif tagline below — site signature. */}
+                <div className="font-serif italic text-xs text-mute">
+                  the order is composing your verdict
+                </div>
+                {/* Subtle electric-blue scanline pulse, drawn as a
+                    thin horizontal bar that animates via tailwind's
+                    animate-pulse. Reads as system telemetry. */}
+                <div className="mt-2 h-[2px] w-24 bg-elec/60 animate-pulse" />
+              </div>
+            )}
           </div>
 
-          {/* Helper text — italic serif, small, tone matches existing
-              hint copy on the apply page. */}
+          {/* Helper text — explains the two-step flow. */}
           <p className="font-serif italic text-xxs text-mute leading-relaxed">
-            paste in X to include your card.
+            copy the image, then share on x and paste it in.
           </p>
 
-          {/* Action row.
-
-              When the browser supports `navigator.share` with file
-              attachments (mobile + Win11/ChromeOS desktops), the
-              primary CTA becomes "Share Card" — opens the OS share
-              sheet with the PNG attached. Picking X drops the image
-              straight into the composer, no clipboard hop. The
-              clipboard-copy path stays available for desktop browsers
-              that lack Web Share, and as a fallback for users who
-              prefer paste flows. */}
+          {/* Action row — primary copies the image to clipboard;
+              secondary opens the X composer with the tweet text. */}
           <div className="flex flex-wrap items-center gap-2">
-            {canDeviceShare && (
-              <Button
-                variant="primary"
-                disabled={copyState === "copying"}
-                onClick={onShareDevice}
-              >
-                {copyState === "copying" ? "Sharing…" : "Share Card"}
-              </Button>
-            )}
             <Button
-              variant={canDeviceShare ? "ghost" : "primary"}
-              disabled={copyState === "copying"}
-              onClick={onCopy}
+              variant="primary"
+              disabled={copyState === "copying" || !cardBlob}
+              onClick={onCopyImage}
             >
-              {copyState === "copying" && !canDeviceShare ? "Copying…" : "Copy Card & Text"}
+              {copyState === "copying"
+                ? "Copying…"
+                : !cardBlob
+                ? "Preparing…"
+                : "Copy Image"}
             </Button>
             <Button variant="ghost" onClick={onShare}>
               Share on X
@@ -318,17 +310,12 @@ export default function ShareApprovalModal({ open, onClose, round, wallet }: Pro
               site's status conventions. */}
           {copyState === "copied" && (
             <p className="font-mono text-xxxs uppercase tracking-widest2 text-elec">
-              card + text copied. open X and paste.
-            </p>
-          )}
-          {copyState === "text-only" && (
-            <p className="font-mono text-xxxs uppercase tracking-widest2 text-bleed">
-              image clipboard unsupported — text copied, save the card below.
+              image copied. click share on x and paste it in.
             </p>
           )}
           {copyState === "fallback" && (
             <p className="font-mono text-xxxs uppercase tracking-widest2 text-bleed">
-              clipboard blocked — save the card below and paste manually.
+              clipboard blocked — save the card below and attach manually.
             </p>
           )}
 
