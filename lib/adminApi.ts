@@ -37,7 +37,6 @@ function safeJson(t: string): unknown {
   try { return JSON.parse(t); } catch { return null; }
 }
 
-export type WhitelistEntry = { wallet: string; phase: "GTD" | "FCFS"; maxMint: number; addedAt: string };
 export type Application = {
   id: string;
   wallet: string;
@@ -48,14 +47,15 @@ export type Application = {
   source: "apply" | "quest";
   createdAt: string;
 };
+
+/**
+ * The on-chain mint contract has been removed from this codebase. The
+ * runtime config now carries only the round number — kept as a
+ * standalone object so existing reads like `cfg.round_number` keep
+ * working without churn. `total_supply` is a static UI constant
+ * (5,555); see `lib/branding.ts`.
+ */
 export type Cfg = {
-  mint: {
-    total_supply: number; gtd_allocation: number; fcfs_allocation: number;
-    gtd_max_mint: number; fcfs_max_mint: number; public_max_mint: number;
-    gtd_active: boolean; fcfs_active: boolean; public_active: boolean;
-    royalty_bps: number;
-  };
-  royalty_bps: number;
   round_number: number;
 };
 
@@ -101,32 +101,117 @@ export const adminApi = {
   deleteApplication: (w: string) =>
     req<{ ok: boolean }>(`/api/admin/applications/${w}`, { method: "DELETE" }),
 
+  /**
+   * Curated submissions (replaces the old auto-tracked referral
+   * link system). Each row is one referrer's submission, joined
+   * with the KOL registry so the panel renders KOL badges inline.
+   */
   listReferrals: () =>
     req<{
       items: Array<{
-        wallet: string;
-        code: string;
-        count: number;
-        limit: number;
-        gtd: boolean;
-        gtdRound: number | null;
-        gtdAt: string | null;
+        referrerWallet: string;
+        referrerRound: number;
+        referrer_isKOL: boolean;
+        referrer_tag: string;
+        entries: Array<{
+          x: string;
+          discord: string;
+          wallet: string;
+          status: "pending" | "approved" | "rejected";
+          decidedAt?: string;
+        }>;
         createdAt: string;
-        referred: Array<{ wallet: string; twitter: string | null; status: string | null }>;
+        updatedAt: string;
       }>;
       total: number;
-      totalReferred: number;
-      gtdTotal: number;
+      totalEntries: number;
+      approvedTotal: number;
+      pendingTotal: number;
+      rejectedTotal: number;
+      approvedWallets: string[];
     }>("/api/admin/referrals"),
-  simulateReferral: (referrer: string, referee?: string) =>
-    req<{ ok: boolean; referrer: string; referee: string }>("/api/admin/referrals/simulate", {
+  /**
+   * Approve / reject a single entry within a submission, or delete
+   * the whole submission so the referrer can re-submit.
+   */
+  decideReferralEntry: (
+    referrer: string,
+    referee: string,
+    action: "approve" | "reject"
+  ) =>
+    req<{ ok: boolean; submission?: unknown }>(
+      "/api/admin/referrals/decide",
+      {
+        method: "POST",
+        body: JSON.stringify({ referrer, referee, action }),
+      }
+    ),
+  deleteSubmission: (referrer: string) =>
+    req<{ ok: boolean }>("/api/admin/referrals/decide", {
       method: "POST",
-      body: JSON.stringify({ referrer, referee }),
+      body: JSON.stringify({ referrer, action: "delete" }),
     }),
-  removeReferral: (referrer: string, referee: string) =>
-    req<{ ok: boolean }>("/api/admin/referrals/remove", {
+
+  /**
+   * KOL tag registry. Toggling a wallet on adds it; removing drops
+   * the badge in the panel. Tag is free-form text up to 64 chars.
+   */
+  listKols: () =>
+    req<{ items: Array<{ wallet: string; tag: string; addedAt: string }> }>(
+      "/api/admin/kol"
+    ),
+  setKol: (wallet: string, tag = "") =>
+    req<{ ok: boolean; entry: { wallet: string; tag: string; addedAt: string } }>(
+      "/api/admin/kol",
+      { method: "POST", body: JSON.stringify({ wallet, tag }) }
+    ),
+  removeKol: (wallet: string) =>
+    req<{ ok: boolean }>("/api/admin/kol", {
+      method: "DELETE",
+      body: JSON.stringify({ wallet }),
+    }),
+
+  /**
+   * Back Room — hidden 500-claim easter egg system. Admin sets the
+   * passphrase; visitors who type it correctly get a unique XXXX-XXXX
+   * code. One claim per browser cookie identity.
+   */
+  getBackroom: () =>
+    req<{
+      passphrase: string | null;
+      dropCode: string | null;
+      total: number;
+      remaining: number;
+      claimed: number;
+      full: boolean;
+      claims: Array<{
+        code: string;
+        wallet?: string;
+        visitorId: string;
+        ipHash: string;
+        claimedAt: string;
+      }>;
+      updatedAt: string;
+    }>("/api/admin/backroom"),
+  setBackroomPassphrase: (passphrase: string) =>
+    req<{ ok: boolean; passphrase: string }>("/api/admin/backroom", {
       method: "POST",
-      body: JSON.stringify({ referrer, referee }),
+      body: JSON.stringify({ passphrase }),
+    }),
+  setBackroomDropCode: (dropCode: string | null) =>
+    req<{ ok: boolean; dropCode: string | null }>("/api/admin/backroom", {
+      method: "POST",
+      body: JSON.stringify({ dropCode }),
+    }),
+  regenerateBackroomDropCode: () =>
+    req<{ ok: boolean; dropCode: string }>("/api/admin/backroom", {
+      method: "POST",
+      body: JSON.stringify({ regenerateDropCode: true }),
+    }),
+  resetBackroom: (alsoClearPassphrase = false) =>
+    req<{ ok: boolean }>("/api/admin/backroom/reset", {
+      method: "POST",
+      body: JSON.stringify({ alsoClearPassphrase }),
     }),
 
   resetAllData: () =>
@@ -134,18 +219,17 @@ export const adminApi = {
       ok: boolean;
       cleared: {
         applications: number;
-        referrers: number;
-        whitelist: number;
+        submissions: number;
       };
     }>("/api/admin/reset", {
       method: "POST",
       body: JSON.stringify({ confirm: true }),
     }),
 
-  runSystemTest: (only?: "application" | "approval" | "referral" | "signature") =>
+  runSystemTest: (only?: "application" | "approval" | "submission") =>
     req<{
       tests: Array<{
-        id: "application" | "approval" | "referral" | "signature";
+        id: "application" | "approval" | "submission";
         name: string;
         status: "PASS" | "FAIL";
         message: string;
@@ -173,27 +257,4 @@ export const adminApi = {
       broken: number;
       postOnly: number;
     }>("/api/admin/audit-links"),
-
-  listWhitelist: () => req<{ items: WhitelistEntry[]; total: number }>("/api/admin/whitelist"),
-  addWhitelist: (entry: { wallet: string; phase: "GTD" | "FCFS"; maxMint: number }) =>
-    req<{ ok: boolean; entry: WhitelistEntry }>("/api/admin/whitelist", {
-      method: "POST", body: JSON.stringify(entry),
-    }),
-  updateWhitelist: (
-    wallet: string,
-    entry: { phase: "GTD" | "FCFS"; maxMint: number }
-  ) =>
-    req<{ ok: boolean; entry: WhitelistEntry }>(`/api/admin/whitelist/${wallet}`, {
-      method: "PUT", body: JSON.stringify(entry),
-    }),
-  deleteWhitelist: (wallet: string) =>
-    req<{ ok: boolean }>(`/api/admin/whitelist/${wallet}`, { method: "DELETE" }),
-  uploadWhitelist: (file: File, mode: "append" | "overwrite") => {
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("mode", mode);
-    return req<{ ok: boolean; mode: string; added: number; total: number }>(
-      "/api/admin/whitelist/upload", { method: "POST", body: fd }
-    );
-  },
 };

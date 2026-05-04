@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
-import { ethers } from "ethers";
 import {
   deleteApplication,
   findByWallet,
@@ -9,11 +8,11 @@ import {
   upsertApplication,
 } from "@/lib/applicationsStore";
 import {
-  addReferral,
-  getOrCreateLink,
-  removeReferral,
-} from "@/lib/referralsStore";
-import { generateSignature, getSignerAddress } from "@/lib/signature";
+  upsertSubmission,
+  setEntryStatus,
+  deleteSubmission,
+  getSubmission,
+} from "@/lib/submissionsStore";
 import { TEST_IDS, type TestId, type TestResult } from "@/lib/systemTests";
 
 export const runtime = "nodejs";
@@ -25,10 +24,9 @@ type TestOutcome = {
 };
 
 const NAMES: Record<TestId, string> = {
-  application: "Application Flow",
-  approval: "Approval Flow",
-  referral: "Referral Flow",
-  signature: "Signature",
+  application: "High Order Flow",
+  approval: "Recognition Flow",
+  submission: "Five Summoning Flow",
 };
 
 function newWallet(): string {
@@ -111,92 +109,75 @@ async function testApproval(): Promise<TestOutcome> {
   };
 }
 
-async function testReferral(): Promise<TestOutcome> {
+// Curated submission flow — exercises the full lifecycle:
+//  - referrer is application-approved
+//  - submits a list of one entry
+//  - admin approves the entry → entry status flips
+//  - cleanup deletes the submission
+async function testSubmission(): Promise<TestOutcome> {
   const referrer = newWallet();
   const referee = newWallet();
-  const before = await getOrCreateLink(referrer);
-  const before1 = before.referred.length;
-
-  const r = await addReferral(referrer, referee);
-  const cleanup = async () => { await removeReferral(referrer, referee); };
-  if (!r.ok) return { ok: false, message: `addReferral failed: ${r.error}`, cleanup };
-
-  const after = await getOrCreateLink(referrer);
-  if (after.referred.length !== before1 + 1) {
-    return {
-      ok: false,
-      message: `count not incremented: ${before1} → ${after.referred.length}`,
-      cleanup,
-    };
-  }
-  if (!after.referred.includes(referee)) {
-    return { ok: false, message: "referee not in referrer's list", cleanup };
-  }
-  const dup = await addReferral(referrer, referee);
-  if (dup.ok) return { ok: false, message: "duplicate referee should have been rejected", cleanup };
-  if (dup.error !== "already_referred") {
-    return { ok: false, message: `expected already_referred, got ${dup.error}`, cleanup };
-  }
-  return {
-    ok: true,
-    message: `code=${after.code}, count ${before1}→${after.referred.length}, duplicate rejected`,
-    cleanup,
+  const cleanup = async () => {
+    try { await deleteSubmission(referrer); } catch { /* noop */ }
+    try { await deleteApplication(referrer); } catch { /* noop */ }
   };
-}
 
-// FCFS test removed along with the FCFS allocation system — see
-// referral test below for the replacement guarantee path (5 referrals
-// → automatic GTD).
+  // Set up: create an approved application for the referrer so they
+  // pass the gate inside upsertSubmission.
+  await upsertApplication({
+    wallet: referrer,
+    twitter: "test_" + referrer.slice(2, 8),
+    why: null,
+    discord: null,
+    referrer_input: null,
+    source: "apply",
+  });
+  await setStatus(referrer, "approved");
 
-async function testSignature(): Promise<TestOutcome> {
-  const wallet = newWallet();
-  const phase = 2;
-  const maxAllowed = 2;
+  const submitted = await upsertSubmission({
+    referrerWallet: referrer,
+    entries: [
+      { x: "tx_" + referee.slice(2, 6), discord: "td_" + referee.slice(2, 6), wallet: referee },
+    ],
+  });
+  if (!submitted.ok) {
+    return { ok: false, message: `upsert failed: ${submitted.error}`, cleanup };
+  }
+  if (submitted.submission.entries[0].status !== "pending") {
+    return { ok: false, message: "expected pending after submit", cleanup };
+  }
 
-  let signature: string;
-  try {
-    signature = await generateSignature(wallet, phase, maxAllowed);
-  } catch (e) {
-    return {
-      ok: false,
-      message: e instanceof Error ? `generateSignature threw: ${e.message}` : "generateSignature threw",
-    };
+  const decided = await setEntryStatus(referrer, referee, "approved");
+  if (!decided) {
+    return { ok: false, message: "setEntryStatus returned null", cleanup };
   }
-  if (typeof signature !== "string" || !signature.startsWith("0x") || signature.length !== 132) {
-    return { ok: false, message: `bad signature shape (len=${signature.length})` };
+  if (decided.entries[0].status !== "approved") {
+    return { ok: false, message: `decision did not persist: ${decided.entries[0].status}`, cleanup };
   }
-  const chainId = process.env.NEXT_PUBLIC_CHAIN_ID;
-  const contract = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
-  if (!chainId || !contract) {
-    return { ok: false, message: "NEXT_PUBLIC_CHAIN_ID or _CONTRACT_ADDRESS missing" };
+
+  const reread = await getSubmission(referrer);
+  if (!reread || reread.entries[0].status !== "approved") {
+    return { ok: false, message: "approval did not persist on re-read", cleanup };
   }
-  const digest = ethers.solidityPackedKeccak256(
-    ["uint256", "address", "address", "uint8", "uint256"],
-    [BigInt(chainId), contract, wallet, phase, maxAllowed]
-  );
-  const recovered = ethers.verifyMessage(ethers.getBytes(digest), signature);
-  const announced = getSignerAddress();
-  if (recovered.toLowerCase() !== announced.toLowerCase()) {
-    return { ok: false, message: `recovered ${recovered} ≠ signer ${announced}` };
-  }
+
   return {
     ok: true,
-    message: `132-byte sig, recovers to ${recovered.slice(0, 10)}…${recovered.slice(-4)}`,
+    message: `submitted 1 entry, admin approve → status=approved persisted`,
+    cleanup,
   };
 }
 
 async function runByList(
   ids: TestId[],
-  // origin no longer needed (FCFS HTTP probe removed) but kept for parity
-  // with future tests that may need an absolute base URL.
+  // kept as a parameter for parity with future tests that may need an
+  // absolute base URL; unused for now.
   _origin: string
 ): Promise<TestResult[]> {
   const out: TestResult[] = [];
   for (const id of ids) {
     if (id === "application")     out.push(await runOne(id, testApplication));
     else if (id === "approval")   out.push(await runOne(id, testApproval));
-    else if (id === "referral")   out.push(await runOne(id, testReferral));
-    else if (id === "signature")  out.push(await runOne(id, testSignature));
+    else if (id === "submission") out.push(await runOne(id, testSubmission));
   }
   return out;
 }

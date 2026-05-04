@@ -5,11 +5,11 @@ import Panel from "@/components/Panel";
 import Button from "@/components/Button";
 import StatusBadge from "@/components/StatusBadge";
 import { useStore } from "@/lib/store";
-import { useWallet } from "@/lib/wallet";
 import { track } from "@/lib/analytics";
 import { TWEETS, openTweet } from "@/lib/twitterShare";
 import { useRound, fetchRound } from "@/lib/useRound";
 import RoundHistory from "@/components/RoundHistory";
+import ShareApprovalModal from "@/components/ShareApprovalModal";
 
 type Status = "idle" | "loading" | "submitting" | "submitted" | "error";
 type ServerApp = {
@@ -22,24 +22,89 @@ type ServerApp = {
   createdAt: string;
 };
 
+function isWallet(s: string): boolean {
+  return /^0x[a-fA-F0-9]{40}$/.test(s.trim());
+}
+
+const STORY_MAX = 1500;
+const STORY_MIN = 60;
+
+/**
+ * Four-pillar qualification manifesto rendered below the form.
+ * Each pillar carries its full body text per spec.
+ */
+const PILLARS: { num: string; title: string; lines: string[] }[] = [
+  {
+    num: "I.",
+    title: "PROVEN DEGEN STATUS",
+    lines: [
+      "You’ve been through it.",
+      "Held positions others abandoned. Watched floors collapse and didn’t flinch.",
+      "If you’ve ever held an NFT to zero and stayed present—you qualify.",
+      "This is not theory. This is experience.",
+    ],
+  },
+  {
+    num: "II.",
+    title: "APECHAIN ALIGNMENT",
+    lines: [
+      "You move within the ecosystem.",
+      "Holding multiple ApeChain assets shows awareness, positioning, and early conviction.",
+      "You’re not new to the environment—you’re part of it.",
+    ],
+  },
+  {
+    num: "III.",
+    title: "DISCIPLINE OVER EMOTION",
+    lines: [
+      "No panic. No noise. No impulsive exits.",
+      "You understand timing, control, and restraint.",
+      "Inside the Order, discipline is not optional—it’s expected.",
+    ],
+  },
+  {
+    num: "IV.",
+    title: "UNDERSTANDING THE ORDER",
+    lines: [
+      "You don’t just read—you understand.",
+      "The Code, the tone, the way we move.",
+      "If you have to ask how it works, you’re not ready.",
+      "Those who belong already see it.",
+    ],
+  },
+];
+
 export default function ApplyPage() {
-  const { approveApplication, rejectApplication, submitApplication, resetApplication, applicationStatus } = useStore();
-  const { address, connect, connecting } = useWallet();
+  const hasHydrated = useStore((s) => s._hasHydrated);
+  const {
+    approveApplication, rejectApplication, submitApplication,
+    resetApplication, applicationStatus, submitIdentity,
+  } = useStore();
+  const submittedWalletRaw = useStore((s) => s.submittedWallet);
+  const twitterHandleRaw = useStore((s) => s.twitterHandle);
+  // Match SSR until rehydration fires — see /dashboard for the
+  // hydration-mismatch (React #418/#423/#425) note.
+  const submittedWallet = hasHydrated ? submittedWalletRaw : null;
+  const twitterHandle = hasHydrated ? twitterHandleRaw : null;
   const round = useRound();
 
   const [serverApp, setServerApp] = useState<ServerApp | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Share-card overlay: open/close only — all of the copy/download/share
+  // state lives inside the modal so it resets cleanly on each open.
+  const [shareOpen, setShareOpen] = useState(false);
   const [form, setForm] = useState({
     handle: "",
     wallet: "",
     why: "",
-    referrer: "",
     discord: "",
   });
 
   // Public lookup so the post-submission view (and share buttons) persist
   // across reloads. /api/application returns only public-safe fields.
+  // Source of "the user's wallet" is the persisted submittedWallet — set
+  // by the most recent identity submission (this form, or the tasks form).
   const refresh = useCallback(async (wallet: string | null) => {
     if (!wallet) { setServerApp(null); setStatus("idle"); return; }
     setStatus("loading");
@@ -65,21 +130,19 @@ export default function ApplyPage() {
     setStatus("idle");
   }, []);
 
-  useEffect(() => { refresh(address ?? null); }, [address, refresh]);
+  useEffect(() => { refresh(submittedWallet ?? null); }, [submittedWallet, refresh]);
 
-  // Prefill referrer code if the visitor arrived through a referral link
-  // (landing page captures `?ref=` into sessionStorage). Don't overwrite a
-  // value the user has already typed.
+  // Pre-fill the form from the persisted identity so the user doesn't
+  // have to re-type their wallet/handle on every visit.
   useEffect(() => {
-    try {
-      const stashed = sessionStorage.getItem("simian_ref");
-      if (stashed) {
-        setForm((f) => (f.referrer ? f : { ...f, referrer: stashed }));
-      }
-    } catch { /* storage unavailable — skip */ }
-    // intentionally only on mount
+    setForm((f) => ({
+      ...f,
+      wallet: f.wallet || submittedWallet || "",
+      handle: f.handle || (twitterHandle ? "@" + twitterHandle : ""),
+    }));
+    // intentionally only on initial hydration of these store fields
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [submittedWallet, twitterHandle]);
 
   // Reflect server state into local zustand status display.
   useEffect(() => {
@@ -96,29 +159,41 @@ export default function ApplyPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErrorMsg(null);
-    track("apply_submit", { hasReferrer: form.referrer.trim().length > 0 });
-    if (!address) {
-      setErrorMsg("connect a wallet first");
+    track("apply_submit");
+    const handle = form.handle.trim().replace(/^@+/, "");
+    const wallet = form.wallet.trim().toLowerCase();
+    const story = form.why.trim();
+    if (!isWallet(wallet)) {
+      setErrorMsg("invalid wallet — paste a 0x… ApeChain address");
+      return;
+    }
+    if (handle.length < 1) {
+      setErrorMsg("X / twitter handle required");
+      return;
+    }
+    if (story.length < STORY_MIN) {
+      setErrorMsg(`your story is too short (${story.length} / ${STORY_MIN} chars min)`);
       return;
     }
     setStatus("submitting");
     try {
-      const wallet = (form.wallet.trim() || address).toLowerCase();
       const res = await fetch("/api/apply", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           wallet,
-          twitter: form.handle.trim(),
+          twitter: handle,
           discord: form.discord.trim() || null,
-          why: form.why.trim() || null,
-          referrer_input: form.referrer.trim() || null,
+          why: story || null,
         }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || `http_${res.status}`);
       // Server is source of truth — reflect the returned application.
       setServerApp(j.application as ServerApp);
+      // Persist identity so other pages (referral, dashboard) can look up
+      // this wallet's state without re-asking.
+      submitIdentity(wallet, handle);
       submitApplication();
       track("apply_success");
       setStatus("submitted");
@@ -147,20 +222,20 @@ export default function ApplyPage() {
     // Title carries the round so the user (and any screenshot they share)
     // is anchored to the cycle they were considered in.
     const title =
-      s === "approved" ? `Accepted — Round ${round ?? "—"}` :
+      s === "approved" ? `Recognised — Round ${round ?? "—"}` :
       // Spec rewrite: rejected users see a softened, round-bound title
       // that doesn't lean into the "rejection" framing.
-      s === "rejected" ? `Not Selected — Round ${round ?? "—"}` :
-      `Application Submitted — Round ${round ?? "—"}`;
+      s === "rejected" ? `Not Recognised — Round ${round ?? "—"}` :
+      `HIGH ORDER — Filed for Round ${round ?? "—"}`;
     // Rejection message is intentionally hedged — "further rounds may
     // open" carries no commitment, satisfies the "do not promise
     // future access" rule.
     const message =
       s === "approved"
-        ? "you may now access the referral system and the mint."
+        ? "the FIVE SUMMONING is open to you."
         : s === "rejected"
         ? "further rounds may open."
-        : "filed. the order will respond when ready.";
+        : "submitted for recognition. the order will respond when ready.";
 
     return (
       <>
@@ -171,7 +246,7 @@ export default function ApplyPage() {
               the hedged "further rounds may open" carries the line. */}
           {s !== "rejected" && (
             <div className="text-ape-100 text-base font-bold uppercase">
-              {s === "approved" ? "welcome." : "filed."}
+              {s === "approved" ? "recognised." : "submitted."}
             </div>
           )}
           <p className="text-xxs text-mute leading-relaxed">{message}</p>
@@ -192,42 +267,63 @@ export default function ApplyPage() {
           {(s === "approved" || s === "rejected") && (
             <div className="pt-2">
               <div className="text-xxs uppercase tracking-wide text-mute mb-1">
-                share your status
+                share the verdict
               </div>
-              <Button
-                variant="primary"
-                onClick={async () => {
-                  if (s === "approved") {
-                    // Resolve round on demand so the latest admin-set value
-                    // is in the tweet even if the page rendered with stale.
-                    const r = round ?? (await fetchRound());
-                    openTweet(TWEETS.approval(r));
-                  } else {
-                    openTweet(TWEETS.rejection());
-                  }
-                }}
-              >
-                {s === "approved" ? "Share Approval" : "Share Rejection"}
-              </Button>
+
+              {/* Approval: opens the share-card overlay (preview + copy
+                  card & text + share-on-X + download fallback).
+                  Rejection: text-only tweet — no card. */}
+              {s === "approved" ? (
+                <Button
+                  variant="primary"
+                  onClick={async () => {
+                    // Resolve round on demand so a stale page render
+                    // doesn't pin the modal to last-cycle's number.
+                    if (!round) await fetchRound();
+                    track("share_card_open_modal");
+                    setShareOpen(true);
+                  }}
+                >
+                  Share Recognition
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  onClick={() => openTweet(TWEETS.rejection())}
+                >
+                  Share Verdict
+                </Button>
+              )}
             </div>
           )}
 
           {s !== "approved" && (
             <div className="pt-1">
-              <Button variant="ghost" onClick={reapply}>Re-submit</Button>
+              <Button variant="ghost" onClick={reapply}>Re-submit for Recognition</Button>
             </div>
           )}
         </div>
       </Panel>
       <RoundHistory />
+      {s === "approved" && (
+        <ShareApprovalModal
+          open={shareOpen}
+          onClose={() => setShareOpen(false)}
+          round={round ?? 1}
+          wallet={serverApp.wallet}
+        />
+      )}
       </>
     );
   }
 
+  const storyLen = form.why.trim().length;
+  const storyShort = storyLen > 0 && storyLen < STORY_MIN;
+
   return (
     <>
     <Panel
-      title={`Apply for Round ${round ?? "—"}`}
+      title={`Enter the HIGH ORDER — Round ${round ?? "—"}`}
       right={<span>open</span>}
     >
       {/* Subtle psychological layer — round-bound intake state + scarcity
@@ -235,78 +331,89 @@ export default function ApplyPage() {
           "limited". Reads as system telemetry, not marketing copy.
           Plus a one-line tagline. */}
       <div className="font-mono text-xxxs uppercase tracking-widest2 leading-relaxed mb-3">
-        <p className="text-elec">// round {round ?? "—"} intake active</p>
-        <p className="text-bleed">// selection is limited</p>
+        <p className="text-elec">// round {round ?? "—"} recognition active</p>
+        <p className="text-bleed">// few will be recognised</p>
       </div>
-      <p className="font-serif italic text-xs text-mute mb-3 -mt-1">
-        for real degens on ApeChain.
+      <p className="font-serif italic text-xs text-mute mb-6 -mt-1">
+        submit for recognition. the order chooses who walks through.
       </p>
 
-      {!address && (
-        <div className="border border-border bg-ape-950 p-3 mb-3">
-          <div className="text-xxs uppercase tracking-wide text-mute mb-2">wallet required</div>
-          <Button variant="primary" disabled={connecting} onClick={connect}>
-            {connecting ? "Connecting..." : "Connect Wallet"}
-          </Button>
-        </div>
-      )}
-
-      <form onSubmit={submit} className="space-y-3">
+      <form onSubmit={submit} className="space-y-4">
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
-            <label className="label">x / twitter handle</label>
+            <label className="label">x username</label>
             <input
               className="field"
               placeholder="@yourhandle"
               value={form.handle}
               onChange={(e) => update("handle", e.target.value)}
               required
+              maxLength={64}
             />
           </div>
           <div>
-            <label className="label">discord</label>
+            <label className="label">discord (optional)</label>
             <input
               className="field"
               placeholder="user#0000"
               value={form.discord}
               onChange={(e) => update("discord", e.target.value)}
+              maxLength={64}
             />
           </div>
         </div>
 
         <div>
-          <label className="label">ape-chain wallet</label>
+          <label className="label">Wallet that held your losses</label>
           <input
             className="field font-mono"
-            placeholder={address || "0x..."}
+            placeholder="0x..."
             value={form.wallet}
             onChange={(e) => update("wallet", e.target.value)}
+            required
+            maxLength={64}
           />
           <div className="text-xxs text-mute mt-1">
-            leave blank to use the connected wallet ({address ? `${address.slice(0,6)}…${address.slice(-4)}` : "none"})
+            paste your ape-chain wallet address. no browser wallet required.
           </div>
         </div>
 
+        {/* ── YOUR STORY ──
+            The substance of the application. Minimal label, strong
+            placeholder that frames the three things the order wants
+            to read about. Higher character ceiling so people can
+            actually tell the story. */}
         <div>
-          <label className="label">why the order</label>
+          <label className="label">Tell your story (how you got rugged / why you stayed)</label>
+          <p className="font-serif italic text-xs text-mute mb-2 -mt-1">
+            tell the order, in your own words:
+            <br />
+            &mdash; how you got rugged.
+            <br />
+            &mdash; why you stayed.
+            <br />
+            &mdash; what you have lived through on chain.
+          </p>
           <textarea
-            className="field min-h-[120px]"
-            placeholder="speak plainly. lore optional."
+            className="field min-h-[220px] leading-relaxed"
+            placeholder="speak plainly. the order does not reward polish."
             value={form.why}
             onChange={(e) => update("why", e.target.value)}
+            maxLength={STORY_MAX}
+            required
           />
-          <div className="text-xxs text-mute text-right mt-1">{form.why.length} / 600</div>
-        </div>
-
-        <div>
-          <label className="label">referrer code (optional)</label>
-          <input
-            className="field font-mono"
-            placeholder="SIM-XXXXX"
-            value={form.referrer}
-            onChange={(e) => update("referrer", e.target.value.toUpperCase())}
-            maxLength={32}
-          />
+          <div className="flex items-center justify-between text-xxs mt-1 gap-3 flex-wrap">
+            <span className={storyShort ? "text-bleed" : "text-mute"}>
+              {storyShort
+                ? `${STORY_MIN - storyLen} more characters required.`
+                : storyLen === 0
+                ? `${STORY_MIN} characters minimum.`
+                : "the order reads everything."}
+            </span>
+            <span className="text-mute font-mono">
+              {form.why.length} / {STORY_MAX}
+            </span>
+          </div>
         </div>
 
         {errorMsg && (
@@ -318,19 +425,86 @@ export default function ApplyPage() {
         <div className="divider-old" />
 
         <div className="flex items-center gap-2 flex-wrap">
-          <Button type="submit" variant="primary" disabled={status === "submitting" || !address}>
-            {status === "submitting" ? "Filing..." : "Submit Application"}
+          <Button type="submit" variant="primary" disabled={status === "submitting"}>
+            {status === "submitting" ? "Submitting…" : "Submit for Recognition"}
           </Button>
           <Button
             type="button"
             variant="ghost"
-            onClick={() => { setForm({ handle: "", wallet: "", why: "", referrer: "", discord: "" }); setErrorMsg(null); setStatus("idle"); }}
+            onClick={() => { setForm({ handle: "", wallet: "", why: "", discord: "" }); setErrorMsg(null); setStatus("idle"); }}
           >
             Reset
           </Button>
-          <span className="ml-auto text-xxs text-mute">submitted as PENDING. admin reviews manually.</span>
+          <span className="ml-auto text-xxs text-mute">filed as PENDING. the order reviews manually.</span>
         </div>
       </form>
+
+      {/* ─── QUALIFICATION CRITERIA ──────────────────────────────────────
+          Four-pillar manifesto block, rendered BELOW the form per spec.
+          Minimal chrome — a thin top/bottom rule, mono caps header, then
+          each pillar on its own row with a pixel roman numeral, an
+          uppercase title, and the full pillar body in italic serif. */}
+      <section
+        className="mt-10 border-t border-b border-border py-5 px-1"
+        aria-label="HIGH ORDER qualification criteria"
+      >
+        <div className="flex items-baseline gap-3 mb-3 flex-wrap">
+          <span className="font-mono text-xxxs uppercase tracking-widest2 text-bleed">
+            ──
+          </span>
+          <h2 className="font-mono text-xs sm:text-sm uppercase tracking-widest2 text-bone">
+            HIGH ORDER &mdash; QUALIFICATION CRITERIA
+          </h2>
+          <span className="font-mono text-xxxs uppercase tracking-widest2 text-bleed">
+            ──
+          </span>
+        </div>
+
+        <p className="font-serif italic text-sm sm:text-base text-ape-100 mb-6 leading-snug">
+          Entry into the HIGH ORDER is not given. It is recognized.
+        </p>
+
+        <ol className="space-y-5 list-none pl-0">
+          {PILLARS.map((p) => (
+            <li
+              key={p.num}
+              className="grid grid-cols-[44px_1fr] sm:grid-cols-[60px_1fr] gap-x-3 sm:gap-x-5 items-baseline"
+            >
+              <span
+                className="font-pixel text-bleed text-xl sm:text-2xl leading-none select-none"
+                aria-hidden
+              >
+                {p.num}
+              </span>
+              <div className="min-w-0">
+                <div className="font-mono text-xs sm:text-sm uppercase tracking-widest2 text-bone leading-tight mb-1">
+                  {p.title}
+                </div>
+                <div className="font-serif italic text-xs sm:text-sm text-ape-200 leading-snug space-y-1">
+                  {p.lines.map((ln, i) => (
+                    <div key={i}>{ln}</div>
+                  ))}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ol>
+
+        <div className="divider-glitch max-w-[220px] my-5" aria-hidden />
+
+        {/* FINAL NOTE — italic serif, slight tilt, the only flourish in
+            the section. The two lines stand alone; no surrounding chrome. */}
+        <div className="tilt-r2">
+          <p className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-2">
+            ── final note ──
+          </p>
+          <blockquote className="font-serif italic text-base sm:text-lg text-ape-100 leading-snug">
+            Not everyone who applies will be accepted.
+            <br />
+            And not everyone who is accepted will remain.
+          </blockquote>
+        </div>
+      </section>
     </Panel>
     <RoundHistory />
     </>

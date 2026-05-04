@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import StatusBadge from "@/components/StatusBadge";
 import Button from "@/components/Button";
 import { useStore } from "@/lib/store";
@@ -16,15 +17,49 @@ import { useRound } from "@/lib/useRound";
  * like a directory listing, not a SaaS overview. The marketplace lives
  * outside the dashboard (OpenSea) since there is no public mint.
  */
+
+type SubmissionLite = {
+  entries: Array<{ status: "pending" | "approved" | "rejected" }>;
+} | null;
+
 export default function DashboardPage() {
-  const {
-    walletConnected,
-    applicationStatus,
-    tasksCompleted,
-    referralCount,
-    referralLimit,
-  } = useStore();
+  const hasHydrated = useStore((s) => s._hasHydrated);
+  const applicationStatus = useStore((s) => s.applicationStatus);
+  const tasksCompletedRaw = useStore((s) => s.tasksCompleted);
+  const submittedWalletRaw = useStore((s) => s.submittedWallet);
+  const twitterHandleRaw = useStore((s) => s.twitterHandle);
+
+  // Persisted values come from localStorage — until rehydration fires
+  // they MUST match SSR (defaults) or React throws hydration errors
+  // (#418/#423/#425). Once hasHydrated flips true, real values flow.
+  const submittedWallet = hasHydrated ? submittedWalletRaw : null;
+  const twitterHandle = hasHydrated ? twitterHandleRaw : null;
+  const tasksCompleted = hasHydrated ? tasksCompletedRaw : false;
+
   const round = useRound();
+
+  // The user's identity is the wallet they entered on the apply or
+  // tasks form. If neither has happened yet, the dashboard reads as a
+  // pre-identity state ("the order does not yet know you") and the
+  // submission lookup is skipped.
+  const knownIdentity = !!submittedWallet;
+
+  // Pull the live submission for this wallet so Room 03 surfaces the
+  // server-truth state (no client-side ?count? — the order decides).
+  const [submission, setSubmission] = useState<SubmissionLite>(null);
+  useEffect(() => {
+    if (!submittedWallet) { setSubmission(null); return; }
+    let cancelled = false;
+    fetch(`/api/referrals?wallet=${submittedWallet}`, { cache: "no-store" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((j) => { if (!cancelled) setSubmission((j?.submission ?? null) as SubmissionLite); })
+      .catch(() => { /* offline — leave null, Room 03 stays generic */ });
+    return () => { cancelled = true; };
+  }, [submittedWallet]);
+
+  const submittedCount  = submission?.entries.length ?? 0;
+  const approvedCount   = submission?.entries.filter((e) => e.status === "approved").length ?? 0;
+  const anyDecided      = submission?.entries.some((e) => e.status !== "pending") ?? false;
 
   const appBadge =
     applicationStatus === "approved" ? <StatusBadge status="Approved" /> :
@@ -34,13 +69,13 @@ export default function DashboardPage() {
 
   const tasksBadge =
     tasksCompleted ? <StatusBadge status="Done" /> :
-    walletConnected ? <StatusBadge status="Open" /> :
-                      <StatusBadge status="Locked" />;
+                     <StatusBadge status="Open" />;
 
-  const referralsBadge =
+  const submissionBadge =
     applicationStatus !== "approved"        ? <StatusBadge status="Locked" /> :
-    referralCount >= referralLimit          ? <StatusBadge status="Done"   /> :
-                                              <StatusBadge status="Open"   />;
+    submission && submittedCount === 5 && approvedCount === 5 ? <StatusBadge status="Done" /> :
+    submission                              ? <StatusBadge status="Pending" /> :
+                                              <StatusBadge status="Open" />;
 
   return (
     <div>
@@ -50,14 +85,17 @@ export default function DashboardPage() {
           // greeting.txt
         </div>
         <h1 className="headline text-[28px] sm:text-5xl leading-tight mb-3">
-          {walletConnected
+          {knownIdentity
             ? <>the order recognises you<span className="text-bleed">.</span></>
             : <>the order does not yet know you<span className="text-bleed">.</span></>}
         </h1>
         <div className="flex items-center gap-3 flex-wrap">
           {appBadge}
           <span className="font-serif italic text-sm text-mute">
-            &mdash; round {round ?? "—"}, applicants still considered.
+            &mdash; round {round ?? "—"},{" "}
+            {knownIdentity && twitterHandle
+              ? <>filed as <span className="text-bone not-italic">@{twitterHandle}</span>.</>
+              : "the high order still considers."}
           </span>
         </div>
       </section>
@@ -71,7 +109,16 @@ export default function DashboardPage() {
           <span className="text-mute">/</span>
           <span><span className="text-mute">tasks:</span> <span className="text-bone">{tasksCompleted ? "complete" : "open"}</span></span>
           <span className="text-mute">/</span>
-          <span><span className="text-mute">refs:</span> <span className="text-bone">{referralCount}/{referralLimit}</span></span>
+          <span>
+            <span className="text-mute">summoning:</span>{" "}
+            <span className="text-bone">
+              {applicationStatus !== "approved"
+                ? "locked"
+                : submission
+                ? `${approvedCount}/${submittedCount} recognised`
+                : "not summoned"}
+            </span>
+          </span>
           {!OPENSEA_HIDDEN && (
             <>
               <span className="text-mute">/</span>
@@ -103,11 +150,16 @@ export default function DashboardPage() {
           n="01"
           tilt="tilt-r"
           marginLeft="ml-0"
-          title="application"
-          state={applicationStatus === "none" ? "not submitted" : applicationStatus}
+          title="high order"
+          state={
+            applicationStatus === "none"     ? "not yet filed" :
+            applicationStatus === "pending"  ? "submitted for recognition" :
+            applicationStatus === "approved" ? "recognised" :
+                                               "not recognised"
+          }
           badge={appBadge}
           href="/dashboard/apply"
-          cta="manage"
+          cta="enter the high order"
           hint="the order will respond when ready."
         />
 
@@ -116,7 +168,7 @@ export default function DashboardPage() {
           tilt="tilt-l"
           marginLeft="ml-6 sm:ml-12"
           title="tasks"
-          state={tasksCompleted ? "complete" : walletConnected ? "in progress" : "locked"}
+          state={tasksCompleted ? "complete" : knownIdentity ? "in progress" : "open"}
           badge={tasksBadge}
           href="/dashboard/tasks"
           cta="open quest log"
@@ -127,12 +179,20 @@ export default function DashboardPage() {
           n="03"
           tilt="tilt-r"
           marginLeft="ml-2 sm:ml-4"
-          title="referrals"
-          state={`${referralCount} / ${referralLimit} slots`}
-          badge={referralsBadge}
+          title="the five summoning"
+          state={
+            applicationStatus !== "approved"
+              ? "locked — recognition required"
+              : !submission
+              ? "no summoning yet"
+              : anyDecided
+              ? `${approvedCount}/${submittedCount} recognised · awaiting the rest`
+              : `${submittedCount} summoned · awaiting verdict`
+          }
+          badge={submissionBadge}
           href="/dashboard/referral"
-          cta="share link"
-          hint="five trusted simians. no more."
+          cta={submission ? "open summoning" : "select your five"}
+          hint="five trusted simians. no more. the order decides."
         />
 
         {/* Room 04 — marketplace pointer. Hidden behind OPENSEA_HIDDEN
@@ -160,7 +220,7 @@ export default function DashboardPage() {
                 view collection &rarr;
               </div>
               <p className="font-serif italic text-xs text-mute mt-1">
-                &mdash; no public mint. entry continues there.
+                &mdash; entry continues there.
               </p>
             </div>
           </OpenseaLink>

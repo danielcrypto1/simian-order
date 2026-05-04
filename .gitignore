@@ -24,3 +24,6 @@ typechain-types/
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# Local skill / debug build output
+.skill-build/

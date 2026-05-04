@@ -11,8 +11,7 @@ import { voidImageUrl, VOID_IMAGE_COUNT } from "@/lib/voidImages";
  * after-effects across every page:
  *
  *   1. Adds `body.void-seen` so other components can react via CSS.
- *      (Used by ConnectWalletButton to override the alignment label,
- *      and by /dashboard/referral to surface "clearance: partial".)
+ *      (Used by /dashboard/referral to surface "clearance: partial".)
  *   2. Renders a faint corner caption "you've seen it" that pulses
  *      in once per session.
  *   3. Random rare event: a void image flashes for ~90ms.

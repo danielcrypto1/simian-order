@@ -1,36 +1,49 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Panel from "@/components/Panel";
 import Button from "@/components/Button";
 import StatusBadge from "@/components/StatusBadge";
 import AdminTopBar from "@/components/AdminTopBar";
-import { adminApi, ApiError, type Application, type Cfg, type WhitelistEntry } from "@/lib/adminApi";
+import { adminApi, ApiError, type Application, type Cfg } from "@/lib/adminApi";
 
 const sections = [
-  { id: "whitelist-upload", label: "Whitelist Upload" },
-  { id: "whitelist-table", label: "Whitelist Table" },
   { id: "round", label: "Round Control" },
-  { id: "mint", label: "Mint Controls" },
-  { id: "apps", label: "Applications" },
-  { id: "gtd", label: "GTD Users" },
-  { id: "referrals", label: "Referrals" },
+  { id: "apps", label: "High Order" },
+  { id: "submitted-referrals", label: "The Five Summoning" },
+  { id: "backroom", label: "Back Room" },
   { id: "audit", label: "Link Audit" },
   { id: "system-test", label: "System Test" },
   { id: "reset", label: "Reset Data" },
 ];
 
-type ReferralAdminItem = {
-  wallet: string;
-  code: string;
-  count: number;
-  limit: number;
-  gtd: boolean;
-  gtdRound: number | null;
-  gtdAt: string | null;
+/** One curated submission, with the KOL join already applied by
+ *  /api/admin/referrals (referrer_isKOL + referrer_tag). */
+type SubmissionAdminItem = {
+  referrerWallet: string;
+  referrerRound: number;
+  referrer_isKOL: boolean;
+  referrer_tag: string;
+  entries: Array<{
+    x: string;
+    discord: string;
+    wallet: string;
+    status: "pending" | "approved" | "rejected";
+    decidedAt?: string;
+  }>;
   createdAt: string;
-  referred: Array<{ wallet: string; twitter: string | null; status: string | null }>;
+  updatedAt: string;
+};
+
+type ReferralListResponse = {
+  items: SubmissionAdminItem[];
+  total: number;
+  totalEntries: number;
+  approvedTotal: number;
+  pendingTotal: number;
+  rejectedTotal: number;
+  approvedWallets: string[];
 };
 
 export default function AdminDashboard() {
@@ -40,20 +53,17 @@ export default function AdminDashboard() {
 
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [apps, setApps] = useState<{ items: Application[]; total: number } | null>(null);
-  const [wl, setWl] = useState<{ items: WhitelistEntry[]; total: number } | null>(null);
-  const [refs, setRefs] = useState<{ items: ReferralAdminItem[]; total: number; totalReferred: number; gtdTotal: number } | null>(null);
+  const [refs, setRefs] = useState<ReferralListResponse | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [c, a, w, r] = await Promise.all([
+      const [c, a, r] = await Promise.all([
         adminApi.getConfig(),
         adminApi.listApplications(),
-        adminApi.listWhitelist(),
         adminApi.listReferrals(),
       ]);
       setCfg(c);
       setApps(a);
-      setWl(w);
       setRefs(r);
       setError(null);
     } catch (e) {
@@ -104,13 +114,10 @@ export default function AdminDashboard() {
               </Panel>
             )}
 
-            <WhitelistUploadSection onUploaded={refresh} />
-            <WhitelistTableSection wl={wl} onChanged={refresh} />
             <RoundSection cfg={cfg} onSaved={refresh} />
-            <MintControlsSection cfg={cfg} onSaved={refresh} />
             <ApplicationsSection apps={apps} onAction={refresh} />
-            <GtdUsersSection refs={refs} />
-            <ReferralsSection refs={refs} onChanged={refresh} />
+            <SubmittedReferralsSection refs={refs} onChanged={refresh} />
+            <BackroomSection />
             <LinkAuditSection />
             <SystemTestSection />
             <ResetSection onReset={refresh} />
@@ -118,211 +125,6 @@ export default function AdminDashboard() {
         </div>
       </div>
     </div>
-  );
-}
-
-// ───── Whitelist upload ───────────────────────────────────────────────
-
-function WhitelistUploadSection({ onUploaded }: { onUploaded: () => void }) {
-  const [mode, setMode] = useState<"append" | "overwrite">("append");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [errors, setErrors] = useState<{ row: number; reason: string }[] | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  async function upload(e: React.FormEvent) {
-    e.preventDefault();
-    const f = fileRef.current?.files?.[0];
-    if (!f) return;
-    setBusy(true); setMsg(null); setErrors(null);
-    try {
-      const r = await adminApi.uploadWhitelist(f, mode);
-      setMsg(`${mode === "overwrite" ? "Overwrote" : "Appended"}: ${r.added} entries (total ${r.total}).`);
-      if (fileRef.current) fileRef.current.value = "";
-      onUploaded();
-    } catch (e) {
-      if (e instanceof ApiError && e.message === "validation_failed" && Array.isArray(e.details)) {
-        setErrors(e.details as { row: number; reason: string }[]);
-        setMsg("validation failed — fix the rows below and re-upload.");
-      } else {
-        setMsg(e instanceof ApiError ? `error: ${e.message}` : "upload failed");
-      }
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div id="whitelist-upload">
-      <Panel title="Whitelist Upload" right={<span>.csv / .xlsx</span>}>
-        <form onSubmit={upload} className="space-y-3">
-          <div>
-            <label className="label">file</label>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              required
-              className="field"
-            />
-            <div className="text-xxs text-mute mt-1">
-              expected columns: <span className="font-mono text-ape-200">wallet, phase, maxMint</span>
-              &nbsp;— phase ∈ <span className="font-mono">GTD | FCFS</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="label mb-0">mode</span>
-            <label className="flex items-center gap-1 text-xxs uppercase tracking-wide cursor-pointer">
-              <input
-                type="radio"
-                name="mode"
-                checked={mode === "append"}
-                onChange={() => setMode("append")}
-              /> append
-            </label>
-            <label className="flex items-center gap-1 text-xxs uppercase tracking-wide cursor-pointer">
-              <input
-                type="radio"
-                name="mode"
-                checked={mode === "overwrite"}
-                onChange={() => setMode("overwrite")}
-              /> overwrite
-            </label>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button type="submit" variant="primary" disabled={busy}>
-              {busy ? "Uploading..." : "Upload"}
-            </Button>
-            {msg && <span className="text-xxs text-ape-200">{msg}</span>}
-          </div>
-
-          {errors && errors.length > 0 && (
-            <div className="border border-red-700 bg-red-950 px-2 py-2 text-xxs space-y-1">
-              <div className="text-red-200 uppercase tracking-wide">
-                {errors.length} validation error{errors.length > 1 ? "s" : ""}
-              </div>
-              <ul className="font-mono text-red-200 max-h-32 overflow-auto">
-                {errors.slice(0, 50).map((er, i) => (
-                  <li key={i}>row {er.row}: {er.reason}</li>
-                ))}
-                {errors.length > 50 && <li>…and {errors.length - 50} more</li>}
-              </ul>
-            </div>
-          )}
-        </form>
-      </Panel>
-    </div>
-  );
-}
-
-// ───── Whitelist table ─────────────────────────────────────────────────
-
-function WhitelistTableSection({
-  wl,
-  onChanged,
-}: {
-  wl: { items: WhitelistEntry[]; total: number } | null;
-  onChanged: () => void;
-}) {
-  return (
-    <div id="whitelist-table">
-      <Panel
-        title="Whitelist"
-        right={wl ? <span>{wl.total} entries</span> : <span>loading...</span>}
-        padded={false}
-      >
-        <div className="overflow-x-auto">
-        <table className="w-full text-xs min-w-[640px]">
-          <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
-            <tr>
-              <th className="text-left px-3 py-1 border-b border-border">wallet</th>
-              <th className="text-left px-3 py-1 border-b border-border">phase</th>
-              <th className="text-left px-3 py-1 border-b border-border">maxMint</th>
-              <th className="text-left px-3 py-1 border-b border-border">actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {(wl?.items ?? []).map((row) => (
-              <WhitelistRow key={row.wallet} row={row} onChanged={onChanged} />
-            ))}
-            {wl && wl.items.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-3 py-3 text-mute text-center text-xxs italic">
-                  no whitelist entries — upload a .csv or .xlsx above
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-        </div>
-      </Panel>
-    </div>
-  );
-}
-
-function WhitelistRow({
-  row,
-  onChanged,
-}: {
-  row: WhitelistEntry;
-  onChanged: () => void;
-}) {
-  const [phase, setPhase] = useState<"GTD" | "FCFS">(row.phase);
-  const [maxMint, setMaxMint] = useState<number>(row.maxMint);
-  const [busy, setBusy] = useState(false);
-
-  const dirty = phase !== row.phase || maxMint !== row.maxMint;
-
-  async function save() {
-    setBusy(true);
-    try {
-      await adminApi.updateWhitelist(row.wallet, { phase, maxMint });
-      onChanged();
-    } finally { setBusy(false); }
-  }
-
-  async function del() {
-    if (!confirm(`Delete ${row.wallet}?`)) return;
-    setBusy(true);
-    try {
-      await adminApi.deleteWhitelist(row.wallet);
-      onChanged();
-    } finally { setBusy(false); }
-  }
-
-  return (
-    <tr className="row-hover">
-      <td className="px-3 py-2 font-mono text-ape-100 break-all">{row.wallet}</td>
-      <td className="px-3 py-2">
-        <select
-          className="field py-0 px-1 w-20"
-          value={phase}
-          onChange={(e) => setPhase(e.target.value as "GTD" | "FCFS")}
-        >
-          <option value="GTD">GTD</option>
-          <option value="FCFS">FCFS</option>
-        </select>
-      </td>
-      <td className="px-3 py-2">
-        <input
-          type="number"
-          min={1}
-          className="field py-0 px-1 w-16 font-mono"
-          value={maxMint}
-          onChange={(e) => setMaxMint(Math.max(1, Number(e.target.value) || 1))}
-        />
-      </td>
-      <td className="px-3 py-2">
-        <div className="flex gap-1">
-          <Button variant="primary" disabled={!dirty || busy} onClick={save}>
-            Save
-          </Button>
-          <Button onClick={del} disabled={busy}>Delete</Button>
-        </div>
-      </td>
-    </tr>
   );
 }
 
@@ -450,167 +252,6 @@ function RoundSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }
     </div>
   );
 }
-
-// ───── Mint controls ───────────────────────────────────────────────────
-
-function MintControlsSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }) {
-  const [form, setForm] = useState({
-    gtd_max_mint: 0,
-    fcfs_max_mint: 0,
-    public_max_mint: 0,
-    gtd_active: false,
-    fcfs_active: false,
-    public_active: false,
-  });
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!cfg) return;
-    setForm({
-      gtd_max_mint: cfg.mint.gtd_max_mint,
-      fcfs_max_mint: cfg.mint.fcfs_max_mint,
-      public_max_mint: cfg.mint.public_max_mint,
-      gtd_active: cfg.mint.gtd_active,
-      fcfs_active: cfg.mint.fcfs_active,
-      public_active: cfg.mint.public_active,
-    });
-  }, [cfg]);
-
-  async function save() {
-    setBusy(true);
-    try { await adminApi.patchConfig(form); onSaved(); } finally { setBusy(false); }
-  }
-
-  return (
-    <div id="mint">
-      <Panel title="Mint Controls" right={cfg ? <StatusBadge status="Open" /> : <span>loading...</span>}>
-        <div className="grid sm:grid-cols-3 gap-3">
-          <NumberField label="GTD max mint" value={form.gtd_max_mint} onChange={(v) => setForm({ ...form, gtd_max_mint: v })} />
-          <NumberField label="FCFS max mint" value={form.fcfs_max_mint} onChange={(v) => setForm({ ...form, fcfs_max_mint: v })} />
-          <NumberField label="Public max mint" value={form.public_max_mint} onChange={(v) => setForm({ ...form, public_max_mint: v })} />
-        </div>
-        <div className="divider-old" />
-        <div className="grid sm:grid-cols-3 gap-2">
-          <Toggle label="GTD active" value={form.gtd_active} onChange={(v) => setForm({ ...form, gtd_active: v })} />
-          <Toggle label="FCFS active" value={form.fcfs_active} onChange={(v) => setForm({ ...form, fcfs_active: v })} />
-          <Toggle label="Public active" value={form.public_active} onChange={(v) => setForm({ ...form, public_active: v })} />
-        </div>
-        <div className="divider-old" />
-        <Button variant="primary" disabled={!cfg || busy} onClick={save}>
-          {busy ? "Saving..." : "Save mint controls"}
-        </Button>
-      </Panel>
-    </div>
-  );
-}
-
-// ───── GTD Users ───────────────────────────────────────────────────────
-// Wallets that have hit the 5-referral cap and are therefore guaranteed
-// access. Read-only list; admin can copy every wallet to the clipboard
-// with a single click for off-site use (whitelist exports, snapshots).
-
-function GtdUsersSection({
-  refs,
-}: {
-  refs: { items: ReferralAdminItem[]; total: number; totalReferred: number; gtdTotal: number } | null;
-}) {
-  const gtdItems = (refs?.items ?? []).filter((r) => r.gtd);
-  const [copied, setCopied] = useState(false);
-  const [copyError, setCopyError] = useState<string | null>(null);
-
-  async function copyAll() {
-    setCopyError(null);
-    if (gtdItems.length === 0) {
-      setCopyError("no GTD wallets yet");
-      return;
-    }
-    const payload = gtdItems.map((r) => r.wallet).join("\n");
-    try {
-      await navigator.clipboard.writeText(payload);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopyError("clipboard_unavailable");
-    }
-  }
-
-  return (
-    <div id="gtd">
-      <Panel
-        title="GTD Users"
-        right={
-          refs
-            ? <span>{gtdItems.length} guaranteed</span>
-            : <span>loading...</span>
-        }
-      >
-        <div className="text-xxs text-mute mb-2 leading-relaxed">
-          wallets with {REFERRAL_LIMIT_DISPLAY}/{REFERRAL_LIMIT_DISPLAY} referrals are
-          automatically marked GTD (guaranteed access). list updates as
-          referrals come in.
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 mb-2">
-          <Button variant="primary" onClick={copyAll} disabled={gtdItems.length === 0}>
-            {copied ? "Copied ✓" : "Copy all GTD wallets"}
-          </Button>
-          {copyError && (
-            <span className="text-xxs text-red-300 uppercase tracking-wide">
-              {copyError}
-            </span>
-          )}
-        </div>
-
-        {gtdItems.length === 0 ? (
-          <div className="text-xxs text-mute italic">
-            no wallets have hit {REFERRAL_LIMIT_DISPLAY}/{REFERRAL_LIMIT_DISPLAY} referrals yet.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[520px]">
-              <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
-                <tr>
-                  <th className="text-left px-3 py-1 border-b border-border">wallet</th>
-                  <th className="text-left px-3 py-1 border-b border-border">referrals</th>
-                  <th className="text-left px-3 py-1 border-b border-border">round joined</th>
-                  <th className="text-left px-3 py-1 border-b border-border">joined at</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {gtdItems.map((r) => (
-                  <tr key={r.wallet} className="row-hover">
-                    <td className="px-3 py-1.5 font-mono text-ape-100 break-all">
-                      {r.wallet}
-                    </td>
-                    <td className="px-3 py-1.5 text-ape-200 font-mono">
-                      {r.count}/{r.limit}
-                    </td>
-                    <td className="px-3 py-1.5 font-mono">
-                      {r.gtdRound != null ? (
-                        <span className="text-bleed">
-                          round {r.gtdRound}
-                        </span>
-                      ) : (
-                        <span className="text-mute">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-1.5 text-mute font-mono">
-                      {(r.gtdAt ?? r.createdAt).slice(0, 10)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
-    </div>
-  );
-}
-
-// Display constant — kept inline so the component doesn't import the
-// store module just to render a label.
-const REFERRAL_LIMIT_DISPLAY = 5;
 
 // ───── Applications ────────────────────────────────────────────────────
 
@@ -772,7 +413,7 @@ function ApplicationsSection({
   return (
     <div id="apps">
       <Panel
-        title="Applications"
+        title="High Order — Applications"
         right={
           <span className="flex items-center gap-2">
             {apps ? `${apps.total} total` : "loading..."}
@@ -815,6 +456,14 @@ function ApplicationsSection({
             >
               {`Reject All Pending`}
             </Button>
+            <a
+              href="/api/admin/export/high-order"
+              download="high-order.csv"
+              className="text-xxs uppercase tracking-wide px-2 py-1 border border-ape-500 text-ape-100 hover:bg-ape-800 no-underline"
+              title="OpenSea-ready CSV — wallet_address,quantity (qty=1, deduped)"
+            >
+              Download CSV
+            </a>
             <label className="flex items-center gap-1 text-xxs uppercase tracking-wide text-ape-200 cursor-pointer ml-2">
               <input
                 type="checkbox"
@@ -1059,159 +708,640 @@ function FilterTab({
   );
 }
 
-// ───── Referrals ───────────────────────────────────────────────────────
+// ───── Submitted Referrals ─────────────────────────────────────────────
+// Curated submission system. Each referrer (an approved applicant)
+// submits up to 5 candidates. Admin approves/rejects each entry; an
+// approved entry's wallet earns GTD. Wallet-collision and self-referral
+// are validated server-side. KOL registry is joined in by /api/admin/
+// referrals so badges + tags render inline.
 
-function ReferralsSection({
+function SubmittedReferralsSection({
   refs,
   onChanged,
 }: {
-  refs: { items: ReferralAdminItem[]; total: number; totalReferred: number } | null;
+  refs: ReferralListResponse | null;
   onChanged: () => void;
 }) {
-  const [referrer, setReferrer] = useState("");
-  const [referee, setReferee] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [openTagFor, setOpenTagFor] = useState<string | null>(null);
+  const [tagDraft, setTagDraft] = useState("");
 
-  async function simulate() {
-    if (!referrer.trim()) {
-      setErr("referrer wallet required");
-      return;
-    }
+  const items = refs?.items ?? [];
+
+  async function decide(
+    referrer: string,
+    referee: string,
+    action: "approve" | "reject"
+  ) {
+    const key = `${referrer}:${referee}:${action}`;
     setErr(null);
-    setMsg(null);
-    setBusy(true);
+    setBusy(key);
     try {
-      const r = await adminApi.simulateReferral(referrer.trim(), referee.trim() || undefined);
-      setMsg(`linked ${r.referee.slice(0, 10)}… → ${r.referrer.slice(0, 10)}…`);
-      setReferee("");
+      await adminApi.decideReferralEntry(referrer, referee, action);
       onChanged();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "unknown");
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  async function remove(refr: string, refe: string) {
-    if (!confirm(`Remove referral?\n  ${refe}\n  ← from referrer ${refr}`)) return;
-    setBusy(true);
+  async function deleteSubmission(referrer: string) {
+    if (!confirm(`Delete entire submission from\n  ${referrer}?\n\nThis lets them re-submit.`)) return;
+    setErr(null);
+    setBusy(`del:${referrer}`);
     try {
-      await adminApi.removeReferral(refr, refe);
+      await adminApi.deleteSubmission(referrer);
       onChanged();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "unknown");
     } finally {
-      setBusy(false);
+      setBusy(null);
+    }
+  }
+
+  async function toggleKol(wallet: string, isKol: boolean, currentTag: string) {
+    setErr(null);
+    if (isKol) {
+      if (!confirm(`Remove KOL tag from\n  ${wallet}?`)) return;
+      setBusy(`kol:${wallet}`);
+      try {
+        await adminApi.removeKol(wallet);
+        onChanged();
+      } catch (e) {
+        setErr(e instanceof ApiError ? e.message : "unknown");
+      } finally {
+        setBusy(null);
+      }
+    } else {
+      setOpenTagFor(wallet);
+      setTagDraft(currentTag || "");
+    }
+  }
+
+  async function saveKol(wallet: string) {
+    setErr(null);
+    setBusy(`kol:${wallet}`);
+    try {
+      await adminApi.setKol(wallet, tagDraft.trim());
+      setOpenTagFor(null);
+      setTagDraft("");
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "unknown");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function copyApproved() {
+    const wallets = refs?.approvedWallets ?? [];
+    if (wallets.length === 0) {
+      setErr("no approved entries yet");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(wallets.join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setErr("clipboard_unavailable");
     }
   }
 
   return (
-    <div id="referrals">
+    <div id="submitted-referrals">
       <Panel
-        title="Referrals"
+        title="The Five Summoning"
         right={
           refs ? (
-            <span>{refs.total} referrer{refs.total === 1 ? "" : "s"} · {refs.totalReferred} total</span>
+            <span>
+              {refs.total} summoner{refs.total === 1 ? "" : "s"} · {refs.totalEntries} name
+              {refs.totalEntries === 1 ? "" : "s"} · {refs.approvedTotal} recognised
+            </span>
           ) : (
             <span>loading...</span>
           )
         }
         padded={false}
       >
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs min-w-[760px]">
-            <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
-              <tr>
-                <th className="text-left px-3 py-1 border-b border-border">referrer</th>
-                <th className="text-left px-3 py-1 border-b border-border">code</th>
-                <th className="text-left px-3 py-1 border-b border-border">count</th>
-                <th className="text-left px-3 py-1 border-b border-border">referred wallets</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {(refs?.items ?? []).map((row) => (
-                <tr key={row.wallet} className="row-hover">
-                  <td className="px-3 py-2 font-mono text-ape-100 break-all">{row.wallet}</td>
-                  <td className="px-3 py-2 font-mono text-ape-200">{row.code}</td>
-                  <td className="px-3 py-2 font-mono text-ape-100">{row.count} / {row.limit}</td>
-                  <td className="px-3 py-2">
-                    {row.referred.length === 0 ? (
-                      <span className="text-mute italic text-xxs">—</span>
-                    ) : (
-                      <ul className="space-y-1">
-                        {row.referred.map((r) => (
-                          <li key={r.wallet} className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono text-ape-100 break-all">{r.wallet}</span>
-                            {r.twitter && <span className="text-ape-200">@{r.twitter}</span>}
-                            {r.status && (
-                              <StatusBadge
-                                status={
-                                  r.status === "approved" ? "Approved" :
-                                  r.status === "rejected" ? "Rejected" : "Pending"
-                                }
-                              />
-                            )}
-                            <button
-                              onClick={() => remove(row.wallet, r.wallet)}
-                              className="text-xxs text-red-300 hover:text-red-200 underline"
-                              disabled={busy}
-                            >
-                              remove
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {refs && refs.items.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-3 py-3 text-mute text-center text-xxs italic">
-                    no referrals yet — simulate one below to test
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="p-3 flex flex-wrap items-center gap-2 border-b border-border">
+          <Button
+            variant="primary"
+            onClick={copyApproved}
+            disabled={!refs || refs.approvedWallets.length === 0}
+          >
+            {copied ? "Copied ✓" : `Copy ${refs?.approvedWallets.length ?? 0} recognised wallets`}
+          </Button>
+          <span className="text-xxs text-mute leading-relaxed">
+            recognised names earn GTD. each summoner names up to 5 candidates
+            (X handle · discord · wallet). once any verdict is given, the
+            summoner&rsquo;s slate is locked — delete the summoning to let them
+            re-summon.
+          </span>
+          {err && (
+            <span className="text-xxs text-red-300 uppercase tracking-wide ml-auto">
+              error: {err}
+            </span>
+          )}
         </div>
 
-        <div className="border-t border-border p-3 space-y-2">
-          <div className="text-xxs text-mute uppercase tracking-wide">simulate referral · creates a real entry</div>
-          <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-2 items-end">
-            <div>
-              <label className="label">referrer wallet</label>
-              <input
-                className="field font-mono"
-                placeholder="0x..."
-                value={referrer}
-                onChange={(e) => setReferrer(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="label">referee wallet (optional)</label>
-              <input
-                className="field font-mono"
-                placeholder="0x... (random if blank)"
-                value={referee}
-                onChange={(e) => setReferee(e.target.value)}
-              />
-            </div>
-            <Button variant="primary" onClick={simulate} disabled={busy || !referrer.trim()}>
-              Simulate Referral
-            </Button>
+        {items.length === 0 ? (
+          <div className="px-3 py-6 text-xxs text-mute italic text-center">
+            no submissions yet.
           </div>
-          {msg && <div className="text-xxs text-ape-200">{msg}</div>}
-          {err && (
-            <div className="text-xxs text-red-300 uppercase">
-              error: {err}
-              {err === "limit_reached" && " (referrer already at 5/5)"}
-              {err === "already_referred" && " (referee already referred by someone)"}
-              {err === "self_referral" && " (referrer and referee must differ)"}
+        ) : (
+          <div className="divide-y divide-border">
+            {items.map((row) => {
+              const submissionDel = busy === `del:${row.referrerWallet}`;
+              const kolBusy = busy === `kol:${row.referrerWallet}`;
+              const tagOpen = openTagFor === row.referrerWallet;
+              return (
+                <div key={row.referrerWallet} className="p-3 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-xs text-ape-100 break-all">
+                      {row.referrerWallet}
+                    </span>
+                    <span className="text-xxs text-mute uppercase tracking-wide">
+                      round {row.referrerRound}
+                    </span>
+                    {row.referrer_isKOL && (
+                      <span className="text-xxs uppercase tracking-widest px-2 py-0.5 border border-bleed text-bleed">
+                        KOL
+                      </span>
+                    )}
+                    {row.referrer_tag && (
+                      <span className="text-xxs italic text-ape-200">
+                        “{row.referrer_tag}”
+                      </span>
+                    )}
+                    <div className="ml-auto flex items-center gap-2">
+                      <button
+                        onClick={() =>
+                          toggleKol(row.referrerWallet, row.referrer_isKOL, row.referrer_tag)
+                        }
+                        disabled={kolBusy}
+                        className="text-xxs uppercase tracking-wide text-ape-200 hover:text-bleed underline"
+                      >
+                        {row.referrer_isKOL ? "remove KOL" : "tag KOL"}
+                      </button>
+                      <button
+                        onClick={() => deleteSubmission(row.referrerWallet)}
+                        disabled={submissionDel}
+                        className="text-xxs uppercase tracking-wide text-red-300 hover:text-red-200 underline"
+                      >
+                        {submissionDel ? "deleting…" : "delete submission"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {tagOpen && (
+                    <div className="flex flex-wrap items-center gap-2 bg-ape-850 px-2 py-2 border border-border">
+                      <label className="text-xxs uppercase tracking-wide text-ape-200">
+                        tag (optional)
+                      </label>
+                      <input
+                        className="field font-mono flex-1 min-w-[140px]"
+                        placeholder="e.g. ALPHA OG, mod, partner"
+                        value={tagDraft}
+                        onChange={(e) => setTagDraft(e.target.value.slice(0, 64))}
+                      />
+                      <Button
+                        variant="primary"
+                        onClick={() => saveKol(row.referrerWallet)}
+                        disabled={kolBusy}
+                      >
+                        save KOL
+                      </Button>
+                      <button
+                        onClick={() => {
+                          setOpenTagFor(null);
+                          setTagDraft("");
+                        }}
+                        className="text-xxs uppercase tracking-wide text-mute hover:text-ape-200 underline"
+                      >
+                        cancel
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xxs min-w-[640px]">
+                      <thead className="bg-ape-850 uppercase tracking-wide text-ape-200">
+                        <tr>
+                          <th className="text-left px-2 py-1 border-b border-border">#</th>
+                          <th className="text-left px-2 py-1 border-b border-border">x</th>
+                          <th className="text-left px-2 py-1 border-b border-border">discord</th>
+                          <th className="text-left px-2 py-1 border-b border-border">wallet</th>
+                          <th className="text-left px-2 py-1 border-b border-border">status</th>
+                          <th className="text-right px-2 py-1 border-b border-border">action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {row.entries.map((entry, idx) => {
+                          const apvKey = `${row.referrerWallet}:${entry.wallet}:approve`;
+                          const rjKey = `${row.referrerWallet}:${entry.wallet}:reject`;
+                          const decided = entry.status !== "pending";
+                          return (
+                            <tr key={`${row.referrerWallet}-${idx}-${entry.wallet}`} className="row-hover">
+                              <td className="px-2 py-1.5 text-mute font-mono">{idx + 1}</td>
+                              <td className="px-2 py-1.5 text-ape-200">@{entry.x}</td>
+                              <td className="px-2 py-1.5 text-ape-200">{entry.discord || "—"}</td>
+                              <td className="px-2 py-1.5 font-mono text-ape-100 break-all">
+                                {entry.wallet}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <StatusBadge
+                                  status={
+                                    entry.status === "approved"
+                                      ? "Approved"
+                                      : entry.status === "rejected"
+                                      ? "Rejected"
+                                      : "Pending"
+                                  }
+                                />
+                              </td>
+                              <td className="px-2 py-1.5 text-right">
+                                <div className="inline-flex items-center gap-2">
+                                  <button
+                                    onClick={() =>
+                                      decide(row.referrerWallet, entry.wallet, "approve")
+                                    }
+                                    disabled={
+                                      busy === apvKey || entry.status === "approved"
+                                    }
+                                    className={`text-xxs uppercase tracking-wide underline ${
+                                      entry.status === "approved"
+                                        ? "text-mute cursor-not-allowed"
+                                        : "text-emerald-300 hover:text-emerald-200"
+                                    }`}
+                                  >
+                                    {busy === apvKey ? "…" : decided && entry.status === "approved" ? "approved" : "approve"}
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      decide(row.referrerWallet, entry.wallet, "reject")
+                                    }
+                                    disabled={busy === rjKey || entry.status === "rejected"}
+                                    className={`text-xxs uppercase tracking-wide underline ${
+                                      entry.status === "rejected"
+                                        ? "text-mute cursor-not-allowed"
+                                        : "text-red-300 hover:text-red-200"
+                                    }`}
+                                  >
+                                    {busy === rjKey ? "…" : decided && entry.status === "rejected" ? "rejected" : "reject"}
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="text-xxs text-mute font-mono">
+                    submitted {row.createdAt.slice(0, 10)} · last decision {row.updatedAt.slice(0, 10)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+// ───── Back Room ───────────────────────────────────────────────────────
+// Hidden 500-claim easter egg. Admin sets the passphrase + drop code
+// here; the /backroom public page checks the passphrase, binds the
+// claimer's wallet to the SAME shared drop code that all 500 receive.
+
+type BackroomAdminState = {
+  passphrase: string | null;
+  dropCode: string | null;
+  total: number;
+  remaining: number;
+  claimed: number;
+  full: boolean;
+  claims: Array<{
+    code: string;
+    wallet?: string;
+    visitorId: string;
+    ipHash: string;
+    claimedAt: string;
+  }>;
+  updatedAt: string;
+};
+
+function BackroomSection() {
+  const [data, setData] = useState<BackroomAdminState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [savedFlash, setSavedFlash] = useState(false);
+  // Drop code editor state — separate from passphrase so each save
+  // button does one thing and one thing only.
+  const [dropDraft, setDropDraft] = useState("");
+  const [dropSavedFlash, setDropSavedFlash] = useState(false);
+  const [revealPass, setRevealPass] = useState(false);
+  const [showCodes, setShowCodes] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const r = await adminApi.getBackroom();
+      setData(r);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "load_failed");
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Pre-fill the drafts once on first hydration so admin can edit
+  // without retyping. Don't override later if they're typing.
+  useEffect(() => {
+    if (data && !draft) setDraft(data.passphrase ?? "");
+    if (data && !dropDraft) setDropDraft(data.dropCode ?? "");
+    // intentionally only on initial load
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  async function savePassphrase() {
+    setError(null);
+    if (!draft.trim()) {
+      setError("passphrase cannot be empty");
+      return;
+    }
+    setBusy(true);
+    try {
+      await adminApi.setBackroomPassphrase(draft.trim());
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 1500);
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "save_failed");
+    } finally { setBusy(false); }
+  }
+
+  async function saveDropCode() {
+    setError(null);
+    setBusy(true);
+    try {
+      const trimmed = dropDraft.trim();
+      await adminApi.setBackroomDropCode(trimmed.length === 0 ? null : trimmed);
+      setDropSavedFlash(true);
+      setTimeout(() => setDropSavedFlash(false), 1500);
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "save_failed");
+    } finally { setBusy(false); }
+  }
+
+  async function regenerateDropCode() {
+    if (!confirm(
+      "Regenerate the shared drop code?\n\n" +
+      "Already-issued claims keep the old code. Future claims will receive the new value."
+    )) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const r = await adminApi.regenerateBackroomDropCode();
+      setDropDraft(r.dropCode);
+      setDropSavedFlash(true);
+      setTimeout(() => setDropSavedFlash(false), 1500);
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "regen_failed");
+    } finally { setBusy(false); }
+  }
+
+  async function reset(alsoClearPassphrase: boolean) {
+    const msg = alsoClearPassphrase
+      ? `Reset back-room data?\n\n  • wipes ${data?.claimed ?? 0} issued code(s)\n  • CLEARS the passphrase (door sealed)\n\nThis cannot be undone.`
+      : `Reset back-room claims?\n\n  • wipes ${data?.claimed ?? 0} issued code(s)\n  • passphrase preserved — visitors who already typed it will be able to claim again\n\nThis cannot be undone.`;
+    if (!confirm(msg)) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await adminApi.resetBackroom(alsoClearPassphrase);
+      if (alsoClearPassphrase) setDraft("");
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "reset_failed");
+    } finally { setBusy(false); }
+  }
+
+  async function copyCodes() {
+    if (!data || data.claims.length === 0) return;
+    const payload = data.claims
+      .map((c) => `${c.code}\t${c.wallet ?? ""}\t${c.claimedAt}`)
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(payload);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError("clipboard_unavailable");
+    }
+  }
+
+  return (
+    <div id="backroom">
+      <Panel
+        title="Back Room"
+        right={
+          data ? (
+            <span>
+              {data.full ? "FULL · " : ""}
+              {data.claimed} / {data.total} claimed · {data.remaining} remaining
+            </span>
+          ) : (
+            <span>loading...</span>
+          )
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-xxs text-mute leading-relaxed">
+            hidden /backroom page. visitors who type the passphrase + their wallet
+            receive the SAME shared drop code (set below). one claim per browser
+            cookie · cap {data?.total ?? 500}. resetting wipes issued claims only
+            (passphrase + drop code preserved unless you also seal the door).
+          </p>
+
+          {/* Passphrase row */}
+          <div className="space-y-2">
+            <label className="label">passphrase</label>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type={revealPass ? "text" : "password"}
+                className="field font-mono flex-1 min-w-[200px]"
+                placeholder="set the passphrase visitors must type"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                maxLength={128}
+              />
+              <button
+                type="button"
+                onClick={() => setRevealPass((v) => !v)}
+                className="text-xxs uppercase tracking-wide text-ape-200 hover:text-white underline"
+              >
+                {revealPass ? "hide" : "reveal"}
+              </button>
+              <Button variant="primary" onClick={savePassphrase} disabled={busy}>
+                {savedFlash ? "Saved ✓" : busy ? "Saving…" : "Save Passphrase"}
+              </Button>
             </div>
-          )}
+            <p className="text-xxs text-mute">
+              matched case-insensitively, trimmed. max 128 chars.
+              {data && !data.passphrase && (
+                <span className="text-bleed"> · door currently sealed (no passphrase set)</span>
+              )}
+            </p>
+          </div>
+
+          <div className="divider-old" />
+
+          {/* Drop-code row — the SINGLE shared code returned to every
+              successful claimer. All 500 claims receive the same value
+              here. Admin can set it explicitly or auto-generate. */}
+          <div className="space-y-2">
+            <label className="label">drop code (shared by all 500)</label>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                className="field font-mono flex-1 min-w-[200px] tracking-[0.18em]"
+                placeholder="auto-generated on first claim if empty"
+                value={dropDraft}
+                onChange={(e) => setDropDraft(e.target.value)}
+                maxLength={64}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <Button variant="primary" onClick={saveDropCode} disabled={busy}>
+                {dropSavedFlash ? "Saved ✓" : busy ? "Saving…" : "Save Drop Code"}
+              </Button>
+              <Button variant="ghost" onClick={regenerateDropCode} disabled={busy}>
+                Regenerate
+              </Button>
+            </div>
+            <p className="text-xxs text-mute">
+              every successful claimer receives THIS code. clear the field
+              + Save to make the next claim auto-generate a fresh value.
+              changing the code does NOT update already-issued claims.
+              {data?.dropCode ? (
+                <>
+                  {" · "}current:{" "}
+                  <span className="font-mono text-bleed tracking-[0.18em]">
+                    {data.dropCode}
+                  </span>
+                </>
+              ) : (
+                <span className="text-bleed"> · no drop code set yet — first claim will auto-generate one</span>
+              )}
+            </p>
+          </div>
+
+          <div className="divider-old" />
+
+          {/* Reset controls + CSV export */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="ghost" onClick={() => reset(false)} disabled={busy}>
+              Reset Claims
+            </Button>
+            <Button variant="ghost" onClick={() => reset(true)} disabled={busy}>
+              Reset + Seal Door
+            </Button>
+            <a
+              href="/api/admin/export/fcfs"
+              download="fcfs.csv"
+              className="text-xxs uppercase tracking-wide px-2 py-1 border border-ape-500 text-ape-100 hover:bg-ape-800 no-underline"
+              title="OpenSea-ready CSV — wallet_address,quantity (qty=1, deduped)"
+            >
+              Download CSV
+            </a>
+            {error && (
+              <span className="text-xxs text-red-300 uppercase tracking-wide">
+                error: {error}
+              </span>
+            )}
+          </div>
+
+          <div className="divider-old" />
+
+          {/* Claimed codes table */}
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCodes((v) => !v)}
+                className="text-xxs uppercase tracking-wide text-ape-200 hover:text-white underline"
+              >
+                {showCodes ? "hide" : "show"} claimed codes ({data?.claimed ?? 0})
+              </button>
+              {showCodes && data && data.claims.length > 0 && (
+                <Button variant="ghost" onClick={copyCodes}>
+                  {copied ? "Copied ✓" : "Copy codes (TSV)"}
+                </Button>
+              )}
+            </div>
+
+            {showCodes && data && (
+              data.claims.length === 0 ? (
+                <p className="text-xxs text-mute italic">
+                  no claims issued yet.
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs min-w-[560px]">
+                    <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
+                      <tr>
+                        <th className="text-left px-3 py-1 border-b border-border">#</th>
+                        <th className="text-left px-3 py-1 border-b border-border">code</th>
+                        <th className="text-left px-3 py-1 border-b border-border">wallet</th>
+                        <th className="text-left px-3 py-1 border-b border-border">claimed at</th>
+                        <th className="text-left px-3 py-1 border-b border-border">visitor (cookie hash)</th>
+                        <th className="text-left px-3 py-1 border-b border-border">ip hash</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {data.claims.map((c, idx) => (
+                        <tr key={c.code} className="row-hover">
+                          <td className="px-3 py-1.5 text-mute font-mono">{idx + 1}</td>
+                          <td className="px-3 py-1.5 font-mono text-bleed tracking-wider">
+                            {c.code}
+                          </td>
+                          <td className="px-3 py-1.5 text-ape-100 font-mono break-all">
+                            {c.wallet ? (
+                              <>
+                                {c.wallet.slice(0, 6)}…{c.wallet.slice(-4)}
+                              </>
+                            ) : (
+                              <span className="text-mute italic">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-1.5 text-mute font-mono">
+                            {c.claimedAt.replace("T", " ").slice(0, 19)}
+                          </td>
+                          <td className="px-3 py-1.5 text-ape-200 font-mono">
+                            {c.visitorId.slice(0, 8)}…{c.visitorId.slice(-4)}
+                          </td>
+                          <td className="px-3 py-1.5 text-mute font-mono">
+                            {c.ipHash}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+          </div>
         </div>
       </Panel>
     </div>
@@ -1330,7 +1460,7 @@ function LinkAuditSection() {
 
 // ───── System Test ─────────────────────────────────────────────────────
 
-type SystemTestId = "application" | "approval" | "referral" | "signature";
+type SystemTestId = "application" | "approval" | "submission";
 type SystemTestRow = {
   id: SystemTestId;
   name: string;
@@ -1340,10 +1470,9 @@ type SystemTestRow = {
 };
 
 const SYSTEM_TESTS: { id: SystemTestId; label: string; subtitle: string }[] = [
-  { id: "application", label: "Application Flow", subtitle: "Submit → admin sees → cleanup" },
-  { id: "approval",    label: "Approval Flow",    subtitle: "Approve → status persists → unlocks referral" },
-  { id: "referral",    label: "Referral Flow",    subtitle: "Add → count++ → duplicate rejected" },
-  { id: "signature",   label: "Signature",        subtitle: "Sign → recover → matches signer" },
+  { id: "application", label: "High Order Flow",       subtitle: "Submit → admin sees → cleanup" },
+  { id: "approval",    label: "Recognition Flow",      subtitle: "Recognise → status persists → unlocks summoning" },
+  { id: "submission",  label: "Five Summoning Flow",   subtitle: "Summon five → admin recognises one → status persists" },
 ];
 
 function SystemTestSection() {
@@ -1404,7 +1533,7 @@ function SystemTestSection() {
       >
         <div className="p-3 flex items-center gap-2 flex-wrap border-b border-border">
           <Button variant="primary" onClick={runAll} disabled={allBusy}>
-            {allBusy ? "Running all…" : totalSeen >= 5 ? "Re-run all" : "Run all tests"}
+            {allBusy ? "Running all…" : totalSeen >= SYSTEM_TESTS.length ? "Re-run all" : "Run all tests"}
           </Button>
           <span className="text-xxs text-mute">
             each test seeds its own random wallet, asserts the expected store mutation,
@@ -1486,11 +1615,9 @@ function ResetSection({ onReset }: { onReset: () => void }) {
     if (!confirm(
       "Wipe ALL transactional data?\n\n" +
       "  • applications (gist)\n" +
-      "  • referrals (gist)\n" +
-      "  • uploads (gist binaries + index)\n" +
-      "  • FCFS claims (gist) — total preserved\n" +
-      "  • whitelist (in-memory)\n\n" +
-      "Mint config is preserved. This cannot be undone."
+      "  • submissions (gist) — curated /referral lists\n\n" +
+      "KOL registry + Back Room are preserved (each has its own reset).\n" +
+      "This cannot be undone."
     )) return;
 
     setBusy(true);
@@ -1500,8 +1627,7 @@ function ResetSection({ onReset }: { onReset: () => void }) {
       const r = await adminApi.resetAllData();
       const c = r.cleared;
       setResult(
-        `cleared: ${c.applications} applications · ${c.referrers} referrer entries · ` +
-        `${c.whitelist} whitelist`
+        `cleared: ${c.applications} applications · ${c.submissions} submissions`
       );
       setConfirmText("");
       onReset();
@@ -1519,9 +1645,10 @@ function ResetSection({ onReset }: { onReset: () => void }) {
         </div>
         <div className="p-3 space-y-3">
           <p className="text-xs text-red-200 leading-relaxed">
-            Wipes every transactional store back to empty: applications, referrals,
-            uploads, FCFS claims, and the in-memory whitelist. Mint config and the
-            FCFS cap are preserved. <strong>This cannot be undone.</strong>
+            Wipes every transactional store back to empty: applications and
+            curated /referral submissions. The KOL registry and Back Room
+            state are preserved (each has its own reset).
+            <strong> This cannot be undone.</strong>
           </p>
           <div className="flex items-end gap-2 flex-wrap">
             <div className="flex-1 min-w-[200px]">
@@ -1557,43 +1684,5 @@ function ResetSection({ onReset }: { onReset: () => void }) {
   );
 }
 
-// ───── Helpers ─────────────────────────────────────────────────────────
-
-function NumberField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
-  return (
-    <div>
-      <label className="label">{label}</label>
-      <input
-        type="number"
-        min={0}
-        className="field font-mono"
-        value={Number.isFinite(value) ? value : 0}
-        onChange={(e) => onChange(Number(e.target.value) || 0)}
-      />
-    </div>
-  );
-}
-
-function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(!value)}
-      className={`flex items-center gap-2 border px-2 py-1 text-xxs uppercase tracking-wide ${
-        value ? "bg-ape-700 border-ape-300 text-white" : "bg-ape-950 border-border text-mute"
-      }`}
-    >
-      <span className={`w-3 h-3 border ${value ? "bg-ape-300 border-ape-100" : "bg-ape-900 border-border"}`} />
-      {label} :: {value ? "on" : "off"}
-    </button>
-  );
-}
-
-function KV({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="border border-border bg-ape-950 px-2 py-1">
-      <div className="text-mute uppercase text-xxs">{label}</div>
-      <div className="text-ape-100 font-mono">{value}</div>
-    </div>
-  );
-}
+// (Helpers NumberField/Toggle/KV were removed along with the Mint
+//  Controls + Whitelist sections — they had no remaining consumers.)

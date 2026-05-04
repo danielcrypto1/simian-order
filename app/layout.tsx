@@ -4,6 +4,7 @@ import InteractionLayer from "@/components/InteractionLayer";
 import NetworkStatus from "@/components/NetworkStatus";
 import VoidResidue from "@/components/VoidResidue";
 import AmbientAudio from "@/components/AmbientAudio";
+import StoreHydration from "@/components/StoreHydration";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -40,6 +41,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </div>
 
         {children}
+
+        {/* Triggers Zustand persist rehydration after the first client
+            render so SSR/CSR initial trees match (no React #418/#423/#425). */}
+        <StoreHydration />
 
         {/* Global subtle interaction layer — cursor halo, click flash,
             rare-glitch event, scroll parallax CSS var, first-load splash,

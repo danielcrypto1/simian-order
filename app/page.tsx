@@ -7,6 +7,7 @@ import MediaBackground from "@/components/MediaBackground";
 import SimianCharacter from "@/components/SimianCharacter";
 import DelayedLink from "@/components/DelayedLink";
 import OpenseaLink from "@/components/OpenseaLink";
+import NarrativeSequence from "@/components/NarrativeSequence";
 import { OPENSEA_HIDDEN } from "@/lib/links";
 import { useRound } from "@/lib/useRound";
 
@@ -73,20 +74,6 @@ export default function LandingPage() {
   // is now handled by <AmbientAudio> mounted in app/layout.tsx, which
   // plays /audio/simian.mp3 looped at low volume after the user's
   // first gesture and exposes its own toggle in the top-right corner.)
-
-  // ── Referral capture ─────────────────────────────────────────────────
-  // Links shared from the referral page use `?ref=CODE`. Capture once on
-  // mount and stash in sessionStorage so the apply page can prefill the
-  // referrer field, regardless of which page the visitor lands on next.
-  useEffect(() => {
-    try {
-      const url = new URL(window.location.href);
-      const ref = url.searchParams.get("ref");
-      if (ref) {
-        sessionStorage.setItem("simian_ref", ref.toUpperCase().slice(0, 32));
-      }
-    } catch { /* SSR or storage blocked — skip silently */ }
-  }, []);
 
   return (
     <main
@@ -239,7 +226,7 @@ export default function LandingPage() {
               className="entry-link text-base sm:text-lg"
               style={{ transform: "rotate(0.8deg) translateY(-2px)" }}
             >
-              [ apply ]
+              [ enter the high order ]
             </DelayedLink>
             <button
               type="button"
@@ -281,17 +268,16 @@ export default function LandingPage() {
             )}
           </nav>
 
-          {/* Marketplace caption gated on the same flag — the line's
-              premise was the OpenSea destination. When OpenSea is back
-              the line returns. */}
+          {/* Marketplace caption gated on the same flag — points the
+              visitor at the OpenSea destination once it's enabled. */}
           {!OPENSEA_HIDDEN && (
             <p className="mt-4 font-mono text-xxxs uppercase tracking-widest2 text-mute t-blur">
-              // no public mint &mdash; secondary market live &mdash; entry continues there.
+              // secondary market live &mdash; entry continues there.
             </p>
           )}
 
           <p className="mt-12 font-mono text-xxxs uppercase tracking-widest2 text-mute">
-            // last entered: 04:12:33 utc &nbsp;·&nbsp; 3333 &nbsp;·&nbsp; ape-chain
+            // last entered: 04:12:33 utc &nbsp;·&nbsp; 5,555 &nbsp;·&nbsp; ape-chain
             {clicks > 0 && (
               <>
                 {" "}&nbsp;·&nbsp;{" "}
@@ -336,6 +322,12 @@ export default function LandingPage() {
           </p>
         </div>
       )}
+
+      {/* Atmospheric narrative — six lines fade in/out across the right
+          side of the page on desktop, centered bottom slot on mobile.
+          Self-contained client component; pointer-events:none so it
+          doesn't interfere with the entry CTA. */}
+      <NarrativeSequence />
 
       {/* Scattered brand fragments — three lines at different positions
           and opacities. Hidden on mobile to keep the small-screen

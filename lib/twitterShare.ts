@@ -10,30 +10,68 @@ export function tweetUrl(text: string): string {
 }
 
 export const TWEETS = {
-  referral: (link: string) =>
-    `I've been given access to SIMIAN ORDER.
+  /**
+   * Five-summoning share. The slate is invitation-only and
+   * non-transferable — there's no link, just a pointer to the
+   * mystical summoning system.
+   */
+  summoned: () =>
+    `I've completed THE FIVE SUMMONING for SIMIAN ORDER.
 
-Only 5 can follow.
-
-${link}
+The order chooses who walks through.
 
 #SimianOrder`,
 
   /**
-   * Approval share. Includes the active round number so the social
-   * post pegs the user to a specific round of admissions.
+   * Recognition share. Five tone variants — one is chosen at random
+   * on each share so the timeline doesn't get a wall of identical
+   * tweets. `{round}` is replaced with the active round number at
+   * call time so the post pegs the user to a specific cycle.
    */
-  approval: (round: number) =>
-    `I've been accepted into SIMIAN ORDER — Round ${round}
-
-Entry isn't given.
-
+  approval: (round: number) => {
+    const variants: ((r: number) => string)[] = [
+      (r) =>
+        `RECOGNISED — ROUND ${r}
+Entry isn’t given.
+It’s seen.
+THE FIVE SUMMONING is open.
+@SimianOrder
 #SimianOrder`,
+      (r) =>
+        `RECOGNISED.
+They saw it.
+Round ${r} — unlocked.
+The FIVE SUMMONING begins.
+@SimianOrder
+#SimianOrder`,
+      (r) =>
+        `RECOGNISED — ROUND ${r}
+Most applied.
+Few were seen.
+I’m in.
+@SimianOrder
+#SimianOrder`,
+      (_r) =>
+        `RECOGNISED.
+No noise.
+No luck.
+Just conviction.
+@SimianOrder
+#SimianOrder`,
+      (r) =>
+        `RECOGNISED — R${r}
+Entry isn’t given.
+@SimianOrder
+#SimianOrder`,
+    ];
+    const pick = variants[Math.floor(Math.random() * variants.length)];
+    return pick(round);
+  },
 
   rejection: () =>
-    `Didn't make it into SIMIAN ORDER this time.
+    `Not recognised by THE HIGH ORDER this round.
 
-Will try again.
+Will summon again.
 
 #SimianOrder`,
 };
@@ -42,4 +80,128 @@ Will try again.
 export function openTweet(text: string): void {
   if (typeof window === "undefined") return;
   window.open(tweetUrl(text), "_blank", "noopener,noreferrer");
+}
+
+/**
+ * Builds the URL to the dynamic share-card PNG for a given round.
+ * Wallet, when supplied, is sent as-is — the API masks it server-side
+ * before rendering, so the full address never appears on the card.
+ */
+export function shareCardUrl(round: number, wallet?: string | null): string {
+  const params = new URLSearchParams({ round: String(round) });
+  if (wallet) params.set("wallet", wallet);
+  return `/api/share-card?${params.toString()}`;
+}
+
+/**
+ * Triggers a browser download of the share card. Fetches the PNG so we
+ * can offer a stable filename ("simian-order-recognised-r{round}.png")
+ * and short-circuit if the network fails (we surface the error instead
+ * of silently opening a blank tab).
+ */
+export async function downloadShareCard(round: number, wallet?: string | null): Promise<void> {
+  if (typeof window === "undefined") return;
+  const blob = await fetchShareCardBlob(round, wallet);
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = `simian-order-recognised-r${round}.png`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Release the object URL on the next tick so Safari has a chance
+  // to start the download before the URL is revoked.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
+/** Internal: fetch the share-card PNG as a Blob. Throws on network fail. */
+export async function fetchShareCardBlob(round: number, wallet?: string | null): Promise<Blob> {
+  const res = await fetch(shareCardUrl(round, wallet), { cache: "no-store" });
+  if (!res.ok) throw new Error(`share_card_${res.status}`);
+  return await res.blob();
+}
+
+/**
+ * Result of the combined image+text clipboard write. The caller uses
+ * `imageOk` to decide whether to surface a "Download Card" fallback —
+ * if it's false, the clipboard only got the text and the user has no
+ * way to paste the image into X. Text writes succeed almost everywhere
+ * so `textOk` is rarely false in practice; we still surface it.
+ */
+export type CopyShareResult = {
+  imageOk: boolean;
+  textOk: boolean;
+  /** Short reason code for the image branch when imageOk is false. */
+  imageReason?: "no-clipboard-api" | "no-image-support" | "denied" | "fetch-failed" | "unknown";
+};
+
+/**
+ * Copies the approval card PNG **and** the prepared tweet text to the
+ * system clipboard so the user can paste both into the X composer.
+ *
+ * Browser support reality:
+ *   - Desktop Chrome/Edge/Firefox (recent): supported.
+ *   - Safari ≥ 13.4 (iOS + macOS): supports `ClipboardItem` but image
+ *     writes are gated by user activation and fail silently in some
+ *     contexts. Caller should be ready to fall back to a download.
+ *   - Older browsers / non-secure contexts: the API doesn't exist; we
+ *     return `imageOk: false` with reason `no-clipboard-api`.
+ *
+ * Must be invoked from a user-gesture handler (click). We pass the
+ * blob fetch through `ClipboardItem`'s promise form on Safari paths
+ * where the API insists on the promise to keep the user-activation
+ * window open across the network request.
+ */
+export async function copyCardAndText(
+  round: number,
+  text: string,
+  wallet?: string | null,
+): Promise<CopyShareResult> {
+  if (typeof navigator === "undefined") {
+    return { imageOk: false, textOk: false, imageReason: "no-clipboard-api" };
+  }
+
+  // ── Image branch ────────────────────────────────────────────────
+  let imageOk = false;
+  let imageReason: CopyShareResult["imageReason"];
+  const ClipboardItemCtor =
+    typeof window !== "undefined"
+      ? (window as unknown as { ClipboardItem?: typeof ClipboardItem }).ClipboardItem
+      : undefined;
+
+  if (!navigator.clipboard?.write || !ClipboardItemCtor) {
+    imageReason = "no-clipboard-api";
+  } else {
+    try {
+      // Safari requires the ClipboardItem to receive a Promise<Blob>
+      // so the user-gesture is preserved across the network fetch.
+      // Chrome/Firefox accept either a Blob or a Promise<Blob>.
+      const blobPromise = fetchShareCardBlob(round, wallet);
+      const item = new ClipboardItemCtor({ "image/png": blobPromise });
+      await navigator.clipboard.write([item]);
+      imageOk = true;
+    } catch (err) {
+      // Distinguish fetch failures from permission/support errors so
+      // the modal can show a useful message.
+      const msg = err instanceof Error ? err.message.toLowerCase() : "";
+      imageReason =
+        msg.includes("share_card") || msg.includes("network") ? "fetch-failed"
+        : msg.includes("denied") || msg.includes("permission") ? "denied"
+        : msg.includes("type") || msg.includes("not supported") || msg.includes("image/png") ? "no-image-support"
+        : "unknown";
+    }
+  }
+
+  // ── Text branch (independent of image) ──────────────────────────
+  let textOk = false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      textOk = true;
+    }
+  } catch {
+    /* swallow — surfaced via textOk:false */
+  }
+
+  return { imageOk, textOk, imageReason };
 }
