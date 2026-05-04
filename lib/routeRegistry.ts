@@ -37,15 +37,17 @@ export const ROUTE_REGISTRY: RegistryEntry[] = [
   { path: "/api/round",                                                      method: "GET", auth: "public", expect: [200], group: "api-public", label: "Current round (alias)" },
   { path: "/api/referrals?wallet=0x0000000000000000000000000000000000000000", method: "GET", auth: "public", expect: [200], group: "api-public", label: "Submission lookup by wallet" },
   { path: "/api/backroom",                                                   method: "GET", auth: "public", expect: [200], group: "api-public", label: "Back Room visitor status" },
+  { path: "/api/share-card?round=1",                                         method: "GET", auth: "public", expect: [200], group: "api-public", label: "Approval share card (PNG)" },
 
   // ─── Admin APIs (GETs probed with admin cookie; POSTs are listed but skipped from probe) ───
   { path: "/api/admin/session",       method: "GET", auth: "admin",  expect: [200, 401],  group: "api-admin", label: "Admin session" },
   { path: "/api/admin/config",        method: "GET", auth: "admin",  expect: [200, 401],  group: "api-admin", label: "Admin config" },
   { path: "/api/admin/applications",  method: "GET", auth: "admin",  expect: [200, 401],  group: "api-admin", label: "Applications list" },
-  { path: "/api/admin/whitelist",     method: "GET", auth: "admin",  expect: [200, 401],  group: "api-admin", label: "Whitelist list" },
   { path: "/api/admin/referrals",     method: "GET", auth: "admin",  expect: [200, 401],  group: "api-admin", label: "Submitted referrals list" },
   { path: "/api/admin/kol",           method: "GET", auth: "admin",  expect: [200, 401],  group: "api-admin", label: "KOL registry list" },
   { path: "/api/admin/backroom",      method: "GET", auth: "admin",  expect: [200, 401],  group: "api-admin", label: "Back Room state" },
+  { path: "/api/admin/export/high-order", method: "GET", auth: "admin", expect: [200, 401], group: "api-admin", label: "Export — HIGH ORDER (CSV)" },
+  { path: "/api/admin/export/fcfs",       method: "GET", auth: "admin", expect: [200, 401], group: "api-admin", label: "Export — FCFS / Back Room (CSV)" },
 ];
 
 // POST/PATCH/DELETE routes that exist but aren't probed (would need real
@@ -55,6 +57,7 @@ export const POST_ONLY_ROUTES: { path: string; group: "api-public" | "api-admin"
   { path: "/api/apply",                                  group: "api-public", label: "Submit application" },
   { path: "/api/referrals/submit-list",                  group: "api-public", label: "Submit curated list of 5" },
   { path: "/api/backroom/claim",                         group: "api-public", label: "Back Room: claim with passphrase" },
+  { path: "/api/fcfs/grant",                             group: "api-public", label: "FCFS: auto-grant for tasks-completers" },
   { path: "/api/admin/login",                            group: "api-admin",  label: "Admin login" },
   { path: "/api/admin/logout",                           group: "api-admin",  label: "Admin logout" },
   { path: "/api/admin/config",                           group: "api-admin",  label: "Patch config (PATCH)" },
@@ -62,9 +65,6 @@ export const POST_ONLY_ROUTES: { path: string; group: "api-public" | "api-admin"
   { path: "/api/admin/applications/[wallet]/approve",    group: "api-admin",  label: "Approve application" },
   { path: "/api/admin/applications/[wallet]/reject",     group: "api-admin",  label: "Reject application" },
   { path: "/api/admin/applications/[wallet]",            group: "api-admin",  label: "Delete application (DELETE)" },
-  { path: "/api/admin/whitelist",                        group: "api-admin",  label: "Add whitelist entry" },
-  { path: "/api/admin/whitelist/upload",                 group: "api-admin",  label: "Whitelist CSV/XLSX upload" },
-  { path: "/api/admin/whitelist/[wallet]",               group: "api-admin",  label: "Update/delete whitelist entry" },
   { path: "/api/admin/referrals/decide",                 group: "api-admin",  label: "Decide submission entry" },
   { path: "/api/admin/kol",                              group: "api-admin",  label: "Add/remove KOL tag" },
   { path: "/api/admin/backroom",                         group: "api-admin",  label: "Set Back Room passphrase (POST)" },

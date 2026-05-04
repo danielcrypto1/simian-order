@@ -20,6 +20,17 @@ html, body {
      design must NEVER push the document wider than the viewport. */
   overflow-x: hidden;
   max-width: 100vw;
+  /* Suppress the browser's text-input caret on non-editable text
+     elements. Some browsers / accessibility modes (caret-browsing,
+     touch keyboards, pointer drift) show a blinking "|" inside
+     plain <p>/<span>/<div> when clicked — looking like the element
+     is a textbox. We hide it globally and re-enable it below for
+     actual inputs/textareas/contenteditable. */
+  caret-color: transparent;
+}
+
+input, textarea, select, [contenteditable="true"], [contenteditable=""] {
+  caret-color: auto;
 }
 
 /* Bump base type up slightly on touch viewports so 13px doesn't read
@@ -571,6 +582,67 @@ hr { border-color: #1a1a28; }
    the text is still readable but visually recedes. */
 .t-blur     { filter: blur(0.4px); opacity: 0.85; }
 .t-blur-2   { filter: blur(0.8px); opacity: 0.78; }
+
+/* ─── Landing-page narrative sequence ─────────────────────────────
+   Single fading text node driven by <NarrativeSequence />. Hero-
+   level italic serif to match the title; a tiny RGB text-shadow
+   echoes the existing rgbsplit aesthetic without animating per-frame.
+   The fade is one keyframe (opacity + blur), composited by the GPU.
+   Per-instance animation-duration is set inline so desktop / mobile
+   timings stay in sync with the JS interval. */
+.narrative-line {
+  font-family: "Times New Roman", Times, Georgia, serif;
+  font-style: italic;
+  /* Cinematic, fluid scale — clamps between ~24px and ~52px on the
+     widest screens. Big enough to read as the focal layer, never so
+     wide it triggers awkward wrapping at common viewport sizes. */
+  font-size: clamp(1.5rem, 3.4vw, 3.25rem);
+  line-height: 1.35;
+  letter-spacing: 0.005em;
+  color: rgba(216, 216, 228, 0.62);
+  text-shadow:
+    0 0 22px rgba(0, 64, 255, 0.22),
+    1px 0 0 rgba(255, 45, 45, 0.10),
+    -1px 0 0 rgba(0, 64, 255, 0.10);
+  pointer-events: none;
+  user-select: none;
+  /* Allow long sentences to wrap to a second line — sized below to
+     keep the column readable at hero scale. */
+  white-space: normal;
+  max-width: min(72ch, 78vw);
+  z-index: 3;
+  /* Start hidden + blurred. animation overrides this on mount. */
+  opacity: 0;
+  filter: blur(10px);
+  animation-name: narrative-fade;
+  /* ease-in-out for smoother, more intentional in/out — replaces the
+     ease-out previously used. */
+  animation-timing-function: cubic-bezier(0.45, 0, 0.25, 1);
+  animation-fill-mode: forwards;
+  will-change: opacity, filter;
+}
+
+/* Slower fade in (22%), longer hold (≈3.1s of a 5s line on desktop),
+   slow clean fade out (22%). The percentages are duration-relative,
+   so the same shape applies on mobile (where total is 4s → ~2.5s
+   visible hold). */
+@keyframes narrative-fade {
+  0%   { opacity: 0;    filter: blur(10px); }
+  22%  { opacity: 0.55; filter: blur(0px); }
+  78%  { opacity: 0.55; filter: blur(0px); }
+  100% { opacity: 0;    filter: blur(10px); }
+}
+
+/* Mobile — smaller (still bold + readable), no rotation possible
+   because the inline transform on mobile already strips it, and the
+   max-width caps a touch tighter so wrapping never clips at edges. */
+@media (max-width: 640px) {
+  .narrative-line {
+    font-size: clamp(1.05rem, 5vw, 1.5rem);
+    line-height: 1.3;
+    max-width: 84vw;
+  }
+}
 
 /* Random glitch shift — very subtle horizontal nudges fired at long
    intervals so it never feels like a deliberate animation. */

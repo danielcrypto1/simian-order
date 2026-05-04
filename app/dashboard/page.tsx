@@ -23,12 +23,19 @@ type SubmissionLite = {
 } | null;
 
 export default function DashboardPage() {
-  const {
-    applicationStatus,
-    tasksCompleted,
-    submittedWallet,
-    twitterHandle,
-  } = useStore();
+  const hasHydrated = useStore((s) => s._hasHydrated);
+  const applicationStatus = useStore((s) => s.applicationStatus);
+  const tasksCompletedRaw = useStore((s) => s.tasksCompleted);
+  const submittedWalletRaw = useStore((s) => s.submittedWallet);
+  const twitterHandleRaw = useStore((s) => s.twitterHandle);
+
+  // Persisted values come from localStorage — until rehydration fires
+  // they MUST match SSR (defaults) or React throws hydration errors
+  // (#418/#423/#425). Once hasHydrated flips true, real values flow.
+  const submittedWallet = hasHydrated ? submittedWalletRaw : null;
+  const twitterHandle = hasHydrated ? twitterHandleRaw : null;
+  const tasksCompleted = hasHydrated ? tasksCompletedRaw : false;
+
   const round = useRound();
 
   // The user's identity is the wallet they entered on the apply or
@@ -213,7 +220,7 @@ export default function DashboardPage() {
                 view collection &rarr;
               </div>
               <p className="font-serif italic text-xs text-mute mt-1">
-                &mdash; no public mint. entry continues there.
+                &mdash; entry continues there.
               </p>
             </div>
           </OpenseaLink>

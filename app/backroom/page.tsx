@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { SOCIAL } from "@/lib/links";
 
 /**
  * /backroom — hidden 500-claim easter egg.
@@ -28,6 +29,7 @@ export default function BackroomPage() {
   const [status, setStatus] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
   const [code, setCode] = useState("");
+  const [wallet, setWallet] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [issuedCode, setIssuedCode] = useState<string | null>(null);
@@ -62,13 +64,22 @@ export default function BackroomPage() {
       setError("speak the code.");
       return;
     }
+    const w = wallet.trim();
+    if (!w) {
+      setError("wallet required.");
+      return;
+    }
+    if (!/^0x[a-fA-F0-9]{40}$/.test(w)) {
+      setError("invalid wallet — paste a 0x… ape-chain address.");
+      return;
+    }
     setSubmitting(true);
     try {
       const r = await fetch("/api/backroom/claim", {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ code: code.trim() }),
+        body: JSON.stringify({ code: code.trim(), wallet: w }),
       });
       const j = await r.json().catch(() => ({}));
       if (r.ok && j.ok) {
@@ -83,6 +94,9 @@ export default function BackroomPage() {
       else if (errCode === "full") setError("access closed.");
       else if (errCode === "no_passphrase_set") setError("the door is sealed for now.");
       else if (errCode === "rate_limited") setError("too many attempts. wait a moment.");
+      else if (errCode === "missing_wallet") setError("wallet required.");
+      else if (errCode === "invalid_wallet") setError("invalid wallet — paste a 0x… ape-chain address.");
+      else if (errCode === "wallet_already_claimed") setError("that wallet already holds a code.");
       else setError("rejected.");
       // Refresh status in case full just flipped.
       refresh();
@@ -132,12 +146,22 @@ export default function BackroomPage() {
 
         <div className="divider-glitch max-w-[280px] my-6" aria-hidden />
 
-        <ol className="font-mono text-xs sm:text-sm text-ape-100 space-y-1 leading-relaxed">
+        <ol className="font-mono text-xs sm:text-sm text-ape-100 space-y-2 leading-relaxed">
           <li>
-            <span className="text-mute">01.</span> open a ticket in discord.
+            <span className="text-mute">01.</span>{" "}
+            join our discord —{" "}
+            <a
+              href={SOCIAL.DISCORD}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-elec underline hover:text-bone"
+            >
+              {SOCIAL.DISCORD.replace(/^https?:\/\//, "")}
+            </a>
           </li>
           <li>
-            <span className="text-mute">02.</span> submit your code.
+            <span className="text-mute">02.</span>{" "}
+            submit this code in discord to access the server.
           </li>
         </ol>
 
@@ -196,6 +220,22 @@ export default function BackroomPage() {
           spellCheck={false}
           aria-label="back room code"
         />
+        <input
+          type="text"
+          className="field font-mono text-base"
+          placeholder="wallet address (0x…)"
+          value={wallet}
+          onChange={(e) => setWallet(e.target.value)}
+          maxLength={64}
+          autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          required
+          aria-label="ape-chain wallet address"
+        />
+        <p className="font-mono text-xxxs uppercase tracking-widest2 text-mute">
+          // wallet binds the code. one wallet, one entry.
+        </p>
         {error && (
           <div className="border border-red-700 bg-red-950 px-2 py-1 text-xxs text-red-200 uppercase tracking-wide">
             {error}

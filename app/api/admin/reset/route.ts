@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { clearAllApplications } from "@/lib/applicationsStore";
 import { clearAllSubmissions } from "@/lib/submissionsStore";
-import { getStore } from "@/lib/adminStore";
 
 export const runtime = "nodejs";
 
-// Wipes every transactional store back to empty. Mint config is preserved
-// (admin-edited, not user data). Whitelist is process-local — clears for
-// the current lambda only (matches existing semantics for whitelist).
-// KOL registry intentionally NOT cleared — it's admin-owned metadata.
+// Wipes every transactional gist store back to empty. The mint config
+// + whitelist registry that this used to also clear are gone with the
+// contract removal. The KOL registry and Back Room state are
+// intentionally NOT cleared — they're admin-owned and have their own
+// dedicated reset surfaces.
 export async function POST(req: Request) {
   let body: unknown = {};
   try { body = await req.json(); } catch {}
@@ -30,10 +30,6 @@ export async function POST(req: Request) {
   try { subs = await clearAllSubmissions(); }
   catch (e) { errors.submissions = (e as Error).message; }
 
-  const store = getStore();
-  const whitelistCount = store.whitelist.size;
-  store.whitelist.clear();
-
   const status = Object.keys(errors).length === 0 ? 200 : 207; // multi-status
   return NextResponse.json(
     {
@@ -41,7 +37,6 @@ export async function POST(req: Request) {
       cleared: {
         applications: apps,
         submissions: subs,
-        whitelist: whitelistCount,
       },
       errors: Object.keys(errors).length === 0 ? undefined : errors,
     },

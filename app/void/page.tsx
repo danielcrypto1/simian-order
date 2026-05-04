@@ -11,8 +11,8 @@ import { useEffect, useRef, useState } from "react";
  * Reachable via:
  *   - Direct URL (`/void`)
  *   - Logo 5-click easter egg (reveals a [ deeper ] link)
- *   - Landing's [ ??? ] door, when opened, leads to /dashboard/mint —
- *     this page is its quieter sibling.
+ *   - Landing's [ ??? ] door, when opened, reveals a [ → the back room ]
+ *     link — this page is its quieter sibling.
  *
  * Visual: pure black, single void.png at very low opacity behind a
  * single italic line of serif text, plus a tiny return link. No

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
-import { ethers } from "ethers";
 import {
   deleteApplication,
   findByWallet,
@@ -14,7 +13,6 @@ import {
   deleteSubmission,
   getSubmission,
 } from "@/lib/submissionsStore";
-import { generateSignature, getSignerAddress } from "@/lib/signature";
 import { TEST_IDS, type TestId, type TestResult } from "@/lib/systemTests";
 
 export const runtime = "nodejs";
@@ -29,7 +27,6 @@ const NAMES: Record<TestId, string> = {
   application: "High Order Flow",
   approval: "Recognition Flow",
   submission: "Five Summoning Flow",
-  signature: "Signature",
 };
 
 function newWallet(): string {
@@ -170,47 +167,10 @@ async function testSubmission(): Promise<TestOutcome> {
   };
 }
 
-async function testSignature(): Promise<TestOutcome> {
-  const wallet = newWallet();
-  const phase = 2;
-  const maxAllowed = 2;
-
-  let signature: string;
-  try {
-    signature = await generateSignature(wallet, phase, maxAllowed);
-  } catch (e) {
-    return {
-      ok: false,
-      message: e instanceof Error ? `generateSignature threw: ${e.message}` : "generateSignature threw",
-    };
-  }
-  if (typeof signature !== "string" || !signature.startsWith("0x") || signature.length !== 132) {
-    return { ok: false, message: `bad signature shape (len=${signature.length})` };
-  }
-  const chainId = process.env.NEXT_PUBLIC_CHAIN_ID;
-  const contract = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
-  if (!chainId || !contract) {
-    return { ok: false, message: "NEXT_PUBLIC_CHAIN_ID or _CONTRACT_ADDRESS missing" };
-  }
-  const digest = ethers.solidityPackedKeccak256(
-    ["uint256", "address", "address", "uint8", "uint256"],
-    [BigInt(chainId), contract, wallet, phase, maxAllowed]
-  );
-  const recovered = ethers.verifyMessage(ethers.getBytes(digest), signature);
-  const announced = getSignerAddress();
-  if (recovered.toLowerCase() !== announced.toLowerCase()) {
-    return { ok: false, message: `recovered ${recovered} ≠ signer ${announced}` };
-  }
-  return {
-    ok: true,
-    message: `132-byte sig, recovers to ${recovered.slice(0, 10)}…${recovered.slice(-4)}`,
-  };
-}
-
 async function runByList(
   ids: TestId[],
-  // origin no longer needed (FCFS HTTP probe removed) but kept for parity
-  // with future tests that may need an absolute base URL.
+  // kept as a parameter for parity with future tests that may need an
+  // absolute base URL; unused for now.
   _origin: string
 ): Promise<TestResult[]> {
   const out: TestResult[] = [];
@@ -218,7 +178,6 @@ async function runByList(
     if (id === "application")     out.push(await runOne(id, testApplication));
     else if (id === "approval")   out.push(await runOne(id, testApproval));
     else if (id === "submission") out.push(await runOne(id, testSubmission));
-    else if (id === "signature")  out.push(await runOne(id, testSignature));
   }
   return out;
 }

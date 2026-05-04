@@ -4,6 +4,8 @@ import {
   MAX_ENTRIES,
   type SubmitError,
 } from "@/lib/submissionsStore";
+import { walletExistsElsewhere } from "@/lib/walletRegistry";
+import { findByWallet } from "@/lib/applicationsStore";
 
 export const runtime = "nodejs";
 
@@ -43,11 +45,39 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "missing_entries" }, { status: 400 });
   }
 
+  // Cross-system uniqueness on each entry wallet — block any wallet
+  // that's already a HIGH ORDER applicant (other than the referrer
+  // themselves, who's expected to be an applicant) or a BACK ROOM
+  // claimant. The submissionsStore already enforces uniqueness within
+  // its own system; this guards the cross-system overlap.
+  const entries = b.entries.slice(0, MAX_ENTRIES) as Array<{
+    x: string; discord: string; wallet: string;
+  }>;
+  for (const e of entries) {
+    if (typeof e?.wallet !== "string") continue;
+    const w = e.wallet.toLowerCase().trim();
+    if (!w) continue;
+    // An entry wallet that's already filed an application would end
+    // up on TWO export lists if approved. Reject here.
+    const existingApp = await findByWallet(w);
+    if (existingApp) {
+      return NextResponse.json(
+        { error: "wallet_in_use", details: ["application"], wallet: w },
+        { status: 409 }
+      );
+    }
+    const conflict = await walletExistsElsewhere(w, "summoning_entry");
+    if (conflict.exists) {
+      return NextResponse.json(
+        { error: "wallet_in_use", details: conflict.hits, wallet: w },
+        { status: 409 }
+      );
+    }
+  }
+
   const r = await upsertSubmission({
     referrerWallet: b.wallet,
-    entries: b.entries.slice(0, MAX_ENTRIES) as Array<{
-      x: string; discord: string; wallet: string;
-    }>,
+    entries,
   });
 
   if (r.ok) return NextResponse.json({ ok: true, submission: r.submission });

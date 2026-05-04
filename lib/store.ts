@@ -165,6 +165,15 @@ export const useStore = create<State & Actions>()(
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
       },
+      // CRITICAL: zustand's localStorage adapter is synchronous, so
+      // without this the store reads from localStorage during module
+      // load — BEFORE React's first render — and the client renders
+      // different content than the SSR'd HTML, throwing React errors
+      // #418/#423/#425. With skipHydration: true the store stays at
+      // initialState until something explicitly calls rehydrate(); we
+      // do that in <StoreHydration /> mounted in app/layout.tsx, after
+      // mount, so SSR + first client render both see defaults.
+      skipHydration: true,
     }
   )
 );

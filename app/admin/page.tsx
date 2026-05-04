@@ -1,18 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Panel from "@/components/Panel";
 import Button from "@/components/Button";
 import StatusBadge from "@/components/StatusBadge";
 import AdminTopBar from "@/components/AdminTopBar";
-import { adminApi, ApiError, type Application, type Cfg, type WhitelistEntry } from "@/lib/adminApi";
+import { adminApi, ApiError, type Application, type Cfg } from "@/lib/adminApi";
 
 const sections = [
-  { id: "whitelist-upload", label: "Whitelist Upload" },
-  { id: "whitelist-table", label: "Whitelist Table" },
   { id: "round", label: "Round Control" },
-  { id: "mint", label: "Mint Controls" },
   { id: "apps", label: "High Order" },
   { id: "submitted-referrals", label: "The Five Summoning" },
   { id: "backroom", label: "Back Room" },
@@ -56,20 +53,17 @@ export default function AdminDashboard() {
 
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [apps, setApps] = useState<{ items: Application[]; total: number } | null>(null);
-  const [wl, setWl] = useState<{ items: WhitelistEntry[]; total: number } | null>(null);
   const [refs, setRefs] = useState<ReferralListResponse | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [c, a, w, r] = await Promise.all([
+      const [c, a, r] = await Promise.all([
         adminApi.getConfig(),
         adminApi.listApplications(),
-        adminApi.listWhitelist(),
         adminApi.listReferrals(),
       ]);
       setCfg(c);
       setApps(a);
-      setWl(w);
       setRefs(r);
       setError(null);
     } catch (e) {
@@ -120,10 +114,7 @@ export default function AdminDashboard() {
               </Panel>
             )}
 
-            <WhitelistUploadSection onUploaded={refresh} />
-            <WhitelistTableSection wl={wl} onChanged={refresh} />
             <RoundSection cfg={cfg} onSaved={refresh} />
-            <MintControlsSection cfg={cfg} onSaved={refresh} />
             <ApplicationsSection apps={apps} onAction={refresh} />
             <SubmittedReferralsSection refs={refs} onChanged={refresh} />
             <BackroomSection />
@@ -134,211 +125,6 @@ export default function AdminDashboard() {
         </div>
       </div>
     </div>
-  );
-}
-
-// ───── Whitelist upload ───────────────────────────────────────────────
-
-function WhitelistUploadSection({ onUploaded }: { onUploaded: () => void }) {
-  const [mode, setMode] = useState<"append" | "overwrite">("append");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [errors, setErrors] = useState<{ row: number; reason: string }[] | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  async function upload(e: React.FormEvent) {
-    e.preventDefault();
-    const f = fileRef.current?.files?.[0];
-    if (!f) return;
-    setBusy(true); setMsg(null); setErrors(null);
-    try {
-      const r = await adminApi.uploadWhitelist(f, mode);
-      setMsg(`${mode === "overwrite" ? "Overwrote" : "Appended"}: ${r.added} entries (total ${r.total}).`);
-      if (fileRef.current) fileRef.current.value = "";
-      onUploaded();
-    } catch (e) {
-      if (e instanceof ApiError && e.message === "validation_failed" && Array.isArray(e.details)) {
-        setErrors(e.details as { row: number; reason: string }[]);
-        setMsg("validation failed — fix the rows below and re-upload.");
-      } else {
-        setMsg(e instanceof ApiError ? `error: ${e.message}` : "upload failed");
-      }
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div id="whitelist-upload">
-      <Panel title="Whitelist Upload" right={<span>.csv / .xlsx</span>}>
-        <form onSubmit={upload} className="space-y-3">
-          <div>
-            <label className="label">file</label>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              required
-              className="field"
-            />
-            <div className="text-xxs text-mute mt-1">
-              expected columns: <span className="font-mono text-ape-200">wallet, phase, maxMint</span>
-              &nbsp;— phase ∈ <span className="font-mono">GTD | FCFS</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="label mb-0">mode</span>
-            <label className="flex items-center gap-1 text-xxs uppercase tracking-wide cursor-pointer">
-              <input
-                type="radio"
-                name="mode"
-                checked={mode === "append"}
-                onChange={() => setMode("append")}
-              /> append
-            </label>
-            <label className="flex items-center gap-1 text-xxs uppercase tracking-wide cursor-pointer">
-              <input
-                type="radio"
-                name="mode"
-                checked={mode === "overwrite"}
-                onChange={() => setMode("overwrite")}
-              /> overwrite
-            </label>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button type="submit" variant="primary" disabled={busy}>
-              {busy ? "Uploading..." : "Upload"}
-            </Button>
-            {msg && <span className="text-xxs text-ape-200">{msg}</span>}
-          </div>
-
-          {errors && errors.length > 0 && (
-            <div className="border border-red-700 bg-red-950 px-2 py-2 text-xxs space-y-1">
-              <div className="text-red-200 uppercase tracking-wide">
-                {errors.length} validation error{errors.length > 1 ? "s" : ""}
-              </div>
-              <ul className="font-mono text-red-200 max-h-32 overflow-auto">
-                {errors.slice(0, 50).map((er, i) => (
-                  <li key={i}>row {er.row}: {er.reason}</li>
-                ))}
-                {errors.length > 50 && <li>…and {errors.length - 50} more</li>}
-              </ul>
-            </div>
-          )}
-        </form>
-      </Panel>
-    </div>
-  );
-}
-
-// ───── Whitelist table ─────────────────────────────────────────────────
-
-function WhitelistTableSection({
-  wl,
-  onChanged,
-}: {
-  wl: { items: WhitelistEntry[]; total: number } | null;
-  onChanged: () => void;
-}) {
-  return (
-    <div id="whitelist-table">
-      <Panel
-        title="Whitelist"
-        right={wl ? <span>{wl.total} entries</span> : <span>loading...</span>}
-        padded={false}
-      >
-        <div className="overflow-x-auto">
-        <table className="w-full text-xs min-w-[640px]">
-          <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
-            <tr>
-              <th className="text-left px-3 py-1 border-b border-border">wallet</th>
-              <th className="text-left px-3 py-1 border-b border-border">phase</th>
-              <th className="text-left px-3 py-1 border-b border-border">maxMint</th>
-              <th className="text-left px-3 py-1 border-b border-border">actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {(wl?.items ?? []).map((row) => (
-              <WhitelistRow key={row.wallet} row={row} onChanged={onChanged} />
-            ))}
-            {wl && wl.items.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-3 py-3 text-mute text-center text-xxs italic">
-                  no whitelist entries — upload a .csv or .xlsx above
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-        </div>
-      </Panel>
-    </div>
-  );
-}
-
-function WhitelistRow({
-  row,
-  onChanged,
-}: {
-  row: WhitelistEntry;
-  onChanged: () => void;
-}) {
-  const [phase, setPhase] = useState<"GTD" | "FCFS">(row.phase);
-  const [maxMint, setMaxMint] = useState<number>(row.maxMint);
-  const [busy, setBusy] = useState(false);
-
-  const dirty = phase !== row.phase || maxMint !== row.maxMint;
-
-  async function save() {
-    setBusy(true);
-    try {
-      await adminApi.updateWhitelist(row.wallet, { phase, maxMint });
-      onChanged();
-    } finally { setBusy(false); }
-  }
-
-  async function del() {
-    if (!confirm(`Delete ${row.wallet}?`)) return;
-    setBusy(true);
-    try {
-      await adminApi.deleteWhitelist(row.wallet);
-      onChanged();
-    } finally { setBusy(false); }
-  }
-
-  return (
-    <tr className="row-hover">
-      <td className="px-3 py-2 font-mono text-ape-100 break-all">{row.wallet}</td>
-      <td className="px-3 py-2">
-        <select
-          className="field py-0 px-1 w-20"
-          value={phase}
-          onChange={(e) => setPhase(e.target.value as "GTD" | "FCFS")}
-        >
-          <option value="GTD">GTD</option>
-          <option value="FCFS">FCFS</option>
-        </select>
-      </td>
-      <td className="px-3 py-2">
-        <input
-          type="number"
-          min={1}
-          className="field py-0 px-1 w-16 font-mono"
-          value={maxMint}
-          onChange={(e) => setMaxMint(Math.max(1, Number(e.target.value) || 1))}
-        />
-      </td>
-      <td className="px-3 py-2">
-        <div className="flex gap-1">
-          <Button variant="primary" disabled={!dirty || busy} onClick={save}>
-            Save
-          </Button>
-          <Button onClick={del} disabled={busy}>Delete</Button>
-        </div>
-      </td>
-    </tr>
   );
 }
 
@@ -462,59 +248,6 @@ function RoundSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }
           propagates to headlines, terminal bar, and the approval-share
           tweet on the next poll. no client cache to bust.
         </p>
-      </Panel>
-    </div>
-  );
-}
-
-// ───── Mint controls ───────────────────────────────────────────────────
-
-function MintControlsSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }) {
-  const [form, setForm] = useState({
-    gtd_max_mint: 0,
-    fcfs_max_mint: 0,
-    public_max_mint: 0,
-    gtd_active: false,
-    fcfs_active: false,
-    public_active: false,
-  });
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!cfg) return;
-    setForm({
-      gtd_max_mint: cfg.mint.gtd_max_mint,
-      fcfs_max_mint: cfg.mint.fcfs_max_mint,
-      public_max_mint: cfg.mint.public_max_mint,
-      gtd_active: cfg.mint.gtd_active,
-      fcfs_active: cfg.mint.fcfs_active,
-      public_active: cfg.mint.public_active,
-    });
-  }, [cfg]);
-
-  async function save() {
-    setBusy(true);
-    try { await adminApi.patchConfig(form); onSaved(); } finally { setBusy(false); }
-  }
-
-  return (
-    <div id="mint">
-      <Panel title="Mint Controls" right={cfg ? <StatusBadge status="Open" /> : <span>loading...</span>}>
-        <div className="grid sm:grid-cols-3 gap-3">
-          <NumberField label="GTD max mint" value={form.gtd_max_mint} onChange={(v) => setForm({ ...form, gtd_max_mint: v })} />
-          <NumberField label="FCFS max mint" value={form.fcfs_max_mint} onChange={(v) => setForm({ ...form, fcfs_max_mint: v })} />
-          <NumberField label="Public max mint" value={form.public_max_mint} onChange={(v) => setForm({ ...form, public_max_mint: v })} />
-        </div>
-        <div className="divider-old" />
-        <div className="grid sm:grid-cols-3 gap-2">
-          <Toggle label="GTD active" value={form.gtd_active} onChange={(v) => setForm({ ...form, gtd_active: v })} />
-          <Toggle label="FCFS active" value={form.fcfs_active} onChange={(v) => setForm({ ...form, fcfs_active: v })} />
-          <Toggle label="Public active" value={form.public_active} onChange={(v) => setForm({ ...form, public_active: v })} />
-        </div>
-        <div className="divider-old" />
-        <Button variant="primary" disabled={!cfg || busy} onClick={save}>
-          {busy ? "Saving..." : "Save mint controls"}
-        </Button>
       </Panel>
     </div>
   );
@@ -723,6 +456,14 @@ function ApplicationsSection({
             >
               {`Reject All Pending`}
             </Button>
+            <a
+              href="/api/admin/export/high-order"
+              download="high-order.csv"
+              className="text-xxs uppercase tracking-wide px-2 py-1 border border-ape-500 text-ape-100 hover:bg-ape-800 no-underline"
+              title="OpenSea-ready CSV — wallet_address,quantity (qty=1, deduped)"
+            >
+              Download CSV
+            </a>
             <label className="flex items-center gap-1 text-xxs uppercase tracking-wide text-ape-200 cursor-pointer ml-2">
               <input
                 type="checkbox"
@@ -1275,18 +1016,20 @@ function SubmittedReferralsSection({
 }
 
 // ───── Back Room ───────────────────────────────────────────────────────
-// Hidden 500-claim easter egg. Admin sets the passphrase here; the
-// /backroom public page checks against it. Each correct claim mints
-// a unique XXXX-XXXX combination code stored server-side.
+// Hidden 500-claim easter egg. Admin sets the passphrase + drop code
+// here; the /backroom public page checks the passphrase, binds the
+// claimer's wallet to the SAME shared drop code that all 500 receive.
 
 type BackroomAdminState = {
   passphrase: string | null;
+  dropCode: string | null;
   total: number;
   remaining: number;
   claimed: number;
   full: boolean;
   claims: Array<{
     code: string;
+    wallet?: string;
     visitorId: string;
     ipHash: string;
     claimedAt: string;
@@ -1300,6 +1043,10 @@ function BackroomSection() {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
+  // Drop code editor state — separate from passphrase so each save
+  // button does one thing and one thing only.
+  const [dropDraft, setDropDraft] = useState("");
+  const [dropSavedFlash, setDropSavedFlash] = useState(false);
   const [revealPass, setRevealPass] = useState(false);
   const [showCodes, setShowCodes] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -1316,10 +1063,11 @@ function BackroomSection() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Pre-fill the draft once on first hydration so admin can edit
+  // Pre-fill the drafts once on first hydration so admin can edit
   // without retyping. Don't override later if they're typing.
   useEffect(() => {
     if (data && !draft) setDraft(data.passphrase ?? "");
+    if (data && !dropDraft) setDropDraft(data.dropCode ?? "");
     // intentionally only on initial load
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
@@ -1338,6 +1086,38 @@ function BackroomSection() {
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "save_failed");
+    } finally { setBusy(false); }
+  }
+
+  async function saveDropCode() {
+    setError(null);
+    setBusy(true);
+    try {
+      const trimmed = dropDraft.trim();
+      await adminApi.setBackroomDropCode(trimmed.length === 0 ? null : trimmed);
+      setDropSavedFlash(true);
+      setTimeout(() => setDropSavedFlash(false), 1500);
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "save_failed");
+    } finally { setBusy(false); }
+  }
+
+  async function regenerateDropCode() {
+    if (!confirm(
+      "Regenerate the shared drop code?\n\n" +
+      "Already-issued claims keep the old code. Future claims will receive the new value."
+    )) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const r = await adminApi.regenerateBackroomDropCode();
+      setDropDraft(r.dropCode);
+      setDropSavedFlash(true);
+      setTimeout(() => setDropSavedFlash(false), 1500);
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "regen_failed");
     } finally { setBusy(false); }
   }
 
@@ -1360,7 +1140,7 @@ function BackroomSection() {
   async function copyCodes() {
     if (!data || data.claims.length === 0) return;
     const payload = data.claims
-      .map((c) => `${c.code}\t${c.claimedAt}`)
+      .map((c) => `${c.code}\t${c.wallet ?? ""}\t${c.claimedAt}`)
       .join("\n");
     try {
       await navigator.clipboard.writeText(payload);
@@ -1388,10 +1168,10 @@ function BackroomSection() {
       >
         <div className="space-y-4">
           <p className="text-xxs text-mute leading-relaxed">
-            hidden /backroom page. visitors who type the passphrase get a
-            unique XXXX-XXXX code. one claim per browser cookie · cap{" "}
-            {data?.total ?? 500}. set the passphrase below; resetting wipes
-            issued codes only (passphrase preserved unless you ask).
+            hidden /backroom page. visitors who type the passphrase + their wallet
+            receive the SAME shared drop code (set below). one claim per browser
+            cookie · cap {data?.total ?? 500}. resetting wipes issued claims only
+            (passphrase + drop code preserved unless you also seal the door).
           </p>
 
           {/* Passphrase row */}
@@ -1427,7 +1207,49 @@ function BackroomSection() {
 
           <div className="divider-old" />
 
-          {/* Reset controls */}
+          {/* Drop-code row — the SINGLE shared code returned to every
+              successful claimer. All 500 claims receive the same value
+              here. Admin can set it explicitly or auto-generate. */}
+          <div className="space-y-2">
+            <label className="label">drop code (shared by all 500)</label>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                className="field font-mono flex-1 min-w-[200px] tracking-[0.18em]"
+                placeholder="auto-generated on first claim if empty"
+                value={dropDraft}
+                onChange={(e) => setDropDraft(e.target.value)}
+                maxLength={64}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <Button variant="primary" onClick={saveDropCode} disabled={busy}>
+                {dropSavedFlash ? "Saved ✓" : busy ? "Saving…" : "Save Drop Code"}
+              </Button>
+              <Button variant="ghost" onClick={regenerateDropCode} disabled={busy}>
+                Regenerate
+              </Button>
+            </div>
+            <p className="text-xxs text-mute">
+              every successful claimer receives THIS code. clear the field
+              + Save to make the next claim auto-generate a fresh value.
+              changing the code does NOT update already-issued claims.
+              {data?.dropCode ? (
+                <>
+                  {" · "}current:{" "}
+                  <span className="font-mono text-bleed tracking-[0.18em]">
+                    {data.dropCode}
+                  </span>
+                </>
+              ) : (
+                <span className="text-bleed"> · no drop code set yet — first claim will auto-generate one</span>
+              )}
+            </p>
+          </div>
+
+          <div className="divider-old" />
+
+          {/* Reset controls + CSV export */}
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="ghost" onClick={() => reset(false)} disabled={busy}>
               Reset Claims
@@ -1435,6 +1257,14 @@ function BackroomSection() {
             <Button variant="ghost" onClick={() => reset(true)} disabled={busy}>
               Reset + Seal Door
             </Button>
+            <a
+              href="/api/admin/export/fcfs"
+              download="fcfs.csv"
+              className="text-xxs uppercase tracking-wide px-2 py-1 border border-ape-500 text-ape-100 hover:bg-ape-800 no-underline"
+              title="OpenSea-ready CSV — wallet_address,quantity (qty=1, deduped)"
+            >
+              Download CSV
+            </a>
             {error && (
               <span className="text-xxs text-red-300 uppercase tracking-wide">
                 error: {error}
@@ -1473,6 +1303,7 @@ function BackroomSection() {
                       <tr>
                         <th className="text-left px-3 py-1 border-b border-border">#</th>
                         <th className="text-left px-3 py-1 border-b border-border">code</th>
+                        <th className="text-left px-3 py-1 border-b border-border">wallet</th>
                         <th className="text-left px-3 py-1 border-b border-border">claimed at</th>
                         <th className="text-left px-3 py-1 border-b border-border">visitor (cookie hash)</th>
                         <th className="text-left px-3 py-1 border-b border-border">ip hash</th>
@@ -1484,6 +1315,15 @@ function BackroomSection() {
                           <td className="px-3 py-1.5 text-mute font-mono">{idx + 1}</td>
                           <td className="px-3 py-1.5 font-mono text-bleed tracking-wider">
                             {c.code}
+                          </td>
+                          <td className="px-3 py-1.5 text-ape-100 font-mono break-all">
+                            {c.wallet ? (
+                              <>
+                                {c.wallet.slice(0, 6)}…{c.wallet.slice(-4)}
+                              </>
+                            ) : (
+                              <span className="text-mute italic">—</span>
+                            )}
                           </td>
                           <td className="px-3 py-1.5 text-mute font-mono">
                             {c.claimedAt.replace("T", " ").slice(0, 19)}
@@ -1620,7 +1460,7 @@ function LinkAuditSection() {
 
 // ───── System Test ─────────────────────────────────────────────────────
 
-type SystemTestId = "application" | "approval" | "submission" | "signature";
+type SystemTestId = "application" | "approval" | "submission";
 type SystemTestRow = {
   id: SystemTestId;
   name: string;
@@ -1633,7 +1473,6 @@ const SYSTEM_TESTS: { id: SystemTestId; label: string; subtitle: string }[] = [
   { id: "application", label: "High Order Flow",       subtitle: "Submit → admin sees → cleanup" },
   { id: "approval",    label: "Recognition Flow",      subtitle: "Recognise → status persists → unlocks summoning" },
   { id: "submission",  label: "Five Summoning Flow",   subtitle: "Summon five → admin recognises one → status persists" },
-  { id: "signature",   label: "Signature",             subtitle: "Sign → recover → matches signer" },
 ];
 
 function SystemTestSection() {
@@ -1776,9 +1615,9 @@ function ResetSection({ onReset }: { onReset: () => void }) {
     if (!confirm(
       "Wipe ALL transactional data?\n\n" +
       "  • applications (gist)\n" +
-      "  • submissions (gist) — curated /referral lists\n" +
-      "  • whitelist (gist)\n\n" +
-      "Mint config + KOL registry are preserved. This cannot be undone."
+      "  • submissions (gist) — curated /referral lists\n\n" +
+      "KOL registry + Back Room are preserved (each has its own reset).\n" +
+      "This cannot be undone."
     )) return;
 
     setBusy(true);
@@ -1788,8 +1627,7 @@ function ResetSection({ onReset }: { onReset: () => void }) {
       const r = await adminApi.resetAllData();
       const c = r.cleared;
       setResult(
-        `cleared: ${c.applications} applications · ${c.submissions} submissions · ` +
-        `${c.whitelist} whitelist`
+        `cleared: ${c.applications} applications · ${c.submissions} submissions`
       );
       setConfirmText("");
       onReset();
@@ -1807,9 +1645,10 @@ function ResetSection({ onReset }: { onReset: () => void }) {
         </div>
         <div className="p-3 space-y-3">
           <p className="text-xs text-red-200 leading-relaxed">
-            Wipes every transactional store back to empty: applications, referrals,
-            uploads, FCFS claims, and the in-memory whitelist. Mint config and the
-            FCFS cap are preserved. <strong>This cannot be undone.</strong>
+            Wipes every transactional store back to empty: applications and
+            curated /referral submissions. The KOL registry and Back Room
+            state are preserved (each has its own reset).
+            <strong> This cannot be undone.</strong>
           </p>
           <div className="flex items-end gap-2 flex-wrap">
             <div className="flex-1 min-w-[200px]">
@@ -1845,43 +1684,5 @@ function ResetSection({ onReset }: { onReset: () => void }) {
   );
 }
 
-// ───── Helpers ─────────────────────────────────────────────────────────
-
-function NumberField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
-  return (
-    <div>
-      <label className="label">{label}</label>
-      <input
-        type="number"
-        min={0}
-        className="field font-mono"
-        value={Number.isFinite(value) ? value : 0}
-        onChange={(e) => onChange(Number(e.target.value) || 0)}
-      />
-    </div>
-  );
-}
-
-function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(!value)}
-      className={`flex items-center gap-2 border px-2 py-1 text-xxs uppercase tracking-wide ${
-        value ? "bg-ape-700 border-ape-300 text-white" : "bg-ape-950 border-border text-mute"
-      }`}
-    >
-      <span className={`w-3 h-3 border ${value ? "bg-ape-300 border-ape-100" : "bg-ape-900 border-border"}`} />
-      {label} :: {value ? "on" : "off"}
-    </button>
-  );
-}
-
-function KV({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="border border-border bg-ape-950 px-2 py-1">
-      <div className="text-mute uppercase text-xxs">{label}</div>
-      <div className="text-ape-100 font-mono">{value}</div>
-    </div>
-  );
-}
+// (Helpers NumberField/Toggle/KV were removed along with the Mint
+//  Controls + Whitelist sections — they had no remaining consumers.)

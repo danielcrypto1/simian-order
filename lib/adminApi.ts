@@ -37,7 +37,6 @@ function safeJson(t: string): unknown {
   try { return JSON.parse(t); } catch { return null; }
 }
 
-export type WhitelistEntry = { wallet: string; phase: "GTD" | "FCFS"; maxMint: number; addedAt: string };
 export type Application = {
   id: string;
   wallet: string;
@@ -48,14 +47,15 @@ export type Application = {
   source: "apply" | "quest";
   createdAt: string;
 };
+
+/**
+ * The on-chain mint contract has been removed from this codebase. The
+ * runtime config now carries only the round number — kept as a
+ * standalone object so existing reads like `cfg.round_number` keep
+ * working without churn. `total_supply` is a static UI constant
+ * (5,555); see `lib/branding.ts`.
+ */
 export type Cfg = {
-  mint: {
-    total_supply: number; gtd_allocation: number; fcfs_allocation: number;
-    gtd_max_mint: number; fcfs_max_mint: number; public_max_mint: number;
-    gtd_active: boolean; fcfs_active: boolean; public_active: boolean;
-    royalty_bps: number;
-  };
-  royalty_bps: number;
   round_number: number;
 };
 
@@ -179,12 +179,14 @@ export const adminApi = {
   getBackroom: () =>
     req<{
       passphrase: string | null;
+      dropCode: string | null;
       total: number;
       remaining: number;
       claimed: number;
       full: boolean;
       claims: Array<{
         code: string;
+        wallet?: string;
         visitorId: string;
         ipHash: string;
         claimedAt: string;
@@ -195,6 +197,16 @@ export const adminApi = {
     req<{ ok: boolean; passphrase: string }>("/api/admin/backroom", {
       method: "POST",
       body: JSON.stringify({ passphrase }),
+    }),
+  setBackroomDropCode: (dropCode: string | null) =>
+    req<{ ok: boolean; dropCode: string | null }>("/api/admin/backroom", {
+      method: "POST",
+      body: JSON.stringify({ dropCode }),
+    }),
+  regenerateBackroomDropCode: () =>
+    req<{ ok: boolean; dropCode: string }>("/api/admin/backroom", {
+      method: "POST",
+      body: JSON.stringify({ regenerateDropCode: true }),
     }),
   resetBackroom: (alsoClearPassphrase = false) =>
     req<{ ok: boolean }>("/api/admin/backroom/reset", {
@@ -208,17 +220,16 @@ export const adminApi = {
       cleared: {
         applications: number;
         submissions: number;
-        whitelist: number;
       };
     }>("/api/admin/reset", {
       method: "POST",
       body: JSON.stringify({ confirm: true }),
     }),
 
-  runSystemTest: (only?: "application" | "approval" | "submission" | "signature") =>
+  runSystemTest: (only?: "application" | "approval" | "submission") =>
     req<{
       tests: Array<{
-        id: "application" | "approval" | "submission" | "signature";
+        id: "application" | "approval" | "submission";
         name: string;
         status: "PASS" | "FAIL";
         message: string;
@@ -246,27 +257,4 @@ export const adminApi = {
       broken: number;
       postOnly: number;
     }>("/api/admin/audit-links"),
-
-  listWhitelist: () => req<{ items: WhitelistEntry[]; total: number }>("/api/admin/whitelist"),
-  addWhitelist: (entry: { wallet: string; phase: "GTD" | "FCFS"; maxMint: number }) =>
-    req<{ ok: boolean; entry: WhitelistEntry }>("/api/admin/whitelist", {
-      method: "POST", body: JSON.stringify(entry),
-    }),
-  updateWhitelist: (
-    wallet: string,
-    entry: { phase: "GTD" | "FCFS"; maxMint: number }
-  ) =>
-    req<{ ok: boolean; entry: WhitelistEntry }>(`/api/admin/whitelist/${wallet}`, {
-      method: "PUT", body: JSON.stringify(entry),
-    }),
-  deleteWhitelist: (wallet: string) =>
-    req<{ ok: boolean }>(`/api/admin/whitelist/${wallet}`, { method: "DELETE" }),
-  uploadWhitelist: (file: File, mode: "append" | "overwrite") => {
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("mode", mode);
-    return req<{ ok: boolean; mode: string; added: number; total: number }>(
-      "/api/admin/whitelist/upload", { method: "POST", body: fd }
-    );
-  },
 };

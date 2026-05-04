@@ -9,6 +9,7 @@ import { track } from "@/lib/analytics";
 import { TWEETS, openTweet } from "@/lib/twitterShare";
 import { useRound, fetchRound } from "@/lib/useRound";
 import RoundHistory from "@/components/RoundHistory";
+import ShareApprovalModal from "@/components/ShareApprovalModal";
 
 type Status = "idle" | "loading" | "submitting" | "submitted" | "error";
 type ServerApp = {
@@ -29,44 +30,70 @@ const STORY_MAX = 1500;
 const STORY_MIN = 60;
 
 /**
- * Four-pillar qualification manifesto rendered above the form.
- * Each pillar is one short imperative line — no marketing copy. The
- * tone is dossier, not landing-page.
+ * Four-pillar qualification manifesto rendered below the form.
+ * Each pillar carries its full body text per spec.
  */
-const PILLARS: { num: string; title: string; line: string }[] = [
+const PILLARS: { num: string; title: string; lines: string[] }[] = [
   {
     num: "I.",
     title: "PROVEN DEGEN STATUS",
-    line: "scars over hype. the chain remembers your address.",
+    lines: [
+      "You’ve been through it.",
+      "Held positions others abandoned. Watched floors collapse and didn’t flinch.",
+      "If you’ve ever held an NFT to zero and stayed present—you qualify.",
+      "This is not theory. This is experience.",
+    ],
   },
   {
     num: "II.",
     title: "APECHAIN ALIGNMENT",
-    line: "home is not a buzzword. you live here.",
+    lines: [
+      "You move within the ecosystem.",
+      "Holding multiple ApeChain assets shows awareness, positioning, and early conviction.",
+      "You’re not new to the environment—you’re part of it.",
+    ],
   },
   {
     num: "III.",
     title: "DISCIPLINE OVER EMOTION",
-    line: "you sold green and held red — both with steady hands.",
+    lines: [
+      "No panic. No noise. No impulsive exits.",
+      "You understand timing, control, and restraint.",
+      "Inside the Order, discipline is not optional—it’s expected.",
+    ],
   },
   {
     num: "IV.",
     title: "UNDERSTANDING THE ORDER",
-    line: "this is not a club. it does not need members.",
+    lines: [
+      "You don’t just read—you understand.",
+      "The Code, the tone, the way we move.",
+      "If you have to ask how it works, you’re not ready.",
+      "Those who belong already see it.",
+    ],
   },
 ];
 
 export default function ApplyPage() {
+  const hasHydrated = useStore((s) => s._hasHydrated);
   const {
     approveApplication, rejectApplication, submitApplication,
-    resetApplication, applicationStatus,
-    submittedWallet, twitterHandle, submitIdentity,
+    resetApplication, applicationStatus, submitIdentity,
   } = useStore();
+  const submittedWalletRaw = useStore((s) => s.submittedWallet);
+  const twitterHandleRaw = useStore((s) => s.twitterHandle);
+  // Match SSR until rehydration fires — see /dashboard for the
+  // hydration-mismatch (React #418/#423/#425) note.
+  const submittedWallet = hasHydrated ? submittedWalletRaw : null;
+  const twitterHandle = hasHydrated ? twitterHandleRaw : null;
   const round = useRound();
 
   const [serverApp, setServerApp] = useState<ServerApp | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Share-card overlay: open/close only — all of the copy/download/share
+  // state lives inside the modal so it resets cleanly on each open.
+  const [shareOpen, setShareOpen] = useState(false);
   const [form, setForm] = useState({
     handle: "",
     wallet: "",
@@ -242,21 +269,31 @@ export default function ApplyPage() {
               <div className="text-xxs uppercase tracking-wide text-mute mb-1">
                 share the verdict
               </div>
-              <Button
-                variant="primary"
-                onClick={async () => {
-                  if (s === "approved") {
-                    // Resolve round on demand so the latest admin-set value
-                    // is in the tweet even if the page rendered with stale.
-                    const r = round ?? (await fetchRound());
-                    openTweet(TWEETS.approval(r));
-                  } else {
-                    openTweet(TWEETS.rejection());
-                  }
-                }}
-              >
-                {s === "approved" ? "Share Recognition" : "Share Verdict"}
-              </Button>
+
+              {/* Approval: opens the share-card overlay (preview + copy
+                  card & text + share-on-X + download fallback).
+                  Rejection: text-only tweet — no card. */}
+              {s === "approved" ? (
+                <Button
+                  variant="primary"
+                  onClick={async () => {
+                    // Resolve round on demand so a stale page render
+                    // doesn't pin the modal to last-cycle's number.
+                    if (!round) await fetchRound();
+                    track("share_card_open_modal");
+                    setShareOpen(true);
+                  }}
+                >
+                  Share Recognition
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  onClick={() => openTweet(TWEETS.rejection())}
+                >
+                  Share Verdict
+                </Button>
+              )}
             </div>
           )}
 
@@ -268,6 +305,14 @@ export default function ApplyPage() {
         </div>
       </Panel>
       <RoundHistory />
+      {s === "approved" && (
+        <ShareApprovalModal
+          open={shareOpen}
+          onClose={() => setShareOpen(false)}
+          round={round ?? 1}
+          wallet={serverApp.wallet}
+        />
+      )}
       </>
     );
   }
@@ -292,67 +337,6 @@ export default function ApplyPage() {
       <p className="font-serif italic text-xs text-mute mb-6 -mt-1">
         submit for recognition. the order chooses who walks through.
       </p>
-
-      {/* ─── QUALIFICATION CRITERIA ──────────────────────────────────────
-          Four-pillar manifesto block. Minimal chrome — a thin top/bottom
-          rule, mono caps header, then each pillar on its own row with
-          a pixel roman numeral, an uppercase title, and a single italic
-          serif line of substance. No card, no gradient, no buttons. */}
-      <section
-        className="mb-6 border-t border-b border-border py-5 px-1"
-        aria-label="HIGH ORDER qualification criteria"
-      >
-        <div className="flex items-baseline gap-3 mb-4 flex-wrap">
-          <span className="font-mono text-xxxs uppercase tracking-widest2 text-bleed">
-            ──
-          </span>
-          <h2 className="font-mono text-xs sm:text-sm uppercase tracking-widest2 text-bone">
-            HIGH ORDER &mdash; QUALIFICATION CRITERIA
-          </h2>
-          <span className="font-mono text-xxxs uppercase tracking-widest2 text-bleed">
-            ──
-          </span>
-        </div>
-
-        <ol className="space-y-4 list-none pl-0">
-          {PILLARS.map((p) => (
-            <li
-              key={p.num}
-              className="grid grid-cols-[44px_1fr] sm:grid-cols-[60px_1fr] gap-x-3 sm:gap-x-5 items-baseline"
-            >
-              <span
-                className="font-pixel text-bleed text-xl sm:text-2xl leading-none select-none"
-                aria-hidden
-              >
-                {p.num}
-              </span>
-              <div className="min-w-0">
-                <div className="font-mono text-xs sm:text-sm uppercase tracking-widest2 text-bone leading-tight">
-                  {p.title}
-                </div>
-                <div className="font-serif italic text-xs sm:text-sm text-ape-200 leading-snug mt-1">
-                  {p.line}
-                </div>
-              </div>
-            </li>
-          ))}
-        </ol>
-
-        <div className="divider-glitch max-w-[220px] my-5" aria-hidden />
-
-        {/* FINAL NOTE — italic serif, slight tilt, the only flourish in
-            the section. The two lines stand alone; no surrounding chrome. */}
-        <div className="tilt-r2">
-          <p className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-2">
-            ── final note ──
-          </p>
-          <blockquote className="font-serif italic text-base sm:text-lg text-ape-100 leading-snug">
-            &ldquo;Not everyone who applies will be accepted.
-            <br />
-            And not everyone who is accepted will remain.&rdquo;
-          </blockquote>
-        </div>
-      </section>
 
       <form onSubmit={submit} className="space-y-4">
         <div className="grid sm:grid-cols-2 gap-3">
@@ -380,7 +364,7 @@ export default function ApplyPage() {
         </div>
 
         <div>
-          <label className="label">ape-chain wallet</label>
+          <label className="label">Wallet that held your losses</label>
           <input
             className="field font-mono"
             placeholder="0x..."
@@ -400,7 +384,7 @@ export default function ApplyPage() {
             to read about. Higher character ceiling so people can
             actually tell the story. */}
         <div>
-          <label className="label">your story</label>
+          <label className="label">Tell your story (how you got rugged / why you stayed)</label>
           <p className="font-serif italic text-xs text-mute mb-2 -mt-1">
             tell the order, in your own words:
             <br />
@@ -454,6 +438,73 @@ export default function ApplyPage() {
           <span className="ml-auto text-xxs text-mute">filed as PENDING. the order reviews manually.</span>
         </div>
       </form>
+
+      {/* ─── QUALIFICATION CRITERIA ──────────────────────────────────────
+          Four-pillar manifesto block, rendered BELOW the form per spec.
+          Minimal chrome — a thin top/bottom rule, mono caps header, then
+          each pillar on its own row with a pixel roman numeral, an
+          uppercase title, and the full pillar body in italic serif. */}
+      <section
+        className="mt-10 border-t border-b border-border py-5 px-1"
+        aria-label="HIGH ORDER qualification criteria"
+      >
+        <div className="flex items-baseline gap-3 mb-3 flex-wrap">
+          <span className="font-mono text-xxxs uppercase tracking-widest2 text-bleed">
+            ──
+          </span>
+          <h2 className="font-mono text-xs sm:text-sm uppercase tracking-widest2 text-bone">
+            HIGH ORDER &mdash; QUALIFICATION CRITERIA
+          </h2>
+          <span className="font-mono text-xxxs uppercase tracking-widest2 text-bleed">
+            ──
+          </span>
+        </div>
+
+        <p className="font-serif italic text-sm sm:text-base text-ape-100 mb-6 leading-snug">
+          Entry into the HIGH ORDER is not given. It is recognized.
+        </p>
+
+        <ol className="space-y-5 list-none pl-0">
+          {PILLARS.map((p) => (
+            <li
+              key={p.num}
+              className="grid grid-cols-[44px_1fr] sm:grid-cols-[60px_1fr] gap-x-3 sm:gap-x-5 items-baseline"
+            >
+              <span
+                className="font-pixel text-bleed text-xl sm:text-2xl leading-none select-none"
+                aria-hidden
+              >
+                {p.num}
+              </span>
+              <div className="min-w-0">
+                <div className="font-mono text-xs sm:text-sm uppercase tracking-widest2 text-bone leading-tight mb-1">
+                  {p.title}
+                </div>
+                <div className="font-serif italic text-xs sm:text-sm text-ape-200 leading-snug space-y-1">
+                  {p.lines.map((ln, i) => (
+                    <div key={i}>{ln}</div>
+                  ))}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ol>
+
+        <div className="divider-glitch max-w-[220px] my-5" aria-hidden />
+
+        {/* FINAL NOTE — italic serif, slight tilt, the only flourish in
+            the section. The two lines stand alone; no surrounding chrome. */}
+        <div className="tilt-r2">
+          <p className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-2">
+            ── final note ──
+          </p>
+          <blockquote className="font-serif italic text-base sm:text-lg text-ape-100 leading-snug">
+            Not everyone who applies will be accepted.
+            <br />
+            And not everyone who is accepted will remain.
+          </blockquote>
+        </div>
+      </section>
     </Panel>
     <RoundHistory />
     </>

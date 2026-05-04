@@ -13,9 +13,14 @@ import { useRound } from "@/lib/useRound";
  */
 export default function TerminalBar() {
   const round = useRound();
-  const [now, setNow] = useState<string>(fmt(new Date()));
+  // CRITICAL: do NOT seed the clock with `new Date()` here — the
+  // server's wall clock at SSR will not match the client's wall
+  // clock at hydrate, throwing React errors #418 / #423 / #425
+  // on every page load. Start empty, fill in via useEffect.
+  const [now, setNow] = useState<string>("");
 
   useEffect(() => {
+    setNow(fmt(new Date()));
     const tick = setInterval(() => setNow(fmt(new Date())), 1_000);
     return () => clearInterval(tick);
   }, []);
@@ -32,7 +37,11 @@ export default function TerminalBar() {
         <span className="text-mute">/</span>
         <span className="text-mute">market:</span>
         <span className="text-bone">opensea</span>
-        <span className="ml-auto text-bleed">{now} utc</span>
+        {/* suppressHydrationWarning is belt-and-braces — even with the
+            empty initial state, the time may flicker once on hydrate. */}
+        <span className="ml-auto text-bleed" suppressHydrationWarning>
+          {now ? `${now} utc` : " "}
+        </span>
         <span className="text-bleed blink">_</span>
       </div>
     </div>

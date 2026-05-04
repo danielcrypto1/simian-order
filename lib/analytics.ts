@@ -18,7 +18,15 @@ export type AnalyticsEvent =
   | "archive_404"
   | "opensea_click"
   | "apply_submit"
-  | "apply_success";
+  | "apply_success"
+  // Approval share-card flow (modal overlay on /dashboard/apply)
+  | "share_card_open_modal"
+  | "share_card_copy_attempt"
+  | "share_card_copied"
+  | "share_card_copy_text_only"
+  | "share_card_copy_fallback_ios"
+  | "share_card_open_x"
+  | "share_card_downloaded";
 
 type Props = Record<string, string | number | boolean | null>;
 
