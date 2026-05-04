@@ -205,3 +205,82 @@ export async function copyCardAndText(
 
   return { imageOk, textOk, imageReason };
 }
+
+/**
+ * Same as `copyCardAndText` but uses a pre-fetched Blob instead of
+ * triggering a network request inside the click handler. This is the
+ * preferred entry point for the share modal: pre-fetch on open, then
+ * use the cached blob inside the click handler so `clipboard.write()`
+ * runs synchronously while user activation is still valid.
+ *
+ * The Promise<Blob> form of `ClipboardItem` is supposed to preserve the
+ * user-gesture across an async fetch, but Chromium has a bug where
+ * slow promises (or any promise that reads a network response) cause
+ * the write to silently no-op the image branch on production HTTPS.
+ * Passing a real Blob avoids that entirely.
+ */
+export async function copyCardAndTextWithBlob(
+  blob: Blob,
+  text: string,
+): Promise<CopyShareResult> {
+  if (typeof navigator === "undefined") {
+    return { imageOk: false, textOk: false, imageReason: "no-clipboard-api" };
+  }
+
+  let imageOk = false;
+  let imageReason: CopyShareResult["imageReason"];
+  const ClipboardItemCtor =
+    typeof window !== "undefined"
+      ? (window as unknown as { ClipboardItem?: typeof ClipboardItem }).ClipboardItem
+      : undefined;
+
+  if (!navigator.clipboard?.write || !ClipboardItemCtor) {
+    imageReason = "no-clipboard-api";
+  } else {
+    try {
+      const item = new ClipboardItemCtor({ [blob.type || "image/png"]: blob });
+      await navigator.clipboard.write([item]);
+      imageOk = true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.toLowerCase() : "";
+      imageReason =
+        msg.includes("denied") || msg.includes("permission") ? "denied"
+        : msg.includes("type") || msg.includes("not supported") || msg.includes("image/png") ? "no-image-support"
+        : "unknown";
+      // Surface to the console so users can hand us the real error if
+      // the modal status line isn't enough — silent failures here are
+      // the worst possible debug outcome.
+      // eslint-disable-next-line no-console
+      console.warn("[share-card] image clipboard write failed:", err);
+    }
+  }
+
+  let textOk = false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      textOk = true;
+    }
+  } catch {
+    /* swallow */
+  }
+
+  return { imageOk, textOk, imageReason };
+}
+
+/**
+ * Triggers a download from a pre-fetched Blob. Same shape as
+ * downloadShareCard but skips the fetch — pair with the cached blob
+ * loaded by the modal on open.
+ */
+export function downloadShareCardBlob(blob: Blob, round: number): void {
+  if (typeof window === "undefined") return;
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = `simian-order-recognised-r${round}.png`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
