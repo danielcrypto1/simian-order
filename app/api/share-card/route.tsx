@@ -319,10 +319,12 @@ export async function GET(req: NextRequest) {
     {
       width: SIZE,
       height: SIZE,
-      // Cache at the CDN — the image is fully derivable from its query
-      // string so different rounds / wallets get distinct cache keys.
+      // Short CDN cache so design tweaks land within a minute. Removed
+      // `immutable` so a hard-refresh actually re-fetches. Each round
+      // is a distinct cache key, so this isn't a hot path that benefits
+      // from longer caching.
       headers: {
-        "cache-control": "public, max-age=3600, s-maxage=3600, immutable",
+        "cache-control": "public, max-age=60, s-maxage=60",
       },
     },
   );
