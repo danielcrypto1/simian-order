@@ -83,12 +83,20 @@ export function openTweet(text: string): void {
 }
 
 /**
+ * Bumped whenever the share-card visual changes. Appended to every
+ * share-card URL so a new bundle invalidates the CDN cache instantly
+ * without waiting for max-age to expire. Bump when you change the
+ * card layout, backdrop, or copy.
+ */
+const SHARE_CARD_VERSION = "v3-void";
+
+/**
  * Builds the URL to the dynamic share-card PNG for a given round.
  * Wallet, when supplied, is sent as-is — the API masks it server-side
  * before rendering, so the full address never appears on the card.
  */
 export function shareCardUrl(round: number, wallet?: string | null): string {
-  const params = new URLSearchParams({ round: String(round) });
+  const params = new URLSearchParams({ round: String(round), v: SHARE_CARD_VERSION });
   if (wallet) params.set("wallet", wallet);
   return `/api/share-card?${params.toString()}`;
 }
