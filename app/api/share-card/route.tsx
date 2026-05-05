@@ -236,19 +236,6 @@ export async function GET(req: NextRequest) {
             RECOGNISED
           </div>
 
-          {/* ROUND N — secondary, italic serif. */}
-          <div
-            style={{
-              fontStyle: "italic",
-              fontSize: 72,
-              color: "#aaaadd",
-              marginTop: 28,
-              display: "flex",
-            }}
-          >
-            ROUND {round}
-          </div>
-
           {/* Optional wallet stamp — only when supplied, masked. */}
           {wallet && (
             <div
