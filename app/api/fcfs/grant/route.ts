@@ -29,8 +29,9 @@ const grantBucket = makeBucket({ windowMs: 60_000, max: 8 });
  *     OpenSea export sets stay disjoint
  *
  * Storage shares the same `backroom.json` gist file as the back-room
- * passphrase flow — same 500 cap, same shared drop code. Only the
- * `source: "quest"` tag distinguishes these in the admin claims table.
+ * auto-claim flow — same 500 cap, same sequential ORDER #N counter.
+ * Only the `source: "quest"` tag distinguishes these in the admin
+ * claims table.
  *
  * Response shapes:
  *   200 { ok: true, code, wallet, claimedAt, remaining, total, source: "quest" }

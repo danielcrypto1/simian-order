@@ -102,9 +102,14 @@ export type VoidDeepChaosProps = {
    * are left.
    */
   index?: number | null;
+  /**
+   * 500-cap reached: cinematic still plays but the reveal panel
+   * displays ACCESS CLOSED instead of a code. No copy/claim controls.
+   */
+  full?: boolean;
 };
 
-export default function VoidDeepChaos({ code, index }: VoidDeepChaosProps) {
+export default function VoidDeepChaos({ code, index, full }: VoidDeepChaosProps) {
   const router = useRouter();
   const stageRef = useRef<HTMLDivElement>(null);
   const layerRefs = useRef<HTMLDivElement[]>([]);
@@ -120,6 +125,7 @@ export default function VoidDeepChaos({ code, index }: VoidDeepChaosProps) {
   const audioRef = useRef<{ ctx: AudioContext; gain: GainNode } | null>(null);
 
   const hasCode = !!code;
+  const heldReveal = hasCode || !!full;
 
   // Mark as visited the moment the page mounts.
   useEffect(() => {
@@ -130,17 +136,17 @@ export default function VoidDeepChaos({ code, index }: VoidDeepChaosProps) {
     } catch { /* storage blocked — skip */ }
   }, []);
 
-  // Esc bail-out — only when there is NO code reveal to hold on. With
-  // a code present we never want a stray keypress to throw away the
-  // visitor's only view of their ORDER #N.
+  // Esc bail-out — only when the cinematic ends by returning home.
+  // If we'll hold on a reveal panel (code or full), don't let a stray
+  // keypress throw away the visitor's only view of it.
   useEffect(() => {
-    if (hasCode) return;
+    if (heldReveal) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") router.push("/");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [router, hasCode]);
+  }, [router, heldReveal]);
 
   // Tear down audio on unmount.
   useEffect(() => () => {
@@ -321,10 +327,10 @@ export default function VoidDeepChaos({ code, index }: VoidDeepChaosProps) {
         a.gain.gain.linearRampToValueAtTime(0, t + 0.08);
       } catch { /* swallow */ }
     }
-    const next: Stage = hasCode ? "reveal" : "returning";
+    const next: Stage = heldReveal ? "reveal" : "returning";
     const id = window.setTimeout(() => setStage(next), 1300);
     return () => window.clearTimeout(id);
-  }, [stage, hasCode]);
+  }, [stage, heldReveal]);
 
   useEffect(() => {
     if (stage !== "returning") return;
@@ -435,16 +441,44 @@ export default function VoidDeepChaos({ code, index }: VoidDeepChaosProps) {
 
       {stage === "fading" && <div className="void-deep__blackout" aria-hidden />}
 
-      {/* Reveal — held terminal screen with the code, copy + claim. */}
-      {stage === "reveal" && code && (
-        <>
-          {freezeUrl && (
-            <div
-              className="void-deep__freeze"
-              aria-hidden
-              style={{ backgroundImage: `url("${freezeUrl}")`, opacity: 0.18 }}
-            />
-          )}
+      {/* Reveal — held terminal screen. With a code: shows the
+          ORDER #N + copy + Discord claim. In `full` mode (cap reached
+          with no code): shows ACCESS CLOSED with a quiet back link. */}
+      {stage === "reveal" && heldReveal && freezeUrl && (
+        <div
+          className="void-deep__freeze"
+          aria-hidden
+          style={{ backgroundImage: `url("${freezeUrl}")`, opacity: 0.18 }}
+        />
+      )}
+
+      {stage === "reveal" && full && !hasCode && (
+        <div className="void-deep__reveal" role="dialog" aria-label="access closed">
+          <p className="font-mono text-xxxs uppercase tracking-widest2 text-bleed mb-3">
+            ── status / 423 / locked ──
+          </p>
+          <h1 className="t-display italic text-[40px] sm:text-7xl leading-none mb-4 text-bleed tilt-r">
+            access closed<span className="blink">.</span>
+          </h1>
+          <p className="font-serif italic text-base text-ape-200 mb-8">
+            all 500 keys have been claimed. the door is shut.
+          </p>
+          <div className="flex flex-wrap items-baseline gap-x-7 gap-y-3">
+            <Link
+              href="/"
+              className="entry-link text-base sm:text-lg"
+              style={{ transform: "rotate(-0.6deg)" }}
+            >
+              [ back ]
+            </Link>
+          </div>
+          <p className="mt-12 font-mono text-xxs uppercase tracking-widest2 text-mute">
+            // remaining: 0 / 500
+          </p>
+        </div>
+      )}
+
+      {stage === "reveal" && hasCode && (
           <div className="void-deep__reveal" role="dialog" aria-label="order code">
             <p className="font-mono text-xxxs uppercase tracking-widest2 text-elec mb-3">
               ── status / 200 / granted ──
@@ -521,7 +555,6 @@ export default function VoidDeepChaos({ code, index }: VoidDeepChaosProps) {
               </p>
             )}
           </div>
-        </>
       )}
     </div>
   );
