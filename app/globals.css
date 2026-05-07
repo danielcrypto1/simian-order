@@ -1076,7 +1076,6 @@ hr { border-color: #1a1a28; }
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
-  cursor: none;
 }
 
 /* Image layer — full-bleed, mutated by the JS rAF loop. The base
@@ -1236,6 +1235,30 @@ hr { border-color: #1a1a28; }
 }
 @keyframes voidBlackout {
   to { opacity: 1; }
+}
+
+/* Reveal panel — held terminal screen shown at /void/deep/[code] after
+   the freeze stage. Sits on top of the dimmed freeze image, stays put
+   until the visitor clicks claim/back. Fade-in matches the freeze beat. */
+.void-deep__reveal {
+  position: absolute;
+  inset: 0;
+  z-index: 14;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 64px 32px 48px;
+  max-width: 720px;
+  margin: 0 auto;
+  color: #e8e8e8;
+  animation: voidRevealIn 600ms ease-out both;
+}
+@keyframes voidRevealIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (max-width: 640px) {
+  .void-deep__reveal { padding: 48px 20px 32px; }
 }
 
 /* Mobile-specific tweaks for the chaos engine. */

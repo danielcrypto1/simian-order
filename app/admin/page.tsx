@@ -1016,19 +1016,21 @@ function SubmittedReferralsSection({
 }
 
 // ───── Back Room ───────────────────────────────────────────────────────
-// Hidden 500-claim easter egg. Admin sets the passphrase + drop code
-// here; the /backroom public page checks the passphrase, binds the
-// claimer's wallet to the SAME shared drop code that all 500 receive.
+// Hidden 500-claim easter egg. Admin sets the passphrase here; the
+// /backroom public page checks it, binds the claimer's wallet, and
+// auto-issues the next sequential "ORDER #N" code (1..500). The
+// claimer submits the code in our Discord ticket to receive the
+// HIGH ORDER role.
 
 type BackroomAdminState = {
   passphrase: string | null;
-  dropCode: string | null;
   total: number;
   remaining: number;
   claimed: number;
   full: boolean;
   claims: Array<{
     code: string;
+    index: number;
     wallet?: string;
     visitorId: string;
     ipHash: string;
@@ -1043,10 +1045,6 @@ function BackroomSection() {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
-  // Drop code editor state — separate from passphrase so each save
-  // button does one thing and one thing only.
-  const [dropDraft, setDropDraft] = useState("");
-  const [dropSavedFlash, setDropSavedFlash] = useState(false);
   const [revealPass, setRevealPass] = useState(false);
   const [showCodes, setShowCodes] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -1063,11 +1061,10 @@ function BackroomSection() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Pre-fill the drafts once on first hydration so admin can edit
-  // without retyping. Don't override later if they're typing.
+  // Pre-fill the passphrase draft once on first hydration so admin
+  // can edit without retyping. Don't override later if they're typing.
   useEffect(() => {
     if (data && !draft) setDraft(data.passphrase ?? "");
-    if (data && !dropDraft) setDropDraft(data.dropCode ?? "");
     // intentionally only on initial load
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
@@ -1089,38 +1086,6 @@ function BackroomSection() {
     } finally { setBusy(false); }
   }
 
-  async function saveDropCode() {
-    setError(null);
-    setBusy(true);
-    try {
-      const trimmed = dropDraft.trim();
-      await adminApi.setBackroomDropCode(trimmed.length === 0 ? null : trimmed);
-      setDropSavedFlash(true);
-      setTimeout(() => setDropSavedFlash(false), 1500);
-      await load();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "save_failed");
-    } finally { setBusy(false); }
-  }
-
-  async function regenerateDropCode() {
-    if (!confirm(
-      "Regenerate the shared drop code?\n\n" +
-      "Already-issued claims keep the old code. Future claims will receive the new value."
-    )) return;
-    setError(null);
-    setBusy(true);
-    try {
-      const r = await adminApi.regenerateBackroomDropCode();
-      setDropDraft(r.dropCode);
-      setDropSavedFlash(true);
-      setTimeout(() => setDropSavedFlash(false), 1500);
-      await load();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "regen_failed");
-    } finally { setBusy(false); }
-  }
-
   async function reset(alsoClearPassphrase: boolean) {
     const msg = alsoClearPassphrase
       ? `Reset back-room data?\n\n  • wipes ${data?.claimed ?? 0} issued code(s)\n  • CLEARS the passphrase (door sealed)\n\nThis cannot be undone.`
@@ -1139,11 +1104,12 @@ function BackroomSection() {
 
   async function copyCodes() {
     if (!data || data.claims.length === 0) return;
-    const payload = data.claims
-      .map((c) => `${c.code}\t${c.wallet ?? ""}\t${c.claimedAt}`)
+    const header = "index\tcode\twallet\tclaimedAt";
+    const rows = data.claims
+      .map((c) => `${c.index}\t${c.code}\t${c.wallet ?? ""}\t${c.claimedAt}`)
       .join("\n");
     try {
-      await navigator.clipboard.writeText(payload);
+      await navigator.clipboard.writeText(`${header}\n${rows}`);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -1169,9 +1135,11 @@ function BackroomSection() {
         <div className="space-y-4">
           <p className="text-xxs text-mute leading-relaxed">
             hidden /backroom page. visitors who type the passphrase + their wallet
-            receive the SAME shared drop code (set below). one claim per browser
-            cookie · cap {data?.total ?? 500}. resetting wipes issued claims only
-            (passphrase + drop code preserved unless you also seal the door).
+            receive the next sequential code: ORDER #1, #2, …, #{data?.total ?? 500}.
+            successful claim redirects to /void/deep/order-N — claimer copies the
+            code and submits it in our discord ticket to receive HIGH ORDER role.
+            one claim per browser cookie. resetting wipes issued claims and restarts
+            the counter at #1 (passphrase preserved unless you also seal the door).
           </p>
 
           {/* Passphrase row */}
@@ -1201,48 +1169,6 @@ function BackroomSection() {
               matched case-insensitively, trimmed. max 128 chars.
               {data && !data.passphrase && (
                 <span className="text-bleed"> · door currently sealed (no passphrase set)</span>
-              )}
-            </p>
-          </div>
-
-          <div className="divider-old" />
-
-          {/* Drop-code row — the SINGLE shared code returned to every
-              successful claimer. All 500 claims receive the same value
-              here. Admin can set it explicitly or auto-generate. */}
-          <div className="space-y-2">
-            <label className="label">drop code (shared by all 500)</label>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="text"
-                className="field font-mono flex-1 min-w-[200px] tracking-[0.18em]"
-                placeholder="auto-generated on first claim if empty"
-                value={dropDraft}
-                onChange={(e) => setDropDraft(e.target.value)}
-                maxLength={64}
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <Button variant="primary" onClick={saveDropCode} disabled={busy}>
-                {dropSavedFlash ? "Saved ✓" : busy ? "Saving…" : "Save Drop Code"}
-              </Button>
-              <Button variant="ghost" onClick={regenerateDropCode} disabled={busy}>
-                Regenerate
-              </Button>
-            </div>
-            <p className="text-xxs text-mute">
-              every successful claimer receives THIS code. clear the field
-              + Save to make the next claim auto-generate a fresh value.
-              changing the code does NOT update already-issued claims.
-              {data?.dropCode ? (
-                <>
-                  {" · "}current:{" "}
-                  <span className="font-mono text-bleed tracking-[0.18em]">
-                    {data.dropCode}
-                  </span>
-                </>
-              ) : (
-                <span className="text-bleed"> · no drop code set yet — first claim will auto-generate one</span>
               )}
             </p>
           </div>
@@ -1301,7 +1227,7 @@ function BackroomSection() {
                   <table className="w-full text-xs min-w-[560px]">
                     <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
                       <tr>
-                        <th className="text-left px-3 py-1 border-b border-border">#</th>
+                        <th className="text-left px-3 py-1 border-b border-border">order #</th>
                         <th className="text-left px-3 py-1 border-b border-border">code</th>
                         <th className="text-left px-3 py-1 border-b border-border">wallet</th>
                         <th className="text-left px-3 py-1 border-b border-border">claimed at</th>
@@ -1310,9 +1236,9 @@ function BackroomSection() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {data.claims.map((c, idx) => (
-                        <tr key={c.code} className="row-hover">
-                          <td className="px-3 py-1.5 text-mute font-mono">{idx + 1}</td>
+                      {data.claims.map((c) => (
+                        <tr key={`${c.index}-${c.visitorId}`} className="row-hover">
+                          <td className="px-3 py-1.5 text-mute font-mono">{c.index}</td>
                           <td className="px-3 py-1.5 font-mono text-bleed tracking-wider">
                             {c.code}
                           </td>

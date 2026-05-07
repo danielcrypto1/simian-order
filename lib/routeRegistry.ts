@@ -28,6 +28,7 @@ export const ROUTE_REGISTRY: RegistryEntry[] = [
   { path: "/dashboard/apply",        method: "GET", auth: "public", expect: [200],            group: "page", label: "Apply" },
   { path: "/dashboard/referral",     method: "GET", auth: "public", expect: [200],            group: "page", label: "Referral" },
   { path: "/void",                   method: "GET", auth: "public", expect: [200],            group: "page", label: "Void (hidden)" },
+  { path: "/void/deep/order-1",      method: "GET", auth: "public", expect: [200],            group: "page", label: "Order code reveal (sample slug)" },
   { path: "/backroom",               method: "GET", auth: "public", expect: [200],            group: "page", label: "Back Room (hidden)" },
   { path: "/admin/login",            method: "GET", auth: "public", expect: [200],            group: "page", label: "Admin login" },
   { path: "/admin",                  method: "GET", auth: "admin",  expect: [200, 307],       group: "page", label: "Admin dashboard (307 if no cookie)" },

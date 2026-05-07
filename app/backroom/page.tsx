@@ -1,16 +1,23 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { SOCIAL } from "@/lib/links";
 
 /**
  * /backroom — hidden 500-claim easter egg.
  *
- * Reachable only by direct URL. Asks "WHAT'S THE CODE." When the
- * visitor types the active passphrase (set by admin), the server
- * mints a unique XXXX-XXXX combination code, binds it to the
- * visitor's httpOnly cookie, and returns it. One claim per cookie;
- * once 500 codes are issued, the page renders ACCESS CLOSED.
+ * Reachable only by direct URL. Asks "WHAT'S THE CODE." The visitor
+ * types the active passphrase + their wallet. On success the server
+ * assigns the next sequential "ORDER #N" code, binds it to the
+ * visitor's httpOnly cookie + wallet, and we navigate the visitor
+ * into the chaos cinematic at /void/deep/order-N where the code is
+ * revealed at the end with copy + discord-claim controls.
+ *
+ * One claim per cookie; once 500 are issued, the page renders
+ * ACCESS CLOSED. If the visitor's cookie already holds a claim,
+ * we skip the form and send them straight to their /void/deep/order-N
+ * URL so they can re-grab the code on a subsequent visit.
  *
  * Visual rules: pure black, no chrome, mono caps, slight tilt. No
  * topbar, no footer (the parent layout omits both via the segment
@@ -22,17 +29,17 @@ type Status = {
   remaining: number;
   full: boolean;
   passphraseSet: boolean;
-  claimed: { code: string; claimedAt: string } | null;
+  claimed: { code: string; index: number; slug: string; claimedAt: string } | null;
 };
 
 export default function BackroomPage() {
+  const router = useRouter();
   const [status, setStatus] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
   const [code, setCode] = useState("");
   const [wallet, setWallet] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [issuedCode, setIssuedCode] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -44,7 +51,6 @@ export default function BackroomPage() {
       if (r.ok) {
         const j = (await r.json()) as Status;
         setStatus(j);
-        if (j.claimed) setIssuedCode(j.claimed.code);
       }
     } catch { /* offline — leave loading state */ }
     setLoading(false);
@@ -52,10 +58,10 @@ export default function BackroomPage() {
 
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => {
-    if (!loading && !issuedCode && !status?.full && inputRef.current) {
+    if (!loading && !status?.claimed && !status?.full && inputRef.current) {
       inputRef.current.focus();
     }
-  }, [loading, issuedCode, status]);
+  }, [loading, status]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -82,11 +88,11 @@ export default function BackroomPage() {
         body: JSON.stringify({ code: code.trim(), wallet: w }),
       });
       const j = await r.json().catch(() => ({}));
-      if (r.ok && j.ok) {
-        setIssuedCode(j.code as string);
-        setStatus((s) =>
-          s ? { ...s, remaining: j.remaining, full: j.remaining <= 0, claimed: { code: j.code, claimedAt: j.claimedAt } } : s
-        );
+      if (r.ok && j.ok && typeof j.slug === "string") {
+        // Hand off to the chaos cinematic + reveal screen. Replace
+        // (not push) so the back button doesn't loop the visitor
+        // through /backroom again.
+        router.replace(`/void/deep/${j.slug}`);
         return;
       }
       const errCode = j.error as string | undefined;
@@ -97,6 +103,7 @@ export default function BackroomPage() {
       else if (errCode === "missing_wallet") setError("wallet required.");
       else if (errCode === "invalid_wallet") setError("invalid wallet — paste a 0x… ape-chain address.");
       else if (errCode === "wallet_already_claimed") setError("that wallet already holds a code.");
+      else if (errCode === "wallet_in_use") setError("that wallet is already registered elsewhere.");
       else setError("rejected.");
       // Refresh status in case full just flipped.
       refresh();
@@ -119,57 +126,37 @@ export default function BackroomPage() {
     );
   }
 
-  if (issuedCode) {
+  // Already claimed — show a quiet pointer back to their reveal URL
+  // so they can grab the code again. We deliberately don't print the
+  // code itself here — the cinematic reveal at /void/deep/[slug] is
+  // the single source of truth for the visual delivery.
+  if (status?.claimed) {
+    const { slug, code: ordered } = status.claimed;
     return (
       <Frame>
         <p className="font-mono text-xxxs uppercase tracking-widest2 text-elec mb-3">
-          ── status / 200 / granted ──
+          ── status / 200 / already granted ──
         </p>
         <h1 className="t-display italic text-[40px] sm:text-7xl leading-none mb-4 text-bone tilt-l">
-          access granted<span className="blink text-bleed">.</span>
+          you&rsquo;ve been here<span className="blink text-bleed">.</span>
         </h1>
         <p className="font-serif italic text-base text-ape-200 mb-6">
-          the door is open. once.
+          the door already opened for you. one chance per visitor.
         </p>
-
-        <div className="my-6">
-          <p className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-2">
-            ── your code ──
-          </p>
-          <div
-            className="font-mono text-3xl sm:text-5xl tracking-[0.18em] text-bleed select-all py-2"
-            aria-label="your back room combination code"
-          >
-            {issuedCode}
-          </div>
-        </div>
-
-        <div className="divider-glitch max-w-[280px] my-6" aria-hidden />
-
-        <ol className="font-mono text-xs sm:text-sm text-ape-100 space-y-2 leading-relaxed">
-          <li>
-            <span className="text-mute">01.</span>{" "}
-            join our discord —{" "}
-            <a
-              href={SOCIAL.DISCORD}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-elec underline hover:text-bone"
-            >
-              {SOCIAL.DISCORD.replace(/^https?:\/\//, "")}
-            </a>
-          </li>
-          <li>
-            <span className="text-mute">02.</span>{" "}
-            submit this code in discord to access the server.
-          </li>
-        </ol>
-
-        {status && (
-          <p className="mt-8 font-mono text-xxs uppercase tracking-widest2 text-mute">
-            // remaining: {status.remaining} / {status.total}
-          </p>
-        )}
+        <p className="font-mono text-sm text-ape-100 mb-8">
+          your code is{" "}
+          <span className="font-mono text-bleed tracking-[0.18em]">{ordered}</span>.
+        </p>
+        <Link
+          href={`/void/deep/${slug}`}
+          className="entry-link text-base sm:text-lg"
+          style={{ transform: "rotate(-0.6deg)" }}
+        >
+          [ open the door again ]
+        </Link>
+        <p className="mt-12 font-mono text-xxs uppercase tracking-widest2 text-mute">
+          // remaining: {status.remaining} / {status.total}
+        </p>
       </Frame>
     );
   }

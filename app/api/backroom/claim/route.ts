@@ -4,6 +4,7 @@ import {
   claimCode,
   hashIp,
   newVisitorId,
+  orderSlug,
   rateLimitOk,
 } from "@/lib/backroomStore";
 import { walletExistsElsewhere } from "@/lib/walletRegistry";
@@ -33,11 +34,11 @@ function clientIp(): string {
  *   - mints the backroom_id cookie if missing
  *   - rate-limits per IP (8 / 60s) against burst spam
  *   - on a correct passphrase + valid wallet + space remaining + first
- *     claim for this cookie, generates a unique XXXX-XXXX code and stores
- *     it server-side together with the wallet
+ *     claim for this cookie, assigns the next sequential "ORDER #N"
+ *     code and stores it server-side together with the wallet
  *
  * Response shapes:
- *   200 { ok: true, code: "XXXX-XXXX", wallet, claimedAt, remaining, total }
+ *   200 { ok: true, code: "ORDER #N", index, slug: "order-N", wallet, claimedAt, remaining, total }
  *   400 { ok: false, error: "wrong_code" | "no_passphrase_set"
  *                       | "missing_wallet" | "invalid_wallet"
  *                       | "wallet_already_claimed" }
@@ -108,6 +109,8 @@ export async function POST(req: Request) {
   const res = NextResponse.json({
     ok: true,
     code: result.claim.code,
+    index: result.claim.index,
+    slug: orderSlug(result.claim.index),
     wallet: result.claim.wallet,
     claimedAt: result.claim.claimedAt,
     remaining: result.remaining,
