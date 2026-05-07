@@ -1,12 +1,23 @@
 import crypto from "node:crypto";
 import { readJSON, writeJSON } from "./gistStore";
+import {
+  BACKROOM_TOTAL as TOTAL,
+  formatOrderCode,
+  orderSlug,
+  parseOrderSlug,
+} from "./orderCodes";
+
+// Re-export the pure helpers + constant so existing
+// `from "@/lib/backroomStore"` imports keep working.
+export { formatOrderCode, orderSlug, parseOrderSlug };
 
 /**
  * Back Room — a hidden 500-claim easter egg surface gated by a
  * passphrase. The admin sets the passphrase; visitors who type it
- * correctly receive a unique XXXX-XXXX combination code. Each
- * browser identity gets ONE claim. Once 500 claims are issued,
- * /backroom returns "ACCESS CLOSED".
+ * correctly receive a UNIQUE sequential code: "ORDER #1", "ORDER #2",
+ * ..., "ORDER #500". The user submits this code in our Discord ticket
+ * to receive the HIGH ORDER role. Each browser identity gets ONE
+ * claim. Once 500 claims are issued, /backroom returns "ACCESS CLOSED".
  *
  * Storage: a single gist file (`backroom.json`) holds the active
  * passphrase, the cap, and the array of claims. Claims store the
@@ -15,18 +26,16 @@ import { readJSON, writeJSON } from "./gistStore";
  * (not the raw value) so the panel can group abuse without leaking
  * PII.
  *
- * The passphrase is matched case-insensitively after trimming. The
- * issued code is uppercase A-Z2-9 (no I/O/0/1) split as 4-4 with
- * a hyphen. Collisions are checked against issued claims and
- * regenerated up to 10 times — the search space is ~32^8 ≈ 1.1T,
- * so collisions in 500 issued codes are statistically zero.
+ * Code numbering: index = claims.length + 1 at claim time. Legacy
+ * claims that hold older non-sequential codes are preserved as-is
+ * — they still count toward the 500 cap. New claims after the
+ * sequential rollout pick up the next free index regardless of
+ * whether earlier claim records had ORDER-style codes.
  */
 
 const FILE = "backroom.json";
 
-export const BACKROOM_TOTAL = 500;
-
-const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 32 chars
+export const BACKROOM_TOTAL = TOTAL;
 
 /**
  * Where a claim came in from.
@@ -40,7 +49,8 @@ const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 32 chars
 export type ClaimSource = "passphrase" | "quest";
 
 export type BackroomClaim = {
-  code: string;        // XXXX-XXXX (the shared drop code at claim time)
+  code: string;        // "ORDER #N" — unique sequential code; legacy claims may hold older non-sequential strings
+  index: number;       // 1-based position in the claim sequence (matches the N in "ORDER #N" for new claims)
   wallet: string;      // ape-chain wallet (lowercased) — bound to this code for mint eligibility
   visitorId: string;   // cookie id (uuid v4 minted server-side)
   ipHash: string;      // short sha256 prefix of the request IP
@@ -50,14 +60,6 @@ export type BackroomClaim = {
 
 export type BackroomState = {
   passphrase: string | null; // null until admin sets it
-  /**
-   * The single shared drop code returned to every successful claimer.
-   * Per spec, all 500 claims receive THE SAME code — wallet bindings
-   * are what differentiate claims for airdrop / mint eligibility, not
-   * per-claim unique codes. May be admin-set explicitly, otherwise
-   * auto-generated on the first successful claim.
-   */
-  dropCode: string | null;
   total: number;             // hard cap (500)
   claims: BackroomClaim[];
   updatedAt: string;
@@ -65,7 +67,6 @@ export type BackroomState = {
 
 const DEFAULT: BackroomState = {
   passphrase: null,
-  dropCode: null,
   total: BACKROOM_TOTAL,
   claims: [],
   updatedAt: new Date().toISOString(),
@@ -74,18 +75,19 @@ const DEFAULT: BackroomState = {
 async function read(): Promise<BackroomState> {
   const s = await readJSON<BackroomState>(FILE, DEFAULT);
   // Force the cap to the constant — admin shouldn't be able to drift
-  // it via direct gist edit. Backfill dropCode + per-claim source
-  // for legacy state files written before those fields existed.
+  // it via direct gist edit. Backfill per-claim source + index for
+  // legacy state files written before those fields existed; index is
+  // derived from array order so legacy claims slot into the sequence
+  // even if their `code` field doesn't follow the ORDER #N format.
+  const rawClaims = Array.isArray(s.claims) ? s.claims : [];
   return {
     ...s,
     total: BACKROOM_TOTAL,
-    dropCode: typeof (s as BackroomState).dropCode === "string" ? (s as BackroomState).dropCode : null,
-    claims: Array.isArray(s.claims)
-      ? s.claims.map((c) => ({
-          ...c,
-          source: (c as BackroomClaim).source === "quest" ? "quest" : "passphrase",
-        }))
-      : [],
+    claims: rawClaims.map((c, i) => ({
+      ...c,
+      source: (c as BackroomClaim).source === "quest" ? "quest" : "passphrase",
+      index: typeof (c as BackroomClaim).index === "number" ? (c as BackroomClaim).index : i + 1,
+    })),
   };
 }
 
@@ -109,12 +111,6 @@ export function newVisitorId(): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
-function generateCode(): string {
-  const bytes = crypto.randomBytes(8);
-  let out = "";
-  for (let i = 0; i < 8; i++) out += CODE_ALPHABET[bytes[i] % CODE_ALPHABET.length];
-  return `${out.slice(0, 4)}-${out.slice(4)}`;
-}
 
 export function hashIp(ip: string | null | undefined): string {
   if (!ip) return "anon";
@@ -203,22 +199,6 @@ export async function claimCode(opts: {
 
   if (s.claims.length >= s.total) return { ok: false, error: "full" };
 
-  // Single shared drop code: every successful claim receives the SAME
-  // code. If admin hasn't set one yet, auto-generate the canonical
-  // value here on the first claim and persist it. Subsequent claims
-  // reuse it verbatim.
-  const dropCode = s.dropCode && s.dropCode.trim().length > 0
-    ? s.dropCode
-    : generateCode();
-
-  const claim: BackroomClaim = {
-    code: dropCode,
-    wallet,
-    visitorId,
-    ipHash,
-    source: "passphrase",
-    claimedAt: new Date().toISOString(),
-  };
   // Re-read to minimise the race window between the cap check and the
   // write. Last-write-wins on the gist is acceptable for an easter
   // egg — at worst the cap is exceeded by a tiny margin under burst.
@@ -231,11 +211,21 @@ export async function claimCode(opts: {
     return { ok: false, error: "wallet_already_claimed" };
   }
   if (fresh.claims.length >= fresh.total) return { ok: false, error: "full" };
-  // Persist the drop code on the state so the admin panel can display
-  // it and so the very next claim picks up the same value.
-  if (!fresh.dropCode || fresh.dropCode.trim().length === 0) {
-    fresh.dropCode = dropCode;
-  }
+
+  // Sequential code: this claim's index is 1 + count of existing claims,
+  // so each visitor gets a unique "ORDER #N" pulled from the same 500
+  // pool. Legacy non-sequential claim records still occupy positions in
+  // the array, so the index naturally skips past them.
+  const index = fresh.claims.length + 1;
+  const claim: BackroomClaim = {
+    code: formatOrderCode(index),
+    index,
+    wallet,
+    visitorId,
+    ipHash,
+    source: "passphrase",
+    claimedAt: new Date().toISOString(),
+  };
   fresh.claims.push(claim);
   await write(fresh);
   return {
@@ -292,13 +282,19 @@ export async function grantFcfsForWallet(opts: {
 
   if (s.claims.length >= s.total) return { ok: false, error: "full" };
 
-  // Same shared-drop-code logic as claimCode(): persist on first use.
-  const dropCode = s.dropCode && s.dropCode.trim().length > 0
-    ? s.dropCode
-    : generateCode();
+  const fresh = await read();
+  if (fresh.claims.some((c) => c.wallet === wallet)) {
+    const dup = fresh.claims.find((c) => c.wallet === wallet)!;
+    return { ok: true, claim: dup, remaining: Math.max(0, fresh.total - fresh.claims.length) };
+  }
+  if (fresh.claims.length >= fresh.total) return { ok: false, error: "full" };
 
+  // Quest grants share the same sequential numbering as passphrase
+  // claims — single 500 pool, one counter.
+  const index = fresh.claims.length + 1;
   const claim: BackroomClaim = {
-    code: dropCode,
+    code: formatOrderCode(index),
+    index,
     wallet,
     // Quest grants don't have a back-room cookie; mint a synthetic
     // visitorId so the storage shape stays uniform and admin lookups
@@ -308,16 +304,6 @@ export async function grantFcfsForWallet(opts: {
     source: "quest",
     claimedAt: new Date().toISOString(),
   };
-
-  const fresh = await read();
-  if (fresh.claims.some((c) => c.wallet === wallet)) {
-    const dup = fresh.claims.find((c) => c.wallet === wallet)!;
-    return { ok: true, claim: dup, remaining: Math.max(0, fresh.total - fresh.claims.length) };
-  }
-  if (fresh.claims.length >= fresh.total) return { ok: false, error: "full" };
-  if (!fresh.dropCode || fresh.dropCode.trim().length === 0) {
-    fresh.dropCode = dropCode;
-  }
   fresh.claims.push(claim);
   await write(fresh);
   return {
@@ -340,56 +326,17 @@ export async function adminSetPassphrase(passphrase: string): Promise<void> {
 }
 
 /**
- * Set the single shared drop code. Pass null to clear (the next claim
- * will auto-generate a fresh one). Pass a string to set explicitly —
- * stored verbatim (after trim) so admin can use any format they want
- * (e.g. "OPEN-SESAME", "ROUND1-2026", a XXXX-XXXX style string, etc.).
- *
- * NOTE: changing the drop code does NOT retroactively update existing
- * claim records — those keep the code that was active at their claim
- * time. New claims after this call will use the new value.
- */
-export async function adminSetDropCode(code: string | null): Promise<void> {
-  const s = await read();
-  if (code === null) {
-    s.dropCode = null;
-  } else {
-    const trimmed = code.trim().slice(0, 64);
-    s.dropCode = trimmed.length === 0 ? null : trimmed;
-  }
-  await write(s);
-}
-
-/**
- * Replace the drop code with a freshly auto-generated XXXX-XXXX value.
- * Does not touch claims. Returns the new code.
- */
-export async function adminRegenerateDropCode(): Promise<string> {
-  const s = await read();
-  const next = generateCode();
-  s.dropCode = next;
-  await write(s);
-  return next;
-}
-
-/**
- * Wipe all claims. Passphrase is preserved unless `alsoClearPassphrase`.
- * Drop code is preserved unless `alsoClearDropCode` (or sealing the
- * door, which is a full reset).
+ * Wipe all claims. Resets the sequential counter to 0 (next claim
+ * becomes ORDER #1). Passphrase is preserved unless
+ * `alsoClearPassphrase` is set.
  */
 export async function adminResetClaims(opts?: {
   alsoClearPassphrase?: boolean;
-  alsoClearDropCode?: boolean;
 }): Promise<void> {
   const s = await read();
   s.claims = [];
   if (opts?.alsoClearPassphrase) {
     s.passphrase = null;
-    // "Seal the door" is a full reset — drop a stale code along with
-    // the claims so the next session starts fully clean.
-    s.dropCode = null;
-  } else if (opts?.alsoClearDropCode) {
-    s.dropCode = null;
   }
   await write(s);
 }

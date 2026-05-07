@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { getStatusFor, newVisitorId } from "@/lib/backroomStore";
+import { getStatusFor, newVisitorId, orderSlug } from "@/lib/backroomStore";
 
 export const runtime = "nodejs";
 
@@ -40,7 +40,12 @@ export async function GET() {
     full: s.full,
     passphraseSet: s.passphraseSet,
     claimed: s.claimed
-      ? { code: s.claimed.code, claimedAt: s.claimed.claimedAt }
+      ? {
+          code: s.claimed.code,
+          index: s.claimed.index,
+          slug: orderSlug(s.claimed.index),
+          claimedAt: s.claimed.claimedAt,
+        }
       : null,
   });
   if (mint && id) {
