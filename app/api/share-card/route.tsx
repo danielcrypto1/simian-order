@@ -36,13 +36,6 @@ function clampRound(raw: string | null): number {
   return Math.min(Math.floor(n), 9999);
 }
 
-function maskWallet(raw: string | null): string | null {
-  if (!raw) return null;
-  const w = raw.trim();
-  if (!/^0x[a-fA-F0-9]{40}$/.test(w)) return null;
-  return `${w.slice(0, 6)}…${w.slice(-4)}`.toLowerCase();
-}
-
 // Pool of void textures we sample from for the card backdrop. Each card
 // render picks one deterministically from the round number so a given
 // round always shows the same image — keeps the card stable across
@@ -63,7 +56,9 @@ const VOID_TEXTURES = [
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const round = clampRound(url.searchParams.get("round"));
-  const wallet = maskWallet(url.searchParams.get("wallet"));
+  // The `wallet` query param is accepted but no longer rendered on the
+  // card. Existing links still resolve; the card just paints
+  // wallet-agnostic now.
 
   // Build an absolute URL to the chosen void texture so satori can
   // fetch it. Falls back gracefully — if the fetch fails inside
@@ -236,21 +231,10 @@ export async function GET(req: NextRequest) {
             RECOGNISED
           </div>
 
-          {/* Optional wallet stamp — only when supplied, masked. */}
-          {wallet && (
-            <div
-              style={{
-                fontFamily: "monospace",
-                fontSize: 22,
-                letterSpacing: "0.18em",
-                color: "#5a5a6a",
-                marginTop: 18,
-                display: "flex",
-              }}
-            >
-              filed · {wallet}
-            </div>
-          )}
+          {/* Wallet stamp removed per user request — the card stays
+              wallet-agnostic. The `wallet` query param is still parsed
+              and masked for backward compat with existing links, but
+              never rendered. */}
         </div>
 
         {/* Bottom — courier label + italic serif tagline. */}
