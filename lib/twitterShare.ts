@@ -88,7 +88,7 @@ export function openTweet(text: string): void {
  * without waiting for max-age to expire. Bump when you change the
  * card layout, backdrop, or copy.
  */
-const SHARE_CARD_VERSION = "v6-no-wallet";
+const SHARE_CARD_VERSION = "v7-wallet-back";
 
 /**
  * Builds the URL to the dynamic share-card PNG for a given round.
