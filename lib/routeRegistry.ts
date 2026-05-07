@@ -29,7 +29,7 @@ export const ROUTE_REGISTRY: RegistryEntry[] = [
   { path: "/dashboard/referral",     method: "GET", auth: "public", expect: [200],            group: "page", label: "Referral" },
   { path: "/void",                   method: "GET", auth: "public", expect: [200],            group: "page", label: "Void (hidden)" },
   { path: "/void/deep/order-1",      method: "GET", auth: "public", expect: [200],            group: "page", label: "Order code reveal (sample slug)" },
-  { path: "/backroom",               method: "GET", auth: "public", expect: [200],            group: "page", label: "Back Room (hidden)" },
+  { path: "/backroom",               method: "GET", auth: "public", expect: [200, 307],       group: "page", label: "Back Room (legacy redirect → /void)" },
   { path: "/admin/login",            method: "GET", auth: "public", expect: [200],            group: "page", label: "Admin login" },
   { path: "/admin",                  method: "GET", auth: "admin",  expect: [200, 307],       group: "page", label: "Admin dashboard (307 if no cookie)" },
 
@@ -57,7 +57,7 @@ export const ROUTE_REGISTRY: RegistryEntry[] = [
 export const POST_ONLY_ROUTES: { path: string; group: "api-public" | "api-admin"; label: string }[] = [
   { path: "/api/apply",                                  group: "api-public", label: "Submit application" },
   { path: "/api/referrals/submit-list",                  group: "api-public", label: "Submit curated list of 5" },
-  { path: "/api/backroom/claim",                         group: "api-public", label: "Back Room: claim with passphrase" },
+  { path: "/api/backroom/auto-claim",                    group: "api-public", label: "Back Room: auto-issue next ORDER #N" },
   { path: "/api/fcfs/grant",                             group: "api-public", label: "FCFS: auto-grant for tasks-completers" },
   { path: "/api/admin/login",                            group: "api-admin",  label: "Admin login" },
   { path: "/api/admin/logout",                           group: "api-admin",  label: "Admin logout" },
@@ -68,6 +68,5 @@ export const POST_ONLY_ROUTES: { path: string; group: "api-public" | "api-admin"
   { path: "/api/admin/applications/[wallet]",            group: "api-admin",  label: "Delete application (DELETE)" },
   { path: "/api/admin/referrals/decide",                 group: "api-admin",  label: "Decide submission entry" },
   { path: "/api/admin/kol",                              group: "api-admin",  label: "Add/remove KOL tag" },
-  { path: "/api/admin/backroom",                         group: "api-admin",  label: "Set Back Room passphrase (POST)" },
   { path: "/api/admin/backroom/reset",                   group: "api-admin",  label: "Reset Back Room claims" },
 ];

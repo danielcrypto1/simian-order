@@ -12,19 +12,18 @@ import {
 export { formatOrderCode, orderSlug, parseOrderSlug };
 
 /**
- * Back Room — a hidden 500-claim easter egg surface gated by a
- * passphrase. The admin sets the passphrase; visitors who type it
- * correctly receive a UNIQUE sequential code: "ORDER #1", "ORDER #2",
- * ..., "ORDER #500". The user submits this code in our Discord ticket
- * to receive the HIGH ORDER role. Each browser identity gets ONE
- * claim. Once 500 claims are issued, /backroom returns "ACCESS CLOSED".
+ * Back Room — a hidden 500-claim easter egg surface. Visitors who
+ * reach /void/deep are auto-issued a UNIQUE sequential code:
+ * "ORDER #1", "ORDER #2", ..., "ORDER #500". They submit the code in
+ * our Discord ticket to receive the HIGH ORDER role. Each browser
+ * identity gets ONE claim (cookie-bound). Once 500 are issued,
+ * /void/deep ends on "ACCESS CLOSED" instead of a code.
  *
- * Storage: a single gist file (`backroom.json`) holds the active
- * passphrase, the cap, and the array of claims. Claims store the
- * issued code, the visitor cookie ID that minted it, and the
- * timestamp so admin can audit. The IP is stored as a short hash
- * (not the raw value) so the panel can group abuse without leaking
- * PII.
+ * Storage: a single gist file (`backroom.json`) holds the cap and
+ * the array of claims. Claims store the issued code, the visitor
+ * cookie ID that minted it, and the timestamp so admin can audit.
+ * The IP is stored as a short hash (not the raw value) so the panel
+ * can group abuse without leaking PII.
  *
  * Code numbering: index = claims.length + 1 at claim time. Legacy
  * claims that hold older non-sequential codes are preserved as-is
@@ -39,14 +38,18 @@ export const BACKROOM_TOTAL = TOTAL;
 
 /**
  * Where a claim came in from.
- *   "passphrase" — visitor typed the back-room passphrase at /backroom
+ *   "auto"       — visitor reached /void/deep and was auto-issued the
+ *                  next sequential ORDER #N (no passphrase, no wallet).
+ *                  Cookie-bound; one claim per browser identity.
  *   "quest"      — wallet completed all tasks at /dashboard/tasks and
- *                  was auto-granted an FCFS slot (no passphrase)
+ *                  was auto-granted an FCFS slot.
+ *   "passphrase" — legacy: visitor typed a back-room passphrase at the
+ *                  old /backroom page. Still recognised in storage so
+ *                  pre-rollover claims keep their audit tag.
  *
- * Same 500 cap, same shared drop code, same CSV export — just an
- * audit field so admin can see how each wallet got in.
+ * Same 500 cap, single counter shared across all sources.
  */
-export type ClaimSource = "passphrase" | "quest";
+export type ClaimSource = "auto" | "quest" | "passphrase";
 
 export type BackroomClaim = {
   code: string;        // "ORDER #N" — unique sequential code; legacy claims may hold older non-sequential strings
@@ -59,14 +62,12 @@ export type BackroomClaim = {
 };
 
 export type BackroomState = {
-  passphrase: string | null; // null until admin sets it
   total: number;             // hard cap (500)
   claims: BackroomClaim[];
   updatedAt: string;
 };
 
 const DEFAULT: BackroomState = {
-  passphrase: null,
   total: BACKROOM_TOTAL,
   claims: [],
   updatedAt: new Date().toISOString(),
@@ -83,11 +84,15 @@ async function read(): Promise<BackroomState> {
   return {
     ...s,
     total: BACKROOM_TOTAL,
-    claims: rawClaims.map((c, i) => ({
-      ...c,
-      source: (c as BackroomClaim).source === "quest" ? "quest" : "passphrase",
-      index: typeof (c as BackroomClaim).index === "number" ? (c as BackroomClaim).index : i + 1,
-    })),
+    claims: rawClaims.map((c, i) => {
+      const raw = (c as BackroomClaim).source;
+      const src: ClaimSource = raw === "quest" || raw === "auto" || raw === "passphrase" ? raw : "passphrase";
+      return {
+        ...c,
+        source: src,
+        index: typeof (c as BackroomClaim).index === "number" ? (c as BackroomClaim).index : i + 1,
+      };
+    }),
   };
 }
 
@@ -123,7 +128,6 @@ export async function getStatusFor(visitorId: string | null): Promise<{
   total: number;
   remaining: number;
   full: boolean;
-  passphraseSet: boolean;
   claimed: BackroomClaim | null;
 }> {
   const s = await read();
@@ -133,97 +137,56 @@ export async function getStatusFor(visitorId: string | null): Promise<{
     total: s.total,
     remaining: Math.max(0, s.total - s.claims.length),
     full: s.claims.length >= s.total,
-    passphraseSet: !!s.passphrase && s.passphrase.trim().length > 0,
     claimed,
   };
 }
 
-export type ClaimResult =
+export type AutoClaimResult =
   | { ok: true; claim: BackroomClaim; remaining: number }
-  | {
-      ok: false;
-      error:
-        | "no_passphrase_set"
-        | "wrong_code"
-        | "full"
-        | "missing_visitor"
-        | "missing_wallet"
-        | "invalid_wallet"
-        | "wallet_already_claimed"
-        | "rate_limited"
-        | "internal_error";
-    };
+  | { ok: false; error: "full" | "missing_visitor" | "internal_error" };
 
 const WALLET_RE = /^0x[a-fA-F0-9]{40}$/;
 
-export async function claimCode(opts: {
+/**
+ * Auto-issue the next sequential ORDER #N to a visitor. No passphrase,
+ * no wallet — visitors who reach /void/deep get a code straight away.
+ * Cookie-bound: the same `visitorId` always gets back the same claim
+ * (idempotent re-fetch). Verification of "who owns this code" happens
+ * downstream in our Discord ticket flow.
+ */
+export async function grantAutoCode(opts: {
   visitorId: string;
   ipHash: string;
-  attempt: string;
-  wallet: string;
-}): Promise<ClaimResult> {
-  const { visitorId, ipHash, attempt } = opts;
+}): Promise<AutoClaimResult> {
+  const { visitorId, ipHash } = opts;
   if (!visitorId) return { ok: false, error: "missing_visitor" };
 
-  // Wallet is required and must look like an ape-chain (0x + 40 hex) address.
-  // Stored lowercased so admin lookups + dedupe checks are case-insensitive.
-  const walletRaw = (opts.wallet || "").trim();
-  if (!walletRaw) return { ok: false, error: "missing_wallet" };
-  if (!WALLET_RE.test(walletRaw)) return { ok: false, error: "invalid_wallet" };
-  const wallet = walletRaw.toLowerCase();
-
   const s = await read();
-  if (!s.passphrase || !s.passphrase.trim()) {
-    return { ok: false, error: "no_passphrase_set" };
-  }
 
-  // If this visitor already claimed, return the existing claim instead
-  // of issuing a new one — idempotent re-submission with the right code.
+  // Idempotent: this visitor's cookie already holds a claim.
   const existing = s.claims.find((c) => c.visitorId === visitorId);
   if (existing) {
-    return {
-      ok: true,
-      claim: existing,
-      remaining: Math.max(0, s.total - s.claims.length),
-    };
+    return { ok: true, claim: existing, remaining: Math.max(0, s.total - s.claims.length) };
   }
-
-  // Block duplicate claims on the same wallet from a different visitor —
-  // mint eligibility is bound to the wallet, so one wallet = one code.
-  const walletTaken = s.claims.find((c) => c.wallet === wallet);
-  if (walletTaken) return { ok: false, error: "wallet_already_claimed" };
-
-  const expected = s.passphrase.trim().toLowerCase();
-  const got = (attempt || "").trim().toLowerCase();
-  if (got !== expected) return { ok: false, error: "wrong_code" };
 
   if (s.claims.length >= s.total) return { ok: false, error: "full" };
 
-  // Re-read to minimise the race window between the cap check and the
-  // write. Last-write-wins on the gist is acceptable for an easter
-  // egg — at worst the cap is exceeded by a tiny margin under burst.
+  // Re-read to narrow the cap-check / write race window.
   const fresh = await read();
-  if (fresh.claims.some((c) => c.visitorId === visitorId)) {
-    const dup = fresh.claims.find((c) => c.visitorId === visitorId)!;
+  const dup = fresh.claims.find((c) => c.visitorId === visitorId);
+  if (dup) {
     return { ok: true, claim: dup, remaining: Math.max(0, fresh.total - fresh.claims.length) };
-  }
-  if (fresh.claims.some((c) => c.wallet === wallet)) {
-    return { ok: false, error: "wallet_already_claimed" };
   }
   if (fresh.claims.length >= fresh.total) return { ok: false, error: "full" };
 
-  // Sequential code: this claim's index is 1 + count of existing claims,
-  // so each visitor gets a unique "ORDER #N" pulled from the same 500
-  // pool. Legacy non-sequential claim records still occupy positions in
-  // the array, so the index naturally skips past them.
   const index = fresh.claims.length + 1;
   const claim: BackroomClaim = {
     code: formatOrderCode(index),
     index,
-    wallet,
+    wallet: "", // auto-claim — no wallet binding
     visitorId,
     ipHash,
-    source: "passphrase",
+    source: "auto",
     claimedAt: new Date().toISOString(),
   };
   fresh.claims.push(claim);
@@ -248,14 +211,12 @@ export type GrantResult =
     };
 
 /**
- * Grant an FCFS slot to a wallet WITHOUT requiring the back-room
- * passphrase. Used by the tasks-completion auto-claim flow at
- * /dashboard/tasks: when a visitor finishes all tasks AND submits
- * their identity, the server books them a slot here.
+ * Grant an FCFS slot to a wallet via the tasks-completion auto-claim
+ * flow at /dashboard/tasks: when a visitor finishes all tasks AND
+ * submits their identity, the server books them a slot here.
  *
- * Same 500 cap, same shared drop code, same idempotency rules as
- * `claimCode` — the only difference is the source tag and skipping
- * the passphrase check.
+ * Same 500 cap and sequential numbering as `grantAutoCode` — only
+ * the source tag ("quest") and the wallet binding differ.
  */
 export async function grantFcfsForWallet(opts: {
   wallet: string;
@@ -289,8 +250,8 @@ export async function grantFcfsForWallet(opts: {
   }
   if (fresh.claims.length >= fresh.total) return { ok: false, error: "full" };
 
-  // Quest grants share the same sequential numbering as passphrase
-  // claims — single 500 pool, one counter.
+  // Quest grants share the same sequential numbering as auto claims
+  // — single 500 pool, one counter.
   const index = fresh.claims.length + 1;
   const claim: BackroomClaim = {
     code: formatOrderCode(index),
@@ -319,25 +280,13 @@ export async function adminGetState(): Promise<BackroomState> {
   return read();
 }
 
-export async function adminSetPassphrase(passphrase: string): Promise<void> {
-  const s = await read();
-  s.passphrase = passphrase.trim();
-  await write(s);
-}
-
 /**
  * Wipe all claims. Resets the sequential counter to 0 (next claim
- * becomes ORDER #1). Passphrase is preserved unless
- * `alsoClearPassphrase` is set.
+ * becomes ORDER #1).
  */
-export async function adminResetClaims(opts?: {
-  alsoClearPassphrase?: boolean;
-}): Promise<void> {
+export async function adminResetClaims(): Promise<void> {
   const s = await read();
   s.claims = [];
-  if (opts?.alsoClearPassphrase) {
-    s.passphrase = null;
-  }
   await write(s);
 }
 

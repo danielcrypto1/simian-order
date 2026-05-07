@@ -1016,14 +1016,12 @@ function SubmittedReferralsSection({
 }
 
 // ───── Back Room ───────────────────────────────────────────────────────
-// Hidden 500-claim easter egg. Admin sets the passphrase here; the
-// /backroom public page checks it, binds the claimer's wallet, and
-// auto-issues the next sequential "ORDER #N" code (1..500). The
-// claimer submits the code in our Discord ticket to receive the
-// HIGH ORDER role.
+// Hidden 500-claim easter egg. Visitors who reach /void/deep are
+// auto-issued the next sequential "ORDER #N" code (1..500). The claimer
+// submits the code in our Discord ticket to receive the HIGH ORDER role.
+// Admin's only lever here is the reset.
 
 type BackroomAdminState = {
-  passphrase: string | null;
   total: number;
   remaining: number;
   claimed: number;
@@ -1034,6 +1032,7 @@ type BackroomAdminState = {
     wallet?: string;
     visitorId: string;
     ipHash: string;
+    source?: "auto" | "quest" | "passphrase";
     claimedAt: string;
   }>;
   updatedAt: string;
@@ -1043,9 +1042,6 @@ function BackroomSection() {
   const [data, setData] = useState<BackroomAdminState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
-  const [savedFlash, setSavedFlash] = useState(false);
-  const [revealPass, setRevealPass] = useState(false);
   const [showCodes, setShowCodes] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -1061,41 +1057,14 @@ function BackroomSection() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Pre-fill the passphrase draft once on first hydration so admin
-  // can edit without retyping. Don't override later if they're typing.
-  useEffect(() => {
-    if (data && !draft) setDraft(data.passphrase ?? "");
-    // intentionally only on initial load
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
-
-  async function savePassphrase() {
-    setError(null);
-    if (!draft.trim()) {
-      setError("passphrase cannot be empty");
-      return;
-    }
-    setBusy(true);
-    try {
-      await adminApi.setBackroomPassphrase(draft.trim());
-      setSavedFlash(true);
-      setTimeout(() => setSavedFlash(false), 1500);
-      await load();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "save_failed");
-    } finally { setBusy(false); }
-  }
-
-  async function reset(alsoClearPassphrase: boolean) {
-    const msg = alsoClearPassphrase
-      ? `Reset back-room data?\n\n  • wipes ${data?.claimed ?? 0} issued code(s)\n  • CLEARS the passphrase (door sealed)\n\nThis cannot be undone.`
-      : `Reset back-room claims?\n\n  • wipes ${data?.claimed ?? 0} issued code(s)\n  • passphrase preserved — visitors who already typed it will be able to claim again\n\nThis cannot be undone.`;
-    if (!confirm(msg)) return;
+  async function reset() {
+    if (!confirm(
+      `Reset back-room claims?\n\n  • wipes ${data?.claimed ?? 0} issued code(s)\n  • next /void/deep visitor gets ORDER #1\n\nThis cannot be undone.`
+    )) return;
     setError(null);
     setBusy(true);
     try {
-      await adminApi.resetBackroom(alsoClearPassphrase);
-      if (alsoClearPassphrase) setDraft("");
+      await adminApi.resetBackroom();
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "reset_failed");
@@ -1134,54 +1103,18 @@ function BackroomSection() {
       >
         <div className="space-y-4">
           <p className="text-xxs text-mute leading-relaxed">
-            hidden /backroom page. visitors who type the passphrase + their wallet
-            receive the next sequential code: ORDER #1, #2, …, #{data?.total ?? 500}.
-            successful claim redirects to /void/deep/order-N — claimer copies the
-            code and submits it in our discord ticket to receive HIGH ORDER role.
-            one claim per browser cookie. resetting wipes issued claims and restarts
-            the counter at #1 (passphrase preserved unless you also seal the door).
+            visitors who reach /void/deep are auto-issued the next sequential
+            code: ORDER #1, #2, …, #{data?.total ?? 500}. cinematic plays, then
+            the code is revealed at /void/deep/order-N — claimer copies and
+            submits it in our discord ticket to receive the HIGH ORDER role.
+            one claim per browser cookie. resetting wipes all issued claims and
+            restarts the counter at #1.
           </p>
 
-          {/* Passphrase row */}
-          <div className="space-y-2">
-            <label className="label">passphrase</label>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type={revealPass ? "text" : "password"}
-                className="field font-mono flex-1 min-w-[200px]"
-                placeholder="set the passphrase visitors must type"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                maxLength={128}
-              />
-              <button
-                type="button"
-                onClick={() => setRevealPass((v) => !v)}
-                className="text-xxs uppercase tracking-wide text-ape-200 hover:text-white underline"
-              >
-                {revealPass ? "hide" : "reveal"}
-              </button>
-              <Button variant="primary" onClick={savePassphrase} disabled={busy}>
-                {savedFlash ? "Saved ✓" : busy ? "Saving…" : "Save Passphrase"}
-              </Button>
-            </div>
-            <p className="text-xxs text-mute">
-              matched case-insensitively, trimmed. max 128 chars.
-              {data && !data.passphrase && (
-                <span className="text-bleed"> · door currently sealed (no passphrase set)</span>
-              )}
-            </p>
-          </div>
-
-          <div className="divider-old" />
-
-          {/* Reset controls + CSV export */}
+          {/* Reset + CSV export */}
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="ghost" onClick={() => reset(false)} disabled={busy}>
+            <Button variant="ghost" onClick={reset} disabled={busy}>
               Reset Claims
-            </Button>
-            <Button variant="ghost" onClick={() => reset(true)} disabled={busy}>
-              Reset + Seal Door
             </Button>
             <a
               href="/api/admin/export/fcfs"

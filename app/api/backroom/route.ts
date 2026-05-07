@@ -12,15 +12,14 @@ const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
  *
  * Returns the visitor-bound status for the back room:
  *   {
- *     total:           500,
- *     remaining:       <int>,
- *     full:            <bool>,
- *     passphraseSet:   <bool>,
- *     claimed:         null | { code, claimedAt }
+ *     total:     500,
+ *     remaining: <int>,
+ *     full:      <bool>,
+ *     claimed:   null | { code, index, slug, claimedAt }
  *   }
  *
  * Mints + sets the `backroom_id` cookie on first visit so subsequent
- * claim attempts are bound to a stable identity. Cookie is httpOnly
+ * auto-claim hits are bound to a stable identity. Cookie is httpOnly
  * + sameSite=lax — no JS access, no cross-site leakage.
  */
 export async function GET() {
@@ -38,7 +37,6 @@ export async function GET() {
     total: s.total,
     remaining: s.remaining,
     full: s.full,
-    passphraseSet: s.passphraseSet,
     claimed: s.claimed
       ? {
           code: s.claimed.code,
