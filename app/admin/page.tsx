@@ -13,6 +13,7 @@ const sections = [
   { id: "apps", label: "High Order" },
   { id: "submitted-referrals", label: "The Five Summoning" },
   { id: "backroom", label: "Back Room" },
+  { id: "quest-claims", label: "Quest Claims" },
   { id: "audit", label: "Link Audit" },
   { id: "system-test", label: "System Test" },
   { id: "reset", label: "Reset Data" },
@@ -118,6 +119,7 @@ export default function AdminDashboard() {
             <ApplicationsSection apps={apps} onAction={refresh} />
             <SubmittedReferralsSection refs={refs} onChanged={refresh} />
             <BackroomSection />
+            <QuestClaimsSection />
             <LinkAuditSection />
             <SystemTestSection />
             <ResetSection onReset={refresh} />
@@ -1201,6 +1203,144 @@ function BackroomSection() {
               )
             )}
           </div>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+// ───── Quest Claims ────────────────────────────────────────────────────
+// Wallets that finished the /dashboard/tasks quest checklist and were
+// auto-granted an FCFS slot (source: "quest"). The Back Room section
+// above already shows all claims; this is a focused, copy-friendly
+// view for the wallets specifically — one row per quest-source claim.
+
+function QuestClaimsSection() {
+  const [data, setData] = useState<BackroomAdminState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState<"wallets" | "tsv" | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const r = await adminApi.getBackroom();
+      setData(r);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "load_failed");
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const questClaims = (data?.claims ?? []).filter((c) => c.source === "quest");
+
+  async function copyWallets() {
+    if (questClaims.length === 0) return;
+    const body = questClaims
+      .map((c) => (c.wallet || "").toLowerCase())
+      .filter(Boolean)
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(body);
+      setCopied("wallets");
+      setTimeout(() => setCopied(null), 1500);
+    } catch {
+      setError("clipboard_unavailable");
+    }
+  }
+
+  async function copyTsv() {
+    if (questClaims.length === 0) return;
+    const header = "index\tcode\twallet\tclaimedAt";
+    const rows = questClaims
+      .map((c) => `${c.index}\t${c.code}\t${c.wallet ?? ""}\t${c.claimedAt}`)
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(`${header}\n${rows}`);
+      setCopied("tsv");
+      setTimeout(() => setCopied(null), 1500);
+    } catch {
+      setError("clipboard_unavailable");
+    }
+  }
+
+  return (
+    <div id="quest-claims">
+      <Panel
+        title="Quest Claims"
+        right={
+          data ? (
+            <span>{questClaims.length} wallet{questClaims.length === 1 ? "" : "s"}</span>
+          ) : (
+            <span>loading...</span>
+          )
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-xxs text-mute leading-relaxed">
+            wallets that finished every task on /dashboard/tasks and submitted
+            their identity. each row is one auto-granted FCFS slot. these
+            share the same ORDER #N pool as the back-room codes — listed
+            here so the wallets are easy to lift out.
+          </p>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="ghost"
+              onClick={copyWallets}
+              disabled={questClaims.length === 0}
+            >
+              {copied === "wallets" ? "Copied ✓" : "Copy wallets"}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={copyTsv}
+              disabled={questClaims.length === 0}
+            >
+              {copied === "tsv" ? "Copied ✓" : "Copy TSV"}
+            </Button>
+            {error && (
+              <span className="text-xxs text-red-300 uppercase tracking-wide">
+                error: {error}
+              </span>
+            )}
+          </div>
+
+          {data && questClaims.length === 0 ? (
+            <p className="text-xxs text-mute italic">
+              no quest claims yet — wallets show up here once a user finishes
+              all three tasks and submits their identity.
+            </p>
+          ) : data ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs min-w-[560px]">
+                <thead className="bg-ape-850 text-xxs uppercase tracking-wide text-ape-200">
+                  <tr>
+                    <th className="text-left px-3 py-1 border-b border-border">order #</th>
+                    <th className="text-left px-3 py-1 border-b border-border">code</th>
+                    <th className="text-left px-3 py-1 border-b border-border">wallet</th>
+                    <th className="text-left px-3 py-1 border-b border-border">claimed at</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {questClaims.map((c) => (
+                    <tr key={`${c.index}-${c.visitorId}`} className="row-hover">
+                      <td className="px-3 py-1.5 text-mute font-mono">{c.index}</td>
+                      <td className="px-3 py-1.5 font-mono text-bleed tracking-wider">
+                        {c.code}
+                      </td>
+                      <td className="px-3 py-1.5 text-ape-100 font-mono break-all">
+                        {c.wallet || <span className="text-mute italic">—</span>}
+                      </td>
+                      <td className="px-3 py-1.5 text-mute font-mono">
+                        {c.claimedAt.replace("T", " ").slice(0, 19)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
         </div>
       </Panel>
     </div>
