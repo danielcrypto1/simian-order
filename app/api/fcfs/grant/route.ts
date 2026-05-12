@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { grantFcfsForWallet } from "@/lib/backroomStore";
-import { walletExistsElsewhere } from "@/lib/walletRegistry";
 import { makeBucket, clientIp, hashIp } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 
 const WALLET_RE = /^0x[a-fA-F0-9]{40}$/;
 
-// Same shape as the back-room rate limiter: 8 attempts / 60s per IP.
-// Combined with the wallet-uniqueness checks below this kills bot
-// floods without inconveniencing legitimate users.
+// 8 attempts / 60s per IP — keeps bot floods off the FCFS list without
+// inconveniencing legitimate users.
 const grantBucket = makeBucket({ windowMs: 60_000, max: 8 });
 
 /**
@@ -24,9 +22,11 @@ const grantBucket = makeBucket({ windowMs: 60_000, max: 8 });
  * Validation:
  *   - wallet format (0x + 40 hex)
  *   - rate limit (8 per IP per 60s)
- *   - cross-system uniqueness — wallets already filed in HIGH ORDER
- *     applications or named on a SUMMONING entry are rejected so the
- *     OpenSea export sets stay disjoint
+ *
+ * Any wallet may claim — including wallets already on a HIGH ORDER
+ * application or named on a SUMMONING entry. The cross-system
+ * uniqueness check was removed so anyone who finishes the quests
+ * gets a slot.
  *
  * Storage shares the same `backroom.json` gist file as the back-room
  * auto-claim flow — same 500 cap, same sequential ORDER #N counter.
@@ -37,7 +37,6 @@ const grantBucket = makeBucket({ windowMs: 60_000, max: 8 });
  *   200 { ok: true, code, wallet, claimedAt, remaining, total, source: "quest" }
  *   400 { ok: false, error: "invalid_wallet" | "missing_wallet" }
  *   403 { ok: false, error: "full" }
- *   409 { ok: false, error: "wallet_in_use", details: [...] }
  *   429 { ok: false, error: "rate_limited" }
  *   500 { ok: false, error: "internal_error" }
  */
@@ -62,17 +61,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "invalid_wallet" }, { status: 400 });
   }
   const w = wallet.toLowerCase();
-
-  // Cross-system uniqueness — same rule as /api/backroom/claim. A
-  // wallet already on a HIGH ORDER application or a SUMMONING entry
-  // can't also take an FCFS slot.
-  const conflict = await walletExistsElsewhere(w, "backroom_claim");
-  if (conflict.exists) {
-    return NextResponse.json(
-      { ok: false, error: "wallet_in_use", details: conflict.hits },
-      { status: 409 }
-    );
-  }
 
   const result = await grantFcfsForWallet({ wallet: w, ipHash });
   if (!result.ok) {
