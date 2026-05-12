@@ -22,21 +22,11 @@ type Task = {
   url: string;
 };
 
-/**
- * Active quest list. Currently EMPTY — the order will publish tasks
- * here when a new round opens. While empty, the page renders a
- * "no active tasks" placeholder and the FCFS auto-claim is gated off.
- *
- * To re-enable, uncomment the entries below (or add new ones). Each
- * entry should have a unique `id`, a short `label`, and a `url` the
- * "Open" button will load in a new tab.
- *
- *   { id: "follow",  label: "Follow @SimianOrder on X",     url: X_PROFILE_URL },
- *   { id: "retweet", label: "Retweet pinned post",          url: PINNED_TWEET_URL },
- *   { id: "discord", label: "Join the Discord server",      url: DISCORD_URL },
- *   { id: "tag",     label: "Tag 3 friends in pinned post", url: PINNED_TWEET_URL },
- */
-const TASKS: Task[] = [];
+const TASKS: Task[] = [
+  { id: "follow",       label: "Follow @SimianOrder on X",     url: X_PROFILE_URL },
+  { id: "like_retweet", label: "Like & Retweet pinned post",   url: PINNED_TWEET_URL },
+  { id: "tag",          label: "Tag 2 SIMIANS in pinned post", url: PINNED_TWEET_URL },
+];
 
 // Convenience flag — when true the legacy checklist + identity form +
 // auto-FCFS-grant flow renders. When false, the page shows just a

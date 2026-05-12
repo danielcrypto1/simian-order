@@ -11,8 +11,7 @@ export const SOCIAL = {
 
 export const TASK_LINKS = {
   X_PROFILE: SOCIAL.X,
-  // Replace with the actual pinned tweet status URL once it exists.
-  PINNED_TWEET: SOCIAL.X,
+  PINNED_TWEET: "https://x.com/SimianOrder/status/2054206806306750545?s=20",
   DISCORD: SOCIAL.DISCORD,
 };
 
