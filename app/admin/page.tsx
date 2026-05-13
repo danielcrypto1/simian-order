@@ -1018,10 +1018,17 @@ function SubmittedReferralsSection({
 }
 
 // ───── Back Room ───────────────────────────────────────────────────────
-// Hidden 500-claim easter egg. Visitors who reach /void/deep are
-// auto-issued the next sequential "ORDER #N" code (1..500). The claimer
-// submits the code in our Discord ticket to receive the HIGH ORDER role.
-// Admin's only lever here is the reset.
+// Hidden 500-claim easter egg. Visitors who reach /void/deep are auto-
+// issued a random code; the claimer submits it in our Discord ticket to
+// receive the HIGH ORDER role. Admin's only lever here is the reset.
+//
+// CODE FORMAT (post-2026-05 rollout):
+//   - New claims: random "XXXX-YYYY" from a 32-char unambiguous alphabet
+//     (no 0/O/1/I/L). ~1.1T possibilities — unguessable.
+//   - Legacy claims: sequential "ORDER #N" still preserved in storage
+//     and accepted via /void/deep/order-N URLs.
+// Treat any submitted code that doesn't match one of those two shapes
+// as a spam attempt.
 
 type BackroomAdminState = {
   total: number;
@@ -1061,7 +1068,7 @@ function BackroomSection() {
 
   async function reset() {
     if (!confirm(
-      `Reset back-room claims?\n\n  • wipes ${data?.claimed ?? 0} issued code(s)\n  • next /void/deep visitor gets ORDER #1\n\nThis cannot be undone.`
+      `Reset back-room claims?\n\n  • wipes ${data?.claimed ?? 0} issued code(s) — legacy ORDER #N and new random codes both go\n  • counter restarts at index #1; new claims still mint random codes\n\nThis cannot be undone.`
     )) return;
     setError(null);
     setBusy(true);
@@ -1105,13 +1112,35 @@ function BackroomSection() {
       >
         <div className="space-y-4">
           <p className="text-xxs text-mute leading-relaxed">
-            visitors who reach /void/deep are auto-issued the next sequential
-            code: ORDER #1, #2, …, #{data?.total ?? 500}. cinematic plays, then
-            the code is revealed at /void/deep/order-N — claimer copies and
-            submits it in our discord ticket to receive the HIGH ORDER role.
-            one claim per browser cookie. resetting wipes all issued claims and
-            restarts the counter at #1.
+            visitors who reach /void/deep are auto-issued a code; cinematic
+            plays, then the code is revealed at /void/deep/[slug]. claimer
+            copies and submits it in our discord ticket to receive the HIGH
+            ORDER role. one claim per browser cookie. resetting wipes all
+            issued claims (capped at {data?.total ?? 500}).
           </p>
+
+          {/* Code-format crib sheet — so ticket reviewers know which
+              shapes are legit and which are spam attempts. */}
+          <div className="border border-border bg-ape-950 px-3 py-2 text-xxs text-mute leading-relaxed">
+            <div className="font-mono uppercase tracking-widest2 text-bone mb-1">
+              // accepted code formats
+            </div>
+            <ul className="space-y-0.5 list-none">
+              <li>
+                <span className="font-mono text-ape-100">XXXX-YYYY</span>{" "}
+                — current. 8 chars from{" "}
+                <span className="font-mono">23456789ABCDEFGHJKLMNPQRSTUVWXYZ</span>
+                {" "}(no 0/O/1/I/L), one dash.
+              </li>
+              <li>
+                <span className="font-mono text-ape-100">ORDER #N</span>{" "}
+                — legacy (pre-2026-05). N is 1..{data?.total ?? 500}.
+              </li>
+            </ul>
+            <p className="mt-1">
+              anything else submitted in a ticket is a spam attempt — reject it.
+            </p>
+          </div>
 
           {/* Reset + CSV export */}
           <div className="flex flex-wrap items-center gap-2">
@@ -1280,8 +1309,10 @@ function QuestClaimsSection() {
           <p className="text-xxs text-mute leading-relaxed">
             wallets that finished every task on /dashboard/tasks and submitted
             their identity. each row is one auto-granted FCFS slot. these
-            share the same ORDER #N pool as the back-room codes — listed
-            here so the wallets are easy to lift out.
+            share the same 500-cap pool as the back-room codes — listed here
+            so the wallets are easy to lift out. codes are random{" "}
+            <span className="font-mono text-ape-100">XXXX-YYYY</span> tokens
+            (see the Back Room section above for the full format crib).
           </p>
 
           <div className="flex flex-wrap items-center gap-2">
