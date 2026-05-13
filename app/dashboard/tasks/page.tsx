@@ -24,7 +24,7 @@ type Task = {
 
 const TASKS: Task[] = [
   { id: "follow",       label: "Follow @SimianOrder on X",     url: X_PROFILE_URL },
-  { id: "like_retweet", label: "Like & Retweet pinned post",   url: PINNED_TWEET_URL },
+  { id: "like_retweet", label: "Like & Retweet",               url: PINNED_TWEET_URL },
   { id: "tag",          label: "Tag 2 SIMIANS in pinned post", url: PINNED_TWEET_URL },
 ];
 

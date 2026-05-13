@@ -66,9 +66,11 @@ export async function POST(req: Request) {
 
   const wallet = b.wallet.toLowerCase();
   const why = typeof b.why === "string" && b.why.trim() ? b.why.trim() : null;
-  const discord = typeof b.discord === "string" && b.discord.trim()
-    ? b.discord.trim().slice(0, 64)
-    : null;
+  const discordRaw = typeof b.discord === "string" ? b.discord.trim() : "";
+  if (discordRaw.length < 2 || discordRaw.length > 64) {
+    return NextResponse.json({ error: "invalid_discord" }, { status: 400 });
+  }
+  const discord = discordRaw.slice(0, 64);
 
   const source: "apply" | "quest" =
     b.source === "quest" ? "quest" : "apply";

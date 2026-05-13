@@ -2,14 +2,49 @@ import crypto from "node:crypto";
 import { readJSON, writeJSON } from "./gistStore";
 import {
   BACKROOM_TOTAL as TOTAL,
+  CODE_ALPHABET,
+  codeToSlug,
   formatOrderCode,
   orderSlug,
   parseOrderSlug,
+  slugToDisplayCode,
 } from "./orderCodes";
 
 // Re-export the pure helpers + constant so existing
 // `from "@/lib/backroomStore"` imports keep working.
-export { formatOrderCode, orderSlug, parseOrderSlug };
+export {
+  codeToSlug,
+  formatOrderCode,
+  orderSlug,
+  parseOrderSlug,
+  slugToDisplayCode,
+};
+
+/**
+ * Generate a fresh random code in "XXXX-YYYY" form using an unambiguous
+ * 32-char alphabet (no 0/O/1/I/L). 32^8 ≈ 1.1T possibilities — random
+ * codes from the rollout onward replace the predictable sequential
+ * "ORDER #N" format so people can't grind ticket spam by guessing
+ * low-numbered codes.
+ *
+ * Callers pass the current claim list and the function retries on the
+ * (vanishingly rare) collision until it finds an unused code.
+ */
+export function generateCode(existing: ReadonlyArray<BackroomClaim>): string {
+  const taken = new Set(existing.map((c) => c.code));
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const bytes = crypto.randomBytes(8);
+    let out = "";
+    for (let i = 0; i < 8; i++) {
+      out += CODE_ALPHABET[bytes[i] % CODE_ALPHABET.length];
+      if (i === 3) out += "-";
+    }
+    if (!taken.has(out)) return out;
+  }
+  // 8 retries against a 1T-entropy space is astronomically unlikely
+  // to fail. Throw rather than return a duplicate.
+  throw new Error("generateCode: collision pool exhausted");
+}
 
 /**
  * Back Room — a hidden 500-claim easter egg surface. Visitors who
@@ -181,7 +216,7 @@ export async function grantAutoCode(opts: {
 
   const index = fresh.claims.length + 1;
   const claim: BackroomClaim = {
-    code: formatOrderCode(index),
+    code: generateCode(fresh.claims),
     index,
     wallet: "", // auto-claim — no wallet binding
     visitorId,
@@ -250,11 +285,11 @@ export async function grantFcfsForWallet(opts: {
   }
   if (fresh.claims.length >= fresh.total) return { ok: false, error: "full" };
 
-  // Quest grants share the same sequential numbering as auto claims
-  // — single 500 pool, one counter.
+  // Quest grants share the same 500-cap pool + counter as auto claims;
+  // the random code generator collision-checks against the whole pool.
   const index = fresh.claims.length + 1;
   const claim: BackroomClaim = {
-    code: formatOrderCode(index),
+    code: generateCode(fresh.claims),
     index,
     wallet,
     // Quest grants don't have a back-room cookie; mint a synthetic
