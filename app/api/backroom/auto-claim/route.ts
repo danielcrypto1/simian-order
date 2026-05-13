@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { cookies, headers } from "next/headers";
 import {
+  codeToSlug,
   grantAutoCode,
   hashIp,
   newVisitorId,
-  orderSlug,
   rateLimitOk,
 } from "@/lib/backroomStore";
 
@@ -88,7 +88,7 @@ export async function POST() {
       full: false,
       code: result.claim.code,
       index: result.claim.index,
-      slug: orderSlug(result.claim.index),
+      slug: codeToSlug(result.claim.code),
       claimedAt: result.claim.claimedAt,
       remaining: result.remaining,
       total: 500,

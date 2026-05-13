@@ -163,12 +163,17 @@ export default function ApplyPage() {
     const handle = form.handle.trim().replace(/^@+/, "");
     const wallet = form.wallet.trim().toLowerCase();
     const story = form.why.trim();
+    const discord = form.discord.trim();
     if (!isWallet(wallet)) {
       setErrorMsg("invalid wallet — paste a 0x… ApeChain address");
       return;
     }
     if (handle.length < 1) {
       setErrorMsg("X / twitter handle required");
+      return;
+    }
+    if (discord.length < 2) {
+      setErrorMsg("discord username required");
       return;
     }
     if (story.length < STORY_MIN) {
@@ -183,7 +188,7 @@ export default function ApplyPage() {
         body: JSON.stringify({
           wallet,
           twitter: handle,
-          discord: form.discord.trim() || null,
+          discord,
           why: story || null,
         }),
       });
@@ -352,12 +357,14 @@ export default function ApplyPage() {
             />
           </div>
           <div>
-            <label className="label">discord (optional)</label>
+            <label className="label">discord username</label>
             <input
               className="field"
-              placeholder="user#0000"
+              placeholder="yourname or yourname#0000"
               value={form.discord}
               onChange={(e) => update("discord", e.target.value)}
+              required
+              minLength={2}
               maxLength={64}
             />
           </div>

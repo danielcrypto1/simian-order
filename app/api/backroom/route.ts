@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { getStatusFor, newVisitorId, orderSlug } from "@/lib/backroomStore";
+import { codeToSlug, getStatusFor, newVisitorId } from "@/lib/backroomStore";
 
 export const runtime = "nodejs";
 
@@ -41,7 +41,7 @@ export async function GET() {
       ? {
           code: s.claimed.code,
           index: s.claimed.index,
-          slug: orderSlug(s.claimed.index),
+          slug: codeToSlug(s.claimed.code),
           claimedAt: s.claimed.claimedAt,
         }
       : null,
