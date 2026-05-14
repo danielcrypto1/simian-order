@@ -417,10 +417,12 @@ function TasksEditorSection() {
         }
       >
         <p className="text-xxs text-mute leading-relaxed mb-3">
-          the quest types are pre-defined — pick one from{" "}
-          <span className="text-ape-100">+ Add quest</span> and paste the URL
-          for the round. labels + ids are locked to keep per-user completion
-          flags stable across edits.
+          pre-defined quests come from{" "}
+          <span className="text-ape-100">+ Add quest</span> — pick one and just
+          paste the URL. need something off-template?{" "}
+          <span className="text-ape-100">+ Custom quest</span> lets you write
+          your own id + label + URL. ids should stay stable across edits — the
+          per-user completion flags are keyed by them.
         </p>
 
         {rows && (
@@ -486,28 +488,36 @@ function TasksEditorSection() {
                       rows only show the URL input — label is rendered as
                       static text in the header above. */}
                   {isCustom && (
-                    <div className="grid sm:grid-cols-[140px_1fr] gap-2">
-                      <div>
-                        <label className="label">id</label>
-                        <input
-                          className="field font-mono"
-                          placeholder="custom_1"
-                          value={row.id}
-                          onChange={(e) => updateRow(i, { id: e.target.value })}
-                          maxLength={32}
-                        />
+                    <>
+                      <div className="grid sm:grid-cols-[160px_1fr] gap-2">
+                        <div>
+                          <label className="label">id</label>
+                          <input
+                            className="field font-mono"
+                            placeholder="my_custom_quest"
+                            value={row.id}
+                            onChange={(e) => updateRow(i, { id: e.target.value })}
+                            maxLength={32}
+                          />
+                          <div className="text-xxs text-mute mt-1">
+                            a-z, 0-9, _, - · keeps user progress stable.
+                          </div>
+                        </div>
+                        <div>
+                          <label className="label">label</label>
+                          <input
+                            className="field"
+                            placeholder="e.g. Quote-tweet the announcement"
+                            value={row.label}
+                            onChange={(e) => updateRow(i, { label: e.target.value })}
+                            maxLength={limits?.LABEL_MAX ?? 100}
+                          />
+                          <div className="text-xxs text-mute mt-1">
+                            what the user sees on /dashboard/tasks.
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <label className="label">label</label>
-                        <input
-                          className="field"
-                          placeholder="e.g. Quote-tweet the announcement"
-                          value={row.label}
-                          onChange={(e) => updateRow(i, { label: e.target.value })}
-                          maxLength={limits?.LABEL_MAX ?? 100}
-                        />
-                      </div>
-                    </div>
+                    </>
                   )}
 
                   <div>
@@ -527,30 +537,37 @@ function TasksEditorSection() {
               );
             })}
 
-            {/* Add quest — dropdown of unused templates + a custom option. */}
-            <div className="relative">
+            {/* Add quest — split into two buttons:
+                  + Add quest ▾   → dropdown of unused canonical templates
+                  + Custom quest  → one-click add of a blank id/label/url row
+                The custom button is a peer of the template picker rather
+                than buried inside it, so admins see both paths at once. */}
+            <div className="flex flex-wrap items-center gap-2 relative">
               <Button
                 variant="ghost"
                 onClick={() => setAddOpen((v) => !v)}
-                disabled={atCap}
+                disabled={atCap || availableTemplates.length === 0}
+                title={availableTemplates.length === 0 ? "all templates are in use" : undefined}
               >
                 + Add quest {addOpen ? "▴" : "▾"}
               </Button>
+              <Button
+                variant="ghost"
+                onClick={addCustom}
+                disabled={atCap}
+              >
+                + Custom quest
+              </Button>
               {atCap && (
-                <span className="ml-2 text-xxs text-mute">
+                <span className="text-xxs text-mute">
                   at the {limits?.MAX_TASKS}-task cap.
                 </span>
               )}
-              {addOpen && !atCap && (
+              {addOpen && !atCap && availableTemplates.length > 0 && (
                 <div
-                  className="absolute left-0 mt-1 z-10 border border-border bg-ape-900 min-w-[280px] shadow-hard"
+                  className="absolute left-0 top-full mt-1 z-10 border border-border bg-ape-900 min-w-[280px] shadow-hard"
                   role="menu"
                 >
-                  {availableTemplates.length === 0 && (
-                    <div className="px-3 py-2 text-xxs text-mute italic">
-                      all quest templates are in use.
-                    </div>
-                  )}
                   {availableTemplates.map((t) => (
                     <button
                       key={t.id}
@@ -561,13 +578,6 @@ function TasksEditorSection() {
                       {t.label}
                     </button>
                   ))}
-                  <button
-                    type="button"
-                    onClick={addCustom}
-                    className="block w-full text-left px-3 py-1.5 text-xs text-mute hover:bg-ape-800 border-t border-border italic"
-                  >
-                    + custom quest…
-                  </button>
                 </div>
               )}
             </div>
