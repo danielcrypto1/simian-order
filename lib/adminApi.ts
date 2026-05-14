@@ -198,6 +198,23 @@ export const adminApi = {
       method: "POST",
     }),
 
+  /**
+   * Tasks editor — admin-managed quest checklist served at
+   * /dashboard/tasks. GET returns the current list + per-field limits;
+   * PUT atomically replaces the whole list.
+   */
+  getTasks: () =>
+    req<{
+      tasks: Array<{ id: string; label: string; url: string }>;
+      updatedAt: string;
+      limits: { MAX_TASKS: number; LABEL_MAX: number; URL_MAX: number };
+    }>("/api/admin/tasks"),
+  putTasks: (tasks: Array<{ id: string; label: string; url: string }>) =>
+    req<{ ok: boolean; state: { tasks: Array<{ id: string; label: string; url: string }>; updatedAt: string } }>(
+      "/api/admin/tasks",
+      { method: "PUT", body: JSON.stringify({ tasks }) }
+    ),
+
   resetAllData: () =>
     req<{
       ok: boolean;
