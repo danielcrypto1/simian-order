@@ -1008,6 +1008,15 @@ function ApplicationsSection({
                   <td className="px-3 py-2">
                     <div className="flex gap-1 flex-wrap">
                       <Button
+                        variant="ghost"
+                        onClick={() => {
+                          const url = xProfileUrl(row.twitter);
+                          if (url) window.open(url, "_blank", "noopener,noreferrer");
+                        }}
+                        disabled={!xProfileUrl(row.twitter)}
+                        title={xProfileUrl(row.twitter) ?? "handle is missing or malformed"}
+                      >Open X ↗</Button>
+                      <Button
                         variant="primary"
                         onClick={() => decide(row.wallet, "approve")}
                         disabled={status === "approved" || busy === `${row.wallet}:approve`}
