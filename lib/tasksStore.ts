@@ -1,5 +1,6 @@
 import { readJSON, writeJSON } from "./gistStore";
 import { TASK_LINKS } from "./links";
+import { templateFor } from "./questTemplates";
 
 /**
  * Tasks store.
@@ -29,14 +30,20 @@ export type TasksState = {
 };
 
 /**
- * Initial seed used when the gist has never been written. Matches the
- * round-1 quest checklist that shipped before the admin editor — any
- * deploy without a prior gist write still renders the canonical list.
+ * Initial seed used when the gist has never been written. Pulls labels
+ * straight from the canonical templates (lib/questTemplates) so the
+ * default checklist matches whatever the templates define — any deploy
+ * without a prior gist write still renders the right list.
  */
+function seedTask(id: string, url: string): Task {
+  const tpl = templateFor(id);
+  return { id, label: tpl?.label ?? id, url };
+}
+
 const DEFAULT_TASKS: Task[] = [
-  { id: "follow",       label: "Follow @SimianOrder on X",     url: TASK_LINKS.X_PROFILE },
-  { id: "like_retweet", label: "Like & Retweet",               url: TASK_LINKS.PINNED_TWEET },
-  { id: "tag",          label: "Tag 2 SIMIANS in pinned post", url: TASK_LINKS.PINNED_TWEET },
+  seedTask("follow",       TASK_LINKS.X_PROFILE),
+  seedTask("like_retweet", TASK_LINKS.PINNED_TWEET),
+  seedTask("tag",          TASK_LINKS.PINNED_TWEET),
 ];
 
 const DEFAULT_STATE: TasksState = {

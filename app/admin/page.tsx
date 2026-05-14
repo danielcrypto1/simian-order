@@ -7,6 +7,7 @@ import Button from "@/components/Button";
 import StatusBadge from "@/components/StatusBadge";
 import AdminTopBar from "@/components/AdminTopBar";
 import { adminApi, ApiError, type Application, type Cfg } from "@/lib/adminApi";
+import { QUEST_TEMPLATES, templateFor, type QuestTemplate } from "@/lib/questTemplates";
 
 const sections = [
   { id: "round", label: "Round Control" },
@@ -260,8 +261,13 @@ function RoundSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }
 // ───── Tasks Editor ────────────────────────────────────────────────────
 // Admin-managed quest checklist served at /dashboard/tasks. Backed by
 // the `tasks.json` gist file via /api/admin/tasks. Replace-the-whole-
-// list semantics: edit rows freely, hit save, done. Validation matches
-// the server (id /^[a-z0-9_-]{1,32}$/, label non-empty, http(s) url).
+// list semantics: pick from the canonical quest templates, paste URLs,
+// save. Each template fixes the id + label so the admin only ever has
+// to update the URL between rounds.
+//
+// "Custom" entries (id + label + url all hand-entered) are still
+// possible via the bottom of the Add menu — for one-off quests that
+// don't have a template.
 
 type TaskRow = { id: string; label: string; url: string };
 
@@ -271,10 +277,6 @@ function isHttp(s: string): boolean {
   return /^https?:\/\//i.test(s.trim());
 }
 
-function blankRow(): TaskRow {
-  return { id: "", label: "", url: "https://" };
-}
-
 function TasksEditorSection() {
   const [rows, setRows] = useState<TaskRow[] | null>(null);
   const [limits, setLimits] = useState<{ MAX_TASKS: number; LABEL_MAX: number; URL_MAX: number } | null>(null);
@@ -282,12 +284,13 @@ function TasksEditorSection() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
     try {
       const r = await adminApi.getTasks();
-      setRows(r.tasks.length > 0 ? r.tasks : [blankRow()]);
+      setRows(r.tasks);
       setLimits(r.limits);
       setUpdatedAt(r.updatedAt);
     } catch (e) {
@@ -297,24 +300,16 @@ function TasksEditorSection() {
 
   useEffect(() => { load(); }, [load]);
 
-  function update(i: number, patch: Partial<TaskRow>) {
+  function updateUrl(i: number, url: string) {
+    setRows((cur) => (cur ? cur.map((r, idx) => (idx === i ? { ...r, url } : r)) : cur));
+  }
+
+  function updateRow(i: number, patch: Partial<TaskRow>) {
     setRows((cur) => (cur ? cur.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) : cur));
   }
 
-  function addRow() {
-    setRows((cur) => {
-      if (!cur) return [blankRow()];
-      if (limits && cur.length >= limits.MAX_TASKS) return cur;
-      return [...cur, blankRow()];
-    });
-  }
-
   function removeRow(i: number) {
-    setRows((cur) => {
-      if (!cur) return cur;
-      const next = cur.filter((_, idx) => idx !== i);
-      return next.length === 0 ? [blankRow()] : next;
-    });
+    setRows((cur) => (cur ? cur.filter((_, idx) => idx !== i) : cur));
   }
 
   function move(i: number, dir: -1 | 1) {
@@ -328,8 +323,34 @@ function TasksEditorSection() {
     });
   }
 
+  function addFromTemplate(tpl: QuestTemplate) {
+    setRows((cur) => {
+      const base = cur ?? [];
+      if (limits && base.length >= limits.MAX_TASKS) return cur;
+      // If this template is already on the list, no-op + close the menu.
+      if (base.some((r) => r.id === tpl.id)) return cur;
+      return [...base, { id: tpl.id, label: tpl.label, url: "" }];
+    });
+    setAddOpen(false);
+  }
+
+  function addCustom() {
+    setRows((cur) => {
+      const base = cur ?? [];
+      if (limits && base.length >= limits.MAX_TASKS) return cur;
+      // Generate a unique placeholder id so validation passes until
+      // the admin renames it.
+      let i = 1;
+      let id = `custom_${i}`;
+      const taken = new Set(base.map((r) => r.id));
+      while (taken.has(id)) { i++; id = `custom_${i}`; }
+      return [...base, { id, label: "", url: "" }];
+    });
+    setAddOpen(false);
+  }
+
   // Client-side validation mirrors the server. Returns the first
-  // problem found, or null. The save button shows the issue inline.
+  // problem found, or null.
   function validate(rs: TaskRow[]): string | null {
     if (rs.length === 0) return null; // empty list is allowed (kills the page)
     const ids = new Set<string>();
@@ -338,7 +359,7 @@ function TasksEditorSection() {
       if (!ID_RE.test(r.id.trim())) return `row ${i + 1}: invalid id (a–z, 0–9, _, -, up to 32 chars)`;
       if (!r.label.trim()) return `row ${i + 1}: label required`;
       if (limits && r.label.trim().length > limits.LABEL_MAX) return `row ${i + 1}: label too long (max ${limits.LABEL_MAX})`;
-      if (!isHttp(r.url)) return `row ${i + 1}: url must be http(s)`;
+      if (!isHttp(r.url)) return `row ${i + 1}: url required — paste a https://… link`;
       if (limits && r.url.trim().length > limits.URL_MAX) return `row ${i + 1}: url too long (max ${limits.URL_MAX})`;
       const id = r.id.trim().toLowerCase();
       if (ids.has(id)) return `row ${i + 1}: duplicate id "${id}"`;
@@ -350,12 +371,7 @@ function TasksEditorSection() {
   async function save() {
     if (!rows) return;
     setError(null);
-    // Strip out fully-empty rows the admin may have left behind from
-    // an add-then-don't-fill pattern. A row counts as empty only if
-    // every field is blank; partially-filled rows fail validation so
-    // the admin sees the inline error rather than silent dropping.
-    const cleaned = rows.filter((r) => r.id.trim() || r.label.trim() || (r.url.trim() && r.url.trim() !== "https://"));
-    const problem = validate(cleaned);
+    const problem = validate(rows);
     if (problem) {
       setError(problem);
       return;
@@ -363,13 +379,13 @@ function TasksEditorSection() {
     setBusy(true);
     try {
       const r = await adminApi.putTasks(
-        cleaned.map((row) => ({
+        rows.map((row) => ({
           id: row.id.trim().toLowerCase(),
           label: row.label.trim(),
           url: row.url.trim(),
         }))
       );
-      setRows(r.state.tasks.length > 0 ? r.state.tasks : [blankRow()]);
+      setRows(r.state.tasks);
       setUpdatedAt(r.state.updatedAt);
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1500);
@@ -380,7 +396,10 @@ function TasksEditorSection() {
     }
   }
 
-  const count = rows?.filter((r) => r.id.trim() || r.label.trim()).length ?? 0;
+  const inUseIds = new Set((rows ?? []).map((r) => r.id));
+  const availableTemplates = QUEST_TEMPLATES.filter((t) => !inUseIds.has(t.id));
+  const count = rows?.length ?? 0;
+  const atCap = !!limits && count >= limits.MAX_TASKS;
 
   return (
     <div id="tasks">
@@ -398,96 +417,162 @@ function TasksEditorSection() {
         }
       >
         <p className="text-xxs text-mute leading-relaxed mb-3">
-          edits replace the whole quest checklist at{" "}
-          <span className="font-mono text-ape-100">/dashboard/tasks</span>.
-          empty list = the page renders "no active tasks" and the FCFS auto-grant
-          is gated off. id should stay stable across edits — the per-user
-          completion flags are keyed by it.
+          the quest types are pre-defined — pick one from{" "}
+          <span className="text-ape-100">+ Add quest</span> and paste the URL
+          for the round. labels + ids are locked to keep per-user completion
+          flags stable across edits.
         </p>
 
         {rows && (
           <div className="space-y-3">
-            {rows.map((row, i) => (
-              <div
-                key={i}
-                className="border border-border bg-ape-950 p-2 space-y-2"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-xxs uppercase tracking-wide text-mute">
-                    row {i + 1}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => move(i, -1)}
-                      disabled={i === 0}
-                      className="text-xxs px-2 py-0.5 border border-border text-ape-200 hover:bg-ape-800 disabled:opacity-30 disabled:cursor-not-allowed"
-                      aria-label="move up"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => move(i, 1)}
-                      disabled={i === (rows?.length ?? 1) - 1}
-                      className="text-xxs px-2 py-0.5 border border-border text-ape-200 hover:bg-ape-800 disabled:opacity-30 disabled:cursor-not-allowed"
-                      aria-label="move down"
-                    >
-                      ↓
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => removeRow(i)}
-                      className="text-xxs px-2 py-0.5 border border-red-700 text-red-300 hover:bg-red-950"
-                      aria-label="remove row"
-                    >
-                      ✕ remove
-                    </button>
+            {rows.length === 0 && (
+              <p className="font-serif italic text-xs text-mute py-2">
+                no quests configured — /dashboard/tasks will render "no active tasks".
+              </p>
+            )}
+
+            {rows.map((row, i) => {
+              const tpl = templateFor(row.id);
+              const isCustom = !tpl;
+              return (
+                <div
+                  key={`${row.id}-${i}`}
+                  className="border border-border bg-ape-950 p-2 space-y-2"
+                >
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono text-xxxs uppercase tracking-widest2 text-bleed shrink-0">
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
+                      {!isCustom ? (
+                        <span className="text-xs text-ape-100 truncate">{tpl.label}</span>
+                      ) : (
+                        <span className="font-mono text-xxs uppercase tracking-wide text-mute shrink-0">
+                          custom
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => move(i, -1)}
+                        disabled={i === 0}
+                        className="text-xxs px-2 py-0.5 border border-border text-ape-200 hover:bg-ape-800 disabled:opacity-30 disabled:cursor-not-allowed"
+                        aria-label="move up"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => move(i, 1)}
+                        disabled={i === (rows?.length ?? 1) - 1}
+                        className="text-xxs px-2 py-0.5 border border-border text-ape-200 hover:bg-ape-800 disabled:opacity-30 disabled:cursor-not-allowed"
+                        aria-label="move down"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeRow(i)}
+                        className="text-xxs px-2 py-0.5 border border-red-700 text-red-300 hover:bg-red-950"
+                        aria-label="remove row"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
-                </div>
-                <div className="grid sm:grid-cols-[140px_1fr] gap-2">
+
+                  {/* Custom rows expose id + label fields. Template-backed
+                      rows only show the URL input — label is rendered as
+                      static text in the header above. */}
+                  {isCustom && (
+                    <div className="grid sm:grid-cols-[140px_1fr] gap-2">
+                      <div>
+                        <label className="label">id</label>
+                        <input
+                          className="field font-mono"
+                          placeholder="custom_1"
+                          value={row.id}
+                          onChange={(e) => updateRow(i, { id: e.target.value })}
+                          maxLength={32}
+                        />
+                      </div>
+                      <div>
+                        <label className="label">label</label>
+                        <input
+                          className="field"
+                          placeholder="e.g. Quote-tweet the announcement"
+                          value={row.label}
+                          onChange={(e) => updateRow(i, { label: e.target.value })}
+                          maxLength={limits?.LABEL_MAX ?? 100}
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   <div>
-                    <label className="label">id</label>
+                    <label className="label">url</label>
                     <input
                       className="field font-mono"
-                      placeholder="follow"
-                      value={row.id}
-                      onChange={(e) => update(i, { id: e.target.value })}
-                      maxLength={32}
+                      placeholder={tpl?.urlPlaceholder ?? "https://..."}
+                      value={row.url}
+                      onChange={(e) => updateUrl(i, e.target.value)}
+                      maxLength={limits?.URL_MAX ?? 500}
                     />
-                  </div>
-                  <div>
-                    <label className="label">label</label>
-                    <input
-                      className="field"
-                      placeholder="Follow @SimianOrder on X"
-                      value={row.label}
-                      onChange={(e) => update(i, { label: e.target.value })}
-                      maxLength={limits?.LABEL_MAX ?? 100}
-                    />
+                    {tpl?.hint && (
+                      <div className="text-xxs text-mute mt-1">{tpl.hint}</div>
+                    )}
                   </div>
                 </div>
-                <div>
-                  <label className="label">url</label>
-                  <input
-                    className="field font-mono"
-                    placeholder="https://x.com/SimianOrder"
-                    value={row.url}
-                    onChange={(e) => update(i, { url: e.target.value })}
-                    maxLength={limits?.URL_MAX ?? 500}
-                  />
-                </div>
-              </div>
-            ))}
+              );
+            })}
 
-            <div className="flex flex-wrap items-center gap-2">
+            {/* Add quest — dropdown of unused templates + a custom option. */}
+            <div className="relative">
               <Button
                 variant="ghost"
-                onClick={addRow}
-                disabled={!!limits && (rows?.length ?? 0) >= limits.MAX_TASKS}
+                onClick={() => setAddOpen((v) => !v)}
+                disabled={atCap}
               >
-                + Add Task
+                + Add quest {addOpen ? "▴" : "▾"}
               </Button>
+              {atCap && (
+                <span className="ml-2 text-xxs text-mute">
+                  at the {limits?.MAX_TASKS}-task cap.
+                </span>
+              )}
+              {addOpen && !atCap && (
+                <div
+                  className="absolute left-0 mt-1 z-10 border border-border bg-ape-900 min-w-[280px] shadow-hard"
+                  role="menu"
+                >
+                  {availableTemplates.length === 0 && (
+                    <div className="px-3 py-2 text-xxs text-mute italic">
+                      all quest templates are in use.
+                    </div>
+                  )}
+                  {availableTemplates.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => addFromTemplate(t)}
+                      className="block w-full text-left px-3 py-1.5 text-xs text-ape-100 hover:bg-ape-800 border-b border-border last:border-b-0"
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={addCustom}
+                    className="block w-full text-left px-3 py-1.5 text-xs text-mute hover:bg-ape-800 border-t border-border italic"
+                  >
+                    + custom quest…
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 pt-2">
               <Button
                 variant="primary"
                 onClick={save}
