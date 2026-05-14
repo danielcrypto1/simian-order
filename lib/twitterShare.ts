@@ -23,50 +23,21 @@ The order chooses who walks through.
 #SimianOrder`,
 
   /**
-   * Recognition share. Five tone variants — one is chosen at random
-   * on each share so the timeline doesn't get a wall of identical
-   * tweets. `{round}` is replaced with the active round number at
-   * call time so the post pegs the user to a specific cycle.
+   * Recognition share — canonical copy for the Friday relaunch. Single
+   * deliberate version (replaced the earlier 5-variant pool) so every
+   * recognised user posts the same line and the timeline reads as one
+   * coordinated signal rather than five different paraphrases. The
+   * `round` arg is kept for signature compatibility with existing call
+   * sites but is not interpolated into the body anymore.
    */
-  approval: (round: number) => {
-    const variants: ((r: number) => string)[] = [
-      (r) =>
-        `RECOGNISED — ROUND ${r}
-Entry isn’t given.
-It’s seen.
-THE FIVE SUMMONING is open.
-@SimianOrder
+  approval: (_round: number) =>
+    `I have been recognized by @SimianOrder.
+
+I’ve been granted 5 summonings to the HIGH ORDER.
+
+Now I seek the ones who truly know the Order.
+
 #SimianOrder`,
-      (r) =>
-        `RECOGNISED.
-They saw it.
-Round ${r} — unlocked.
-The FIVE SUMMONING begins.
-@SimianOrder
-#SimianOrder`,
-      (r) =>
-        `RECOGNISED — ROUND ${r}
-Most applied.
-Few were seen.
-I’m in.
-@SimianOrder
-#SimianOrder`,
-      (_r) =>
-        `RECOGNISED.
-No noise.
-No luck.
-Just conviction.
-@SimianOrder
-#SimianOrder`,
-      (r) =>
-        `RECOGNISED — R${r}
-Entry isn’t given.
-@SimianOrder
-#SimianOrder`,
-    ];
-    const pick = variants[Math.floor(Math.random() * variants.length)];
-    return pick(round);
-  },
 
   rejection: () =>
     `Not recognised by THE HIGH ORDER this round.
