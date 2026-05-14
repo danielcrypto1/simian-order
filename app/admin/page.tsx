@@ -10,6 +10,7 @@ import { adminApi, ApiError, type Application, type Cfg } from "@/lib/adminApi";
 
 const sections = [
   { id: "round", label: "Round Control" },
+  { id: "tasks", label: "Tasks Editor" },
   { id: "apps", label: "High Order" },
   { id: "submitted-referrals", label: "The Five Summoning" },
   { id: "backroom", label: "Back Room" },
@@ -116,6 +117,7 @@ export default function AdminDashboard() {
             )}
 
             <RoundSection cfg={cfg} onSaved={refresh} />
+            <TasksEditorSection />
             <ApplicationsSection apps={apps} onAction={refresh} />
             <SubmittedReferralsSection refs={refs} onChanged={refresh} />
             <BackroomSection />
@@ -250,6 +252,266 @@ function RoundSection({ cfg, onSaved }: { cfg: Cfg | null; onSaved: () => void }
           propagates to headlines, terminal bar, and the approval-share
           tweet on the next poll. no client cache to bust.
         </p>
+      </Panel>
+    </div>
+  );
+}
+
+// ───── Tasks Editor ────────────────────────────────────────────────────
+// Admin-managed quest checklist served at /dashboard/tasks. Backed by
+// the `tasks.json` gist file via /api/admin/tasks. Replace-the-whole-
+// list semantics: edit rows freely, hit save, done. Validation matches
+// the server (id /^[a-z0-9_-]{1,32}$/, label non-empty, http(s) url).
+
+type TaskRow = { id: string; label: string; url: string };
+
+const ID_RE = /^[a-z0-9_-]{1,32}$/i;
+
+function isHttp(s: string): boolean {
+  return /^https?:\/\//i.test(s.trim());
+}
+
+function blankRow(): TaskRow {
+  return { id: "", label: "", url: "https://" };
+}
+
+function TasksEditorSection() {
+  const [rows, setRows] = useState<TaskRow[] | null>(null);
+  const [limits, setLimits] = useState<{ MAX_TASKS: number; LABEL_MAX: number; URL_MAX: number } | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [savedFlash, setSavedFlash] = useState(false);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const r = await adminApi.getTasks();
+      setRows(r.tasks.length > 0 ? r.tasks : [blankRow()]);
+      setLimits(r.limits);
+      setUpdatedAt(r.updatedAt);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "load_failed");
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  function update(i: number, patch: Partial<TaskRow>) {
+    setRows((cur) => (cur ? cur.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) : cur));
+  }
+
+  function addRow() {
+    setRows((cur) => {
+      if (!cur) return [blankRow()];
+      if (limits && cur.length >= limits.MAX_TASKS) return cur;
+      return [...cur, blankRow()];
+    });
+  }
+
+  function removeRow(i: number) {
+    setRows((cur) => {
+      if (!cur) return cur;
+      const next = cur.filter((_, idx) => idx !== i);
+      return next.length === 0 ? [blankRow()] : next;
+    });
+  }
+
+  function move(i: number, dir: -1 | 1) {
+    setRows((cur) => {
+      if (!cur) return cur;
+      const j = i + dir;
+      if (j < 0 || j >= cur.length) return cur;
+      const next = cur.slice();
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
+
+  // Client-side validation mirrors the server. Returns the first
+  // problem found, or null. The save button shows the issue inline.
+  function validate(rs: TaskRow[]): string | null {
+    if (rs.length === 0) return null; // empty list is allowed (kills the page)
+    const ids = new Set<string>();
+    for (let i = 0; i < rs.length; i++) {
+      const r = rs[i];
+      if (!ID_RE.test(r.id.trim())) return `row ${i + 1}: invalid id (a–z, 0–9, _, -, up to 32 chars)`;
+      if (!r.label.trim()) return `row ${i + 1}: label required`;
+      if (limits && r.label.trim().length > limits.LABEL_MAX) return `row ${i + 1}: label too long (max ${limits.LABEL_MAX})`;
+      if (!isHttp(r.url)) return `row ${i + 1}: url must be http(s)`;
+      if (limits && r.url.trim().length > limits.URL_MAX) return `row ${i + 1}: url too long (max ${limits.URL_MAX})`;
+      const id = r.id.trim().toLowerCase();
+      if (ids.has(id)) return `row ${i + 1}: duplicate id "${id}"`;
+      ids.add(id);
+    }
+    return null;
+  }
+
+  async function save() {
+    if (!rows) return;
+    setError(null);
+    // Strip out fully-empty rows the admin may have left behind from
+    // an add-then-don't-fill pattern. A row counts as empty only if
+    // every field is blank; partially-filled rows fail validation so
+    // the admin sees the inline error rather than silent dropping.
+    const cleaned = rows.filter((r) => r.id.trim() || r.label.trim() || (r.url.trim() && r.url.trim() !== "https://"));
+    const problem = validate(cleaned);
+    if (problem) {
+      setError(problem);
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await adminApi.putTasks(
+        cleaned.map((row) => ({
+          id: row.id.trim().toLowerCase(),
+          label: row.label.trim(),
+          url: row.url.trim(),
+        }))
+      );
+      setRows(r.state.tasks.length > 0 ? r.state.tasks : [blankRow()]);
+      setUpdatedAt(r.state.updatedAt);
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 1500);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "save_failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const count = rows?.filter((r) => r.id.trim() || r.label.trim()).length ?? 0;
+
+  return (
+    <div id="tasks">
+      <Panel
+        title="Tasks Editor"
+        right={
+          rows ? (
+            <span>
+              {count} task{count === 1 ? "" : "s"}
+              {limits && <span className="text-mute"> / {limits.MAX_TASKS} max</span>}
+            </span>
+          ) : (
+            <span>loading...</span>
+          )
+        }
+      >
+        <p className="text-xxs text-mute leading-relaxed mb-3">
+          edits replace the whole quest checklist at{" "}
+          <span className="font-mono text-ape-100">/dashboard/tasks</span>.
+          empty list = the page renders "no active tasks" and the FCFS auto-grant
+          is gated off. id should stay stable across edits — the per-user
+          completion flags are keyed by it.
+        </p>
+
+        {rows && (
+          <div className="space-y-3">
+            {rows.map((row, i) => (
+              <div
+                key={i}
+                className="border border-border bg-ape-950 p-2 space-y-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xxs uppercase tracking-wide text-mute">
+                    row {i + 1}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => move(i, -1)}
+                      disabled={i === 0}
+                      className="text-xxs px-2 py-0.5 border border-border text-ape-200 hover:bg-ape-800 disabled:opacity-30 disabled:cursor-not-allowed"
+                      aria-label="move up"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => move(i, 1)}
+                      disabled={i === (rows?.length ?? 1) - 1}
+                      className="text-xxs px-2 py-0.5 border border-border text-ape-200 hover:bg-ape-800 disabled:opacity-30 disabled:cursor-not-allowed"
+                      aria-label="move down"
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeRow(i)}
+                      className="text-xxs px-2 py-0.5 border border-red-700 text-red-300 hover:bg-red-950"
+                      aria-label="remove row"
+                    >
+                      ✕ remove
+                    </button>
+                  </div>
+                </div>
+                <div className="grid sm:grid-cols-[140px_1fr] gap-2">
+                  <div>
+                    <label className="label">id</label>
+                    <input
+                      className="field font-mono"
+                      placeholder="follow"
+                      value={row.id}
+                      onChange={(e) => update(i, { id: e.target.value })}
+                      maxLength={32}
+                    />
+                  </div>
+                  <div>
+                    <label className="label">label</label>
+                    <input
+                      className="field"
+                      placeholder="Follow @SimianOrder on X"
+                      value={row.label}
+                      onChange={(e) => update(i, { label: e.target.value })}
+                      maxLength={limits?.LABEL_MAX ?? 100}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="label">url</label>
+                  <input
+                    className="field font-mono"
+                    placeholder="https://x.com/SimianOrder"
+                    value={row.url}
+                    onChange={(e) => update(i, { url: e.target.value })}
+                    maxLength={limits?.URL_MAX ?? 500}
+                  />
+                </div>
+              </div>
+            ))}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="ghost"
+                onClick={addRow}
+                disabled={!!limits && (rows?.length ?? 0) >= limits.MAX_TASKS}
+              >
+                + Add Task
+              </Button>
+              <Button
+                variant="primary"
+                onClick={save}
+                disabled={busy}
+              >
+                {busy ? "Saving..." : savedFlash ? "Saved ✓" : "Save Tasks"}
+              </Button>
+              <Button variant="ghost" onClick={load} disabled={busy}>
+                Revert
+              </Button>
+              {updatedAt && (
+                <span className="text-xxs text-mute font-mono ml-auto">
+                  last saved · {updatedAt.replace("T", " ").slice(0, 19)} UTC
+                </span>
+              )}
+            </div>
+
+            {error && (
+              <div className="border border-red-700 bg-red-950 px-2 py-1 text-xxs text-red-200">
+                error: {error}
+              </div>
+            )}
+          </div>
+        )}
       </Panel>
     </div>
   );

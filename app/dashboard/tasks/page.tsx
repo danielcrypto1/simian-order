@@ -6,32 +6,18 @@ import Button from "@/components/Button";
 import StatusBadge from "@/components/StatusBadge";
 import { useStore } from "@/lib/store";
 
-import { TASK_LINKS, SOCIAL } from "@/lib/links";
+import { SOCIAL } from "@/lib/links";
 
-// All quest links live in lib/links.ts. PINNED_TWEET_URL there still points
-// at the X profile — update it to the actual pinned tweet status URL once
-// it exists. The contract is "user-driven completion" — clicking OPEN
-// just records `opened`, no API verification.
-const X_PROFILE_URL = TASK_LINKS.X_PROFILE;
-const PINNED_TWEET_URL = TASK_LINKS.PINNED_TWEET;
-const DISCORD_URL = TASK_LINKS.DISCORD;
+// The active quest list is admin-managed — fetched on mount from
+// GET /api/tasks (backed by tasks.json in the gist). The contract is
+// still "user-driven completion": clicking OPEN records `opened`, no
+// API verification.
 
 type Task = {
   id: string;
   label: string;
   url: string;
 };
-
-const TASKS: Task[] = [
-  { id: "follow",       label: "Follow @SimianOrder on X",     url: X_PROFILE_URL },
-  { id: "like_retweet", label: "Like & Retweet",               url: PINNED_TWEET_URL },
-  { id: "tag",          label: "Tag 2 SIMIANS in pinned post", url: PINNED_TWEET_URL },
-];
-
-// Convenience flag — when true the legacy checklist + identity form +
-// auto-FCFS-grant flow renders. When false, the page shows just a
-// quiet "tasks coming soon" placeholder and nothing else.
-const HAS_TASKS = TASKS.length > 0;
 
 export default function TasksPage() {
   const hasHydrated = useStore((s) => s._hasHydrated);
@@ -52,6 +38,25 @@ export default function TasksPage() {
   const twitterHandle = hasHydrated ? twitterHandleRaw : null;
   const submittedWallet = hasHydrated ? submittedWalletRaw : null;
   const tasksCompleted = hasHydrated ? tasksCompletedRaw : false;
+
+  // Admin-managed quest list. We start with `null` (loading) and swap
+  // in the fetched list on mount — the empty-state placeholder is only
+  // shown once the fetch resolves to an empty array, so a slow gist
+  // read doesn't flash "no active tasks" at the user.
+  const [TASKS, setTasks] = useState<Task[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/tasks", { cache: "no-store" })
+      .then((r) => r.json().catch(() => null))
+      .then((j) => {
+        if (cancelled) return;
+        const list = Array.isArray(j?.tasks) ? (j.tasks as Task[]) : [];
+        setTasks(list);
+      })
+      .catch(() => { if (!cancelled) setTasks([]); });
+    return () => { cancelled = true; };
+  }, []);
+  const HAS_TASKS = !!TASKS && TASKS.length > 0;
 
   // Local form state — pre-filled from the persisted identity. Identity is
   // user-entered (no wallet connection); the form below collects it.
@@ -75,7 +80,7 @@ export default function TasksPage() {
   }, [submittedWallet, twitterHandle]); // eslint-disable-line
 
   // Compose tasks with their store flags.
-  const tasks = TASKS.map((t) => {
+  const tasks = (TASKS ?? []).map((t) => {
     const flags = taskState[t.id] || { opened: false, completed: false };
     return { ...t, opened: flags.opened, completed: flags.completed };
   });
@@ -177,6 +182,21 @@ export default function TasksPage() {
       case "rate_limited":           return "too many attempts — wait a moment.";
       default:                       return `error: ${err}`;
     }
+  }
+
+  // Loading state — TASKS is null until the gist fetch resolves.
+  // Shows a quiet placeholder so a slow read doesn't flash the
+  // "no active tasks" copy at the user.
+  if (TASKS === null) {
+    return (
+      <div className="space-y-3">
+        <Panel title="Quest Log" right={<span className="text-mute">— / —</span>}>
+          <p className="font-mono text-xxs text-mute uppercase tracking-wide">
+            &gt; loading<span className="blink">_</span>
+          </p>
+        </Panel>
+      </div>
+    );
   }
 
   // Empty-tasks state — render a single placeholder panel and bail
