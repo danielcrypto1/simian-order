@@ -21,6 +21,41 @@ const sections = [
   { id: "reset", label: "Reset Data" },
 ];
 
+/**
+ * Build an X profile URL from a raw handle, or null if the handle
+ * doesn't look like a real X username. Twitter handles are 1–15
+ * alphanumeric + underscore — anything else won't resolve and we
+ * shouldn't blindly send the admin to a bogus URL.
+ */
+function xProfileUrl(raw: string | null | undefined): string | null {
+  const clean = (raw ?? "").replace(/^@+/, "").trim();
+  if (!clean || !/^[A-Za-z0-9_]{1,15}$/.test(clean)) return null;
+  return `https://x.com/${clean}`;
+}
+
+/**
+ * Inline @handle that links to the user's X profile when the handle
+ * is valid, falling back to plain text when it isn't (so a malformed
+ * legacy entry doesn't render a broken link). Pulled out so the same
+ * treatment can render in both the Applications and Summoning tables.
+ */
+function XHandleLink({ handle }: { handle: string | null | undefined }) {
+  const url = xProfileUrl(handle);
+  const display = `@${(handle ?? "").replace(/^@+/, "")}`;
+  if (!url) return <span>{display}</span>;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-ape-200 hover:text-bone hover:underline underline-offset-2"
+      title={`open ${display} on x.com`}
+    >
+      {display}<span className="text-mute"> ↗</span>
+    </a>
+  );
+}
+
 /** One curated submission, with the KOL join already applied by
  *  /api/admin/referrals (referrer_isKOL + referrer_tag). */
 type SubmissionAdminItem = {
@@ -950,7 +985,9 @@ function ApplicationsSection({
               return (
                 <tr key={row.id} className="row-hover">
                   <td className="px-3 py-2 font-mono text-ape-100 break-all">{row.wallet}</td>
-                  <td className="px-3 py-2 text-ape-200">@{row.twitter}</td>
+                  <td className="px-3 py-2 text-ape-200">
+                    <XHandleLink handle={row.twitter} />
+                  </td>
                   <td className="px-3 py-2">
                     {row.source === "quest" ? (
                       <span
@@ -1306,7 +1343,9 @@ function SubmittedReferralsSection({
                           return (
                             <tr key={`${row.referrerWallet}-${idx}-${entry.wallet}`} className="row-hover">
                               <td className="px-2 py-1.5 text-mute font-mono">{idx + 1}</td>
-                              <td className="px-2 py-1.5 text-ape-200">@{entry.x}</td>
+                              <td className="px-2 py-1.5 text-ape-200">
+                                <XHandleLink handle={entry.x} />
+                              </td>
                               <td className="px-2 py-1.5 text-ape-200">{entry.discord || "—"}</td>
                               <td className="px-2 py-1.5 font-mono text-ape-100 break-all">
                                 {entry.wallet}
