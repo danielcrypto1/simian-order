@@ -305,10 +305,10 @@ export default function TasksPage() {
                 {allDone && grantedCode && (
                   <span
                     className="badge text-bleed"
-                    aria-label="fcfs slot granted"
+                    aria-label="access granted"
                     style={{ letterSpacing: "0.22em" }}
                   >
-                    FCFS · GRANTED
+                    ACCESS · GRANTED
                   </span>
                 )}
                 {allDone && grantSubmitting && (
@@ -324,17 +324,24 @@ export default function TasksPage() {
                 <dd className="text-ape-100 font-mono break-all">{submittedWallet}</dd>
               </dl>
 
-              {/* Code reveal — shown only after the auto-grant succeeds. */}
+              {/* Discord access reveal — shown only after the auto-grant
+                  succeeds. The displayed phrase is the literal word ORDER
+                  for everyone (admins know the wallet completed the quest
+                  from the Quest Claims panel, no per-user code lookup
+                  needed in Discord). The per-wallet random code is still
+                  stored server-side for audit; this just stops users from
+                  pasting their random code into Discord tickets thinking
+                  it's the access password. */}
               {allDone && grantedCode && (
                 <div className="space-y-2 pt-1">
                   <p className="font-mono text-xxxs uppercase tracking-widest2 text-mute">
-                    ── your fcfs code ──
+                    ── access ──
                   </p>
                   <div
                     className="font-mono text-2xl sm:text-3xl tracking-[0.18em] text-bleed select-all py-1"
-                    aria-label="your fcfs drop code"
+                    aria-label="discord access phrase"
                   >
-                    {grantedCode}
+                    ORDER
                   </div>
                   <ol className="font-mono text-xs text-ape-100 space-y-2 leading-relaxed">
                     <li>
@@ -351,7 +358,9 @@ export default function TasksPage() {
                     </li>
                     <li>
                       <span className="text-mute">02.</span>{" "}
-                      submit this code in discord to access the server.
+                      type{" "}
+                      <span className="font-mono text-bleed">ORDER</span>{" "}
+                      in discord to access the server.
                     </li>
                   </ol>
                 </div>
