@@ -18,13 +18,14 @@ export const runtime = "nodejs";
  *      400 / 403 / 409 / 500 { error: <SubmitError> }
  *
  * The referrer must be application-approved (validated inside
- * upsertSubmission via lib/applicationsStore.findByWallet). Re-
- * submission is allowed only while every existing entry is still
- * pending — once admin decides any entry, the submission locks.
+ * upsertSubmission via lib/applicationsStore.findByWallet). Calls
+ * are append-only: existing entries (decided or pending) stay
+ * untouched, new entries fill the remaining slots up to the
+ * MAX_ENTRIES cap.
  *
  * Status mapping:
  *   not_approved              → 403  (formal apply not approved yet)
- *   submission_locked         → 409  (admin already touched entries)
+ *   no_slots_remaining        → 409  (already at the MAX_ENTRIES cap)
  *   already_submitted_by_other→ 409  (referee wallet claimed elsewhere)
  *   write_failed              → 500  (gist PATCH error)
  *   anything else (validation)→ 400
@@ -89,7 +90,7 @@ export async function POST(req: Request) {
 function statusFor(err: SubmitError): number {
   switch (err) {
     case "not_approved": return 403;
-    case "submission_locked":
+    case "no_slots_remaining":
     case "already_submitted_by_other": return 409;
     case "write_failed": return 500;
     default: return 400;

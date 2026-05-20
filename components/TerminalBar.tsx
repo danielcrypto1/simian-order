@@ -36,7 +36,7 @@ export default function TerminalBar() {
         <span className="text-bone">live</span>
         <span className="text-mute">/</span>
         <span className="text-mute">market:</span>
-        <span className="text-bone">opensea</span>
+        <span className="text-bone">loading<span className="blink">_</span></span>
         {/* suppressHydrationWarning is belt-and-braces — even with the
             empty initial state, the time may flicker once on hydrate. */}
         <span className="ml-auto text-bleed" suppressHydrationWarning>
