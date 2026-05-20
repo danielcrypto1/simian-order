@@ -90,7 +90,10 @@ export default function ReferralPage() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Form state: five draft rows the user fills in.
+  // Form state: starts as five draft rows. Once the server returns
+  // an existing submission, the effect below shrinks `rows` to just
+  // the remaining slots (5 - existing.length) so the append form only
+  // shows empty boxes for the spots the user can still fill.
   const [rows, setRows] = useState<FormRow[]>([
     { ...EMPTY_ROW },
     { ...EMPTY_ROW },
@@ -110,6 +113,16 @@ export default function ReferralPage() {
     },
     []
   );
+
+  // Resize the draft rows whenever the submission changes — fresh
+  // wallet starts with 5 empty rows; a partial submission shrinks to
+  // just the remaining slots; a full submission collapses the form
+  // entirely.
+  useEffect(() => {
+    const remaining = submission ? Math.max(0, 5 - submission.entries.length) : 5;
+    setRows(Array.from({ length: remaining }, () => ({ ...EMPTY_ROW })));
+    setSubmitError(null);
+  }, [submission]);
 
   // Read existing submission on mount + whenever the identity wallet changes.
   const refresh = useCallback(async () => {
@@ -298,12 +311,14 @@ export default function ReferralPage() {
     </header>
   );
 
-  // ── SUBMITTED VIEW (locked status list) ──────────────────────
+  // ── SUBMITTED VIEW (existing entries + optional append form) ──
   if (submission) {
     const allApproved =
       submission.entries.length === 5 &&
       submission.entries.every((e) => e.status === "approved");
     const anyDecided = submission.entries.some((e) => e.status !== "pending");
+    const remainingSlots = Math.max(0, 5 - submission.entries.length);
+    const existingCount = submission.entries.length;
 
     return (
       <div className="max-w-[680px] space-y-10">
@@ -362,6 +377,57 @@ export default function ReferralPage() {
           </ul>
         </section>
 
+        {/* APPEND FORM — only renders when slots remain. Reuses the
+            same rows + submit handler as the initial form; the rows
+            state was resized by an effect above to match remaining
+            slots, and the slot numbering picks up after the existing
+            entries. */}
+        {remainingSlots > 0 && (
+          <>
+            <div className="divider-noise" aria-hidden />
+            <section>
+              <p className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-3">
+                ── summon more · {remainingSlots} slot{remainingSlots === 1 ? "" : "s"} remaining ──
+              </p>
+              <p className="font-serif italic text-xs text-mute mb-4">
+                fill any of the open slots below. existing entries stay as they are.
+              </p>
+
+              <form onSubmit={submit} className="space-y-3">
+                {rows.map((r, i) => (
+                  <RowInput
+                    key={i}
+                    index={existingCount + i}
+                    row={r}
+                    onChange={(field, value) => updateRow(i, field, value)}
+                    disabled={submitting}
+                  />
+                ))}
+
+                {submitError && (
+                  <div className="border border-red-700 bg-red-950 px-2 py-1 text-xxs text-red-200">
+                    error: {submitError}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 pt-2 flex-wrap">
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="text-link"
+                    style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer" }}
+                  >
+                    [ {submitting ? "summoning…" : "summon them"} ]
+                  </button>
+                  <span className="font-serif italic text-xs text-mute">
+                    add only what you mean.
+                  </span>
+                </div>
+              </form>
+            </section>
+          </>
+        )}
+
         <div className="flex items-baseline gap-4 flex-wrap">
           <button
             type="button"
@@ -409,7 +475,12 @@ export default function ReferralPage() {
       }))
       .filter((r) => r.x || r.discord || r.wallet);
     if (filled.length === 0) return { ok: false, error: "fill at least one row" };
-    if (filled.length > 5) return { ok: false, error: "max 5 entries" };
+    if (filled.length > rows.length) return { ok: false, error: "more entries than open slots" };
+    // Existing wallets already on this submission — appending the same
+    // wallet again is a clientside-detectable duplicate.
+    const existingWallets = new Set(
+      (submission?.entries ?? []).map((e) => e.wallet.toLowerCase())
+    );
     const seen = new Set<string>();
     for (let i = 0; i < filled.length; i++) {
       const r = filled[i];
@@ -419,7 +490,7 @@ export default function ReferralPage() {
       if (r.wallet === identityWallet.toLowerCase()) {
         return { ok: false, error: `row ${i + 1}: cannot select your own wallet` };
       }
-      if (seen.has(r.wallet)) {
+      if (seen.has(r.wallet) || existingWallets.has(r.wallet)) {
         return { ok: false, error: `row ${i + 1}: duplicate wallet` };
       }
       seen.add(r.wallet);

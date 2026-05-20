@@ -8,10 +8,11 @@ import { findByWallet } from "./applicationsStore";
  * (X handle / Discord / wallet); admin reviews each entry one by
  * one and approves or rejects. Approved entries earn GTD/eligibility.
  *
- * Storage: one Submission per referrer wallet. Re-submission is
- * blocked once any entry has a status decision so admin work is
- * never silently overwritten — admin can delete the submission via
- * the Reset Data button to allow re-entry.
+ * Storage: one Submission per referrer wallet. Subsequent calls APPEND
+ * new entries into the remaining slots (cap MAX_ENTRIES total) without
+ * touching anything that's already there — decided entries stay
+ * decided, pending entries stay pending. Admin still owns the kill
+ * switch via Reset Data if they need a clean re-entry.
  *
  * Validation enforces:
  *   - referrer must be application-approved at submit time
@@ -61,7 +62,7 @@ export type SubmitError =
   | "invalid_x"
   | "invalid_discord"
   | "already_submitted_by_other"
-  | "submission_locked"
+  | "no_slots_remaining"
   | "write_failed";
 
 export type SubmitResult =
@@ -95,9 +96,19 @@ export async function listSubmissions(): Promise<Submission[]> {
 }
 
 /**
- * Submit (or re-submit while still all-pending) a list of entries.
- * Validates referrer is application-approved + per-entry shape +
- * global wallet uniqueness. Returns a typed error code on failure.
+ * Submit a list of entries. Behaves as append-only:
+ *
+ *   - no existing submission for this wallet → creates one with the
+ *     provided entries (1..MAX_ENTRIES).
+ *   - existing submission → preserves every existing entry as-is
+ *     (decided + pending alike) and appends the new entries into the
+ *     remaining slots. The combined total still has to be
+ *     ≤ MAX_ENTRIES; if there's no room left we return
+ *     `no_slots_remaining`.
+ *
+ * The user can never modify or replace an entry they already filed —
+ * admin is the only one who can wipe a submission (via Reset Data) if
+ * a fresh start is needed.
  */
 export async function upsertSubmission(input: SubmitInput): Promise<SubmitResult> {
   const wallet = input.referrerWallet.toLowerCase().trim();
@@ -116,14 +127,29 @@ export async function upsertSubmission(input: SubmitInput): Promise<SubmitResult
     return { ok: false, error: "too_many" };
   }
 
-  // Per-entry validation + dedupe within the submission.
+  const all = await read();
+  const idx = all.findIndex((s) => s.referrerWallet === wallet);
+  const existingEntries = idx >= 0 ? all[idx].entries : [];
+  const remainingSlots = MAX_ENTRIES - existingEntries.length;
+  if (remainingSlots <= 0) {
+    return { ok: false, error: "no_slots_remaining" };
+  }
+  if (input.entries.length > remainingSlots) {
+    return { ok: false, error: "no_slots_remaining" };
+  }
+
+  // Per-entry validation + dedupe within the new batch AND against
+  // wallets the user already has in this submission.
   const cleanEntries: SubmissionEntry[] = [];
   const seenInBatch = new Set<string>();
+  const existingWallets = new Set(existingEntries.map((e) => e.wallet));
   for (const e of input.entries) {
     const ew = String(e?.wallet ?? "").toLowerCase().trim();
     if (!isWallet(ew)) return { ok: false, error: "invalid_wallet" };
     if (ew === wallet) return { ok: false, error: "self_referral" };
-    if (seenInBatch.has(ew)) return { ok: false, error: "duplicate_wallet" };
+    if (seenInBatch.has(ew) || existingWallets.has(ew)) {
+      return { ok: false, error: "duplicate_wallet" };
+    }
     seenInBatch.add(ew);
 
     const x = String(e?.x ?? "").trim().replace(/^@+/, "");
@@ -133,16 +159,6 @@ export async function upsertSubmission(input: SubmitInput): Promise<SubmitResult
     if (d.length < 1 || d.length > 64) return { ok: false, error: "invalid_discord" };
 
     cleanEntries.push({ x, discord: d, wallet: ew, status: "pending" });
-  }
-
-  const all = await read();
-  const idx = all.findIndex((s) => s.referrerWallet === wallet);
-
-  // Re-submission rule: only allowed if every existing entry is still
-  // pending. Once admin has touched any entry, the submission is locked.
-  if (idx >= 0) {
-    const hasDecisions = all[idx].entries.some((e) => e.status !== "pending");
-    if (hasDecisions) return { ok: false, error: "submission_locked" };
   }
 
   // Global wallet collision check — a referee wallet can only be
@@ -167,7 +183,7 @@ export async function upsertSubmission(input: SubmitInput): Promise<SubmitResult
   const submission: Submission = {
     referrerWallet: wallet,
     referrerRound: idx >= 0 ? all[idx].referrerRound : round,
-    entries: cleanEntries,
+    entries: [...existingEntries, ...cleanEntries],
     createdAt: idx >= 0 ? all[idx].createdAt : now,
     updatedAt: now,
   };
