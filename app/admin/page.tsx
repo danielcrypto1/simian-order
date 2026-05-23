@@ -724,11 +724,18 @@ function ApplicationsSection({
   const questCount = allItems.filter((a) => a.source === "quest").length;
   const applyCount = allItems.length - questCount;
 
-  // Reset paging when filter / search / data shape changes so the user
-  // never lands on a now-empty page after a refresh.
+  // Reset paging only when the admin explicitly changes the filter or
+  // search query — those genuinely re-scope the view and page 4 of the
+  // old result set rarely makes sense in the new one. We deliberately
+  // do NOT depend on `allItems.length` here: the auto-poll fires every
+  // 5s and every approval / new application / delete shifts the count,
+  // which used to yank a reviewer back to page 1 mid-review. The
+  // `safePage = Math.min(page, totalPages - 1)` clamp above already
+  // handles the "you're now past the end" edge case, so the page state
+  // can safely stick.
   useEffect(() => {
     setPage(0);
-  }, [sourceFilter, search, allItems.length]);
+  }, [sourceFilter, search]);
 
   // ── Export helpers ───────────────────────────────────────────────
   // Both run against `allItems` (every application, ignoring the
