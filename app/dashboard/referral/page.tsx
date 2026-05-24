@@ -520,14 +520,32 @@ export default function ReferralPage() {
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
-        setSubmitError(j.error || `http_${r.status}`);
+        setSubmitError(friendlySubmitError(j.error, r.status));
       } else {
         setSubmission(j.submission as Submission);
       }
     } catch {
-      setSubmitError("network_error");
+      setSubmitError("network hiccup — try again in a moment.");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // Map server-side error codes onto user-facing copy. Keeps the form
+  // from leaking jargon ("write_failed") that just looks broken.
+  function friendlySubmitError(code: unknown, status: number): string {
+    switch (code) {
+      case "write_failed":               return "couldn't save right now — please try again in a moment.";
+      case "no_slots_remaining":         return "you've already filled all 5 slots.";
+      case "already_submitted_by_other": return "one of these wallets is already on someone else's summoning list.";
+      case "wallet_in_use":              return "one of these wallets is already filed elsewhere (high order or back room).";
+      case "duplicate_wallet":           return "duplicate wallet — each entry must be unique.";
+      case "self_referral":              return "you can't summon your own wallet.";
+      case "not_approved":               return "the order hasn't recognised your wallet yet.";
+      case "invalid_wallet":             return "one of the wallets isn't a valid 0x… address.";
+      case "invalid_x":                  return "x handle required for every filled row.";
+      case "invalid_discord":            return "discord username required for every filled row.";
+      default:                           return typeof code === "string" ? code : `error: http_${status}`;
     }
   }
 
