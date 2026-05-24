@@ -69,20 +69,43 @@ async function writeGist<T>(name: string, value: T): Promise<void> {
   const body = {
     files: { [name]: { content: JSON.stringify(value, null, 2) } },
   };
-  const r = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${GIST_TOKEN}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-      Accept: "application/vnd.github+json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) {
-    const t = await r.text().catch(() => "");
-    throw new Error(`gist_write_failed_${r.status}: ${t.slice(0, 200)}`);
+
+  // Retry-with-backoff for transient GitHub API failures (5xx, 429, or
+  // a thrown network error). Three attempts at 0ms / 400ms / 1200ms —
+  // enough to ride out a rate-limit window or a brief blip without
+  // making the user re-fill the form. 4xx codes (bad token, etc.) fail
+  // fast since retry can't fix them.
+  let lastErr: Error | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 400 * attempt));
+    try {
+      const r = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${GIST_TOKEN}`,
+          "X-GitHub-Api-Version": "2022-11-28",
+          Accept: "application/vnd.github+json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      if (r.ok) return;
+      // 5xx + 429 are retryable; everything else is a hard fail.
+      if (r.status >= 500 || r.status === 429) {
+        const t = await r.text().catch(() => "");
+        lastErr = new Error(`gist_write_${r.status}: ${t.slice(0, 200)}`);
+        continue;
+      }
+      const t = await r.text().catch(() => "");
+      throw new Error(`gist_write_failed_${r.status}: ${t.slice(0, 200)}`);
+    } catch (e) {
+      // Bare network errors (DNS, TLS, abort) — retry.
+      const isFetchError = e instanceof Error && !/gist_write_failed_/.test(e.message);
+      if (!isFetchError) throw e;
+      lastErr = e as Error;
+    }
   }
+  throw lastErr ?? new Error("gist_write_failed_unknown");
 }
 
 export async function readJSON<T>(name: string, fallback: T): Promise<T> {

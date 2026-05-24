@@ -123,6 +123,36 @@ export default function AdminDashboard() {
       .catch(() => router.replace("/admin/login"));
   }, [refresh, router]);
 
+  // Optimistic mutator for the High Order table. ApplicationsSection
+  // calls this the instant the admin clicks Approve / Reject so the
+  // row flips status immediately, instead of waiting for the gist
+  // round-trip + the 3-fetch parent refresh. The actual server call
+  // still fires; if it fails the next poll will reconcile.
+  const locallyUpdateAppStatus = useCallback(
+    (wallet: string, status: "approved" | "rejected" | "pending") => {
+      setApps((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          items: prev.items.map((a) =>
+            a.wallet.toLowerCase() === wallet.toLowerCase() ? { ...a, status } : a
+          ),
+        };
+      });
+    },
+    []
+  );
+  const locallyRemoveApp = useCallback((wallet: string) => {
+    setApps((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        items: prev.items.filter((a) => a.wallet.toLowerCase() !== wallet.toLowerCase()),
+        total: Math.max(0, prev.total - 1),
+      };
+    });
+  }, []);
+
   return (
     <div className="min-h-screen flex flex-col">
       <AdminTopBar user={authUser} />
@@ -154,7 +184,12 @@ export default function AdminDashboard() {
 
             <RoundSection cfg={cfg} onSaved={refresh} />
             <TasksEditorSection />
-            <ApplicationsSection apps={apps} onAction={refresh} />
+            <ApplicationsSection
+              apps={apps}
+              onAction={refresh}
+              onLocalUpdate={locallyUpdateAppStatus}
+              onLocalRemove={locallyRemoveApp}
+            />
             <SubmittedReferralsSection refs={refs} onChanged={refresh} />
             <BackroomSection />
             <QuestClaimsSection />
@@ -652,9 +687,16 @@ function TasksEditorSection() {
 function ApplicationsSection({
   apps,
   onAction,
+  onLocalUpdate,
+  onLocalRemove,
 }: {
   apps: { items: Application[]; total: number } | null;
   onAction: () => void;
+  /** Optimistic mutator for a single row's status. Lets the UI flip
+   *  the row immediately while the API call runs in background. */
+  onLocalUpdate: (wallet: string, status: "approved" | "rejected" | "pending") => void;
+  /** Optimistic remove — used by Delete. */
+  onLocalRemove: (wallet: string) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -682,18 +724,38 @@ function ApplicationsSection({
 
   async function decide(wallet: string, action: "approve" | "reject") {
     setBusy(`${wallet}:${action}`);
+    // Capture the current status for rollback if the server call fails.
+    const prevStatus = apps?.items.find((a) => a.wallet === wallet)?.status ?? "pending";
+    const nextStatus = action === "approve" ? "approved" : "rejected";
+    // Optimistic flip — the row updates immediately, the user sees the
+    // verdict instantly, and the gist round-trip happens in background.
+    onLocalUpdate(wallet, nextStatus);
     try {
       if (action === "approve") await adminApi.approveApplication(wallet);
       else await adminApi.rejectApplication(wallet);
+      // Success: leave the optimistic state in place. The next auto-poll
+      // will reconcile if anything drifted.
+    } catch (e) {
+      // Failure: roll back the row and trigger a full refresh so the
+      // user sees the true server state.
+      onLocalUpdate(wallet, prevStatus);
       onAction();
+      // eslint-disable-next-line no-console
+      console.warn("admin decide failed:", e);
     } finally { setBusy(null); }
   }
   async function remove(wallet: string) {
     if (!confirm(`Delete application for ${wallet}?\n\nThis cannot be undone.`)) return;
     setBusy(`${wallet}:delete`);
+    // Optimistic remove. If the server call fails we reload from
+    // source so the user sees the row come back.
+    onLocalRemove(wallet);
     try {
       await adminApi.deleteApplication(wallet);
+    } catch (e) {
       onAction();
+      // eslint-disable-next-line no-console
+      console.warn("admin delete failed:", e);
     } finally { setBusy(null); }
   }
 
