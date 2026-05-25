@@ -311,6 +311,10 @@ export default function MintChamberPage() {
 
   // ── Simulation engine (per-wallet tx progression) ────────────────────
   const [armed, setArmed] = useState(false);
+  // Two-step launch: clicking ARM first surfaces a confirmation review.
+  // The chamber only actually starts once the user clicks CONFIRM. This
+  // mirrors the docs' "final confirmation management" requirement.
+  const [confirming, setConfirming] = useState(false);
   const [tick, setTick] = useState(0);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -419,21 +423,55 @@ export default function MintChamberPage() {
 
   function resetSim() {
     setArmed(false);
+    setConfirming(false);
     setTick(0);
     setWallets(INITIAL_WALLETS.map((w) => ({ ...w })));
   }
 
-  function toggleArm() {
-    if (armed) {
-      setArmed(false);
-    } else {
-      setWallets((prev) =>
-        prev.map((w) => ({ ...w, tx: "QUEUED" as TxStatus, hash: null, progress: 0 }))
-      );
-      setTick(0);
-      setArmed(true);
-    }
+  function startArm() {
+    setWallets((prev) =>
+      prev.map((w) => ({ ...w, tx: "QUEUED" as TxStatus, hash: null, progress: 0 }))
+    );
+    setTick(0);
+    setConfirming(false);
+    setArmed(true);
   }
+
+  function haltArm() {
+    setArmed(false);
+  }
+
+  // Primary launch button click router — depends on current phase.
+  function onLaunchClick() {
+    if (armed) { haltArm(); return; }
+    if (confirming) { startArm(); return; }
+    setConfirming(true);
+  }
+
+  // ── Workflow stepper state ──────────────────────────────────────────
+  const configured = !!contract.trim() && parseFloat(price) > 0 && parseInt(perWallet, 10) > 0;
+  const stepBound  = wallets.length > 0;
+  const stepValid  = counts.ready > 0;
+  const stepLaunch = armed || counts.mined > 0;
+  const stepDone   = counts.ready > 0 && counts.mined + counts.failed === counts.ready;
+
+  const workflowSteps = [
+    { n: "01", label: "configure",    done: configured, blurb: configured ? "contract set" : "paste contract" },
+    { n: "02", label: "bind wallets", done: stepBound,  blurb: stepBound ? `${wallets.length} bound` : "add wallet" },
+    { n: "03", label: "validate",     done: stepValid,  blurb: stepValid ? `${counts.ready} ready` : "needs ready wallet" },
+    { n: "04", label: "launch",       done: stepLaunch, blurb: armed ? "running…" : confirming ? "awaiting confirm" : "ready when you are" },
+    { n: "05", label: "watch",        done: stepDone,   blurb: counts.mined > 0 ? `+${realizedNet.toFixed(2)} ape` : "live dashboard" },
+  ];
+  // The current step is the first one not yet done.
+  const currentStepIdx = workflowSteps.findIndex((s) => !s.done);
+  const nextHint =
+    !configured                                      ? "step 1 — set a contract address, price, and per-wallet quantity above." :
+    !stepBound                                       ? "step 2 — bind at least one wallet via Add Wallet, WalletConnect, or Import." :
+    !stepValid                                       ? "step 3 — every bound wallet is blocked. fund their gas or unbind them." :
+    confirming                                       ? "step 4 — review the launch parameters and confirm." :
+    armed                                            ? "step 4 — chamber is running. watch the dashboard below." :
+    stepDone                                         ? `step 5 — chamber complete. realized +${realizedNet.toFixed(2)} ape.` :
+                                                       "step 4 — chamber is ready. click review & launch when set.";
 
   return (
     <div>
@@ -474,6 +512,60 @@ export default function MintChamberPage() {
           <span className="text-mute">/</span>
           <span><span className="text-mute">lat:</span> <span className="text-bone">11ms</span></span>
         </div>
+      </section>
+
+      {/* ──────────────────────────────────────────────────────────────
+          WORKFLOW STEPPER — 5 steps, current one pulses. Tells a new
+          user exactly where they are and what to do next.
+          ────────────────────────────────────────────────────────────── */}
+      <section className="mb-6">
+        <ol className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          {workflowSteps.map((s, i) => {
+            const isCurrent = i === currentStepIdx;
+            const isDone = s.done;
+            const color = isDone ? "#34d399" : isCurrent ? "#0040ff" : "#1a1a28";
+            return (
+              <li
+                key={s.n}
+                style={{
+                  border: `1px solid ${color}`,
+                  background:
+                    isCurrent ? "rgba(0,64,255,0.10)" :
+                    isDone    ? "rgba(52,211,153,0.05)" :
+                                "transparent",
+                  opacity: isDone || isCurrent ? 1 : 0.55,
+                  padding: "8px 10px",
+                }}
+                className={isCurrent ? "pulse-soft" : ""}
+              >
+                <div className="flex items-baseline justify-between">
+                  <span className="font-pixel text-2xl leading-none" style={{ color }}>
+                    {s.n}
+                  </span>
+                  <span
+                    className="font-mono text-xxs"
+                    style={{ color: isDone ? "#34d399" : isCurrent ? "#0040ff" : "#5a5a6a" }}
+                  >
+                    {isDone ? "✓" : isCurrent ? "●" : "—"}
+                  </span>
+                </div>
+                <div
+                  className="font-mono text-xxs uppercase tracking-widest2 mt-1"
+                  style={{ color: isDone || isCurrent ? "#e8e8e8" : "#5a5a6a" }}
+                >
+                  {s.label}
+                </div>
+                <div className="font-serif italic text-xxs text-mute mt-1 truncate">
+                  {s.blurb}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+        <p className="font-serif italic text-bone text-sm mt-3">
+          <span className="text-elec font-mono text-xxs uppercase tracking-widest2 mr-2">next →</span>
+          {nextHint}
+        </p>
       </section>
 
       {/* ──────────────────────────────────────────────────────────────
@@ -613,7 +705,11 @@ export default function MintChamberPage() {
 
       <div className="space-y-4">
         {/* ── 01 — TARGET CONTRACT ── */}
-        <Panel title="Target Contract" right={<span>fn detected · supply {supply.toLocaleString()} / {SUPPLY_MAX.toLocaleString()}</span>}>
+        <Panel title="Step 1 · Target Contract" right={<span>fn detected · supply {supply.toLocaleString()} / {SUPPLY_MAX.toLocaleString()}</span>}>
+          <p className="font-serif italic text-xs text-mute mb-3">
+            tell the chamber which collection to mint. paste the address and pick the function.
+          </p>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="sm:col-span-2">
               <label className="label">contract address</label>
@@ -623,9 +719,14 @@ export default function MintChamberPage() {
                 onChange={(e) => setContract(e.target.value)}
                 spellCheck={false}
               />
-              <div className="text-xxs text-mute mt-1">
-                detected: <span className="text-bone">ERC-721A</span> · max per wallet{" "}
-                <span className="text-bone">1</span> · public phase active ·{" "}
+              <div className="text-xxs text-mute mt-2 flex items-center flex-wrap gap-x-2 gap-y-1">
+                <span className="badge text-emerald-400" style={{ letterSpacing: "0.20em" }}>
+                  MAX MINT DETECTED · 1
+                </span>
+                <span>detected: <span className="text-bone">ERC-721A</span></span>
+                <span className="text-mute">·</span>
+                <span>public phase active</span>
+                <span className="text-mute">·</span>
                 <span className="text-elec">edge +3.2 blocks</span>
               </div>
             </div>
@@ -667,7 +768,7 @@ export default function MintChamberPage() {
 
         {/* ── 02 — WALLET ROSTER ── */}
         <Panel
-          title="Wallet Roster"
+          title="Step 2 · Wallet Roster"
           right={
             <span>
               {wallets.length}/{SLOTS_TOTAL} bound · proj +{(counts.ready * projPerWallet).toFixed(2)} ape
@@ -676,6 +777,11 @@ export default function MintChamberPage() {
           }
           padded={false}
         >
+          <div className="px-3 py-2 border-b border-border">
+            <p className="font-serif italic text-xs text-mute">
+              bind wallets that will mint. each SIMIAN you hold unlocks 5 slots. use any combination of the buttons below.
+            </p>
+          </div>
           <div className="px-3 py-2 flex items-center gap-2 flex-wrap border-b border-border">
             <Button
               variant="ghost"
@@ -760,8 +866,13 @@ export default function MintChamberPage() {
           )}
 
           {wallets.length === 0 ? (
-            <div className="px-3 py-6 text-center">
-              <p className="font-serif italic text-mute">no wallets bound. the chamber is empty.</p>
+            <div className="px-3 py-8 text-center space-y-2">
+              <p className="font-serif italic text-base text-bone">no wallets bound. the chamber is empty.</p>
+              <p className="font-mono text-xxs uppercase tracking-widest2 text-mute">
+                use <span className="text-elec">+ ADD WALLET</span> above to bind one manually,
+                <br className="hidden sm:inline" />
+                or <span className="text-elec">+ WALLETCONNECT</span> to bind via your wallet app.
+              </p>
             </div>
           ) : (
             <ul className="divide-y divide-border">
@@ -814,7 +925,10 @@ export default function MintChamberPage() {
         </Panel>
 
         {/* ── 03 — EXECUTION MODE ── */}
-        <Panel title="Execution Mode" right={<span>{mode.toLowerCase()}</span>}>
+        <Panel title="Step 3a · Execution Mode" right={<span>{mode.toLowerCase()}</span>}>
+          <p className="font-serif italic text-xs text-mute mb-3">
+            how the chamber fans out signed transactions across your wallets. optimized is the sane default for most mints.
+          </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {EXEC_MODES.map((m) => {
               const active = m.id === mode;
@@ -842,7 +956,10 @@ export default function MintChamberPage() {
         </Panel>
 
         {/* ── 04 — GAS PRIORITY ── */}
-        <Panel title="Gas Priority" right={<span>net median 0.62 gwei</span>}>
+        <Panel title="Step 3b · Gas Priority" right={<span>net median 0.62 gwei</span>}>
+          <p className="font-serif italic text-xs text-mute mb-3">
+            how aggressive to bid for blockspace. higher = faster + more expensive. balanced matches the network median.
+          </p>
           <div className="grid grid-cols-3 gap-2">
             {GAS_TIERS.map((g) => {
               const active = g.id === tier;
@@ -873,7 +990,34 @@ export default function MintChamberPage() {
         </Panel>
 
         {/* ── 05 — PRE-MINT VALIDATION + PROFIT GAUGE ── */}
-        <Panel title="Pre-Mint Validation" right={<span>{counts.ready} ready · {wallets.length - counts.ready} blocked</span>}>
+        <Panel title="Step 4 · Pre-Mint Validation" right={<span>{counts.ready} ready · {wallets.length - counts.ready} blocked</span>}>
+          <p className="font-serif italic text-xs text-mute mb-3">
+            the chamber checks every wallet and the contract before launch. red rows will be skipped automatically.
+          </p>
+
+          {/* Contract sanity checks — mirror the docs' "contract activity",
+              "sold-out detection", "parameter accuracy" validation layer. */}
+          <div className="mb-4 border-l-2 border-emerald-400 pl-3 py-1">
+            <div className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-2">
+              contract sanity
+            </div>
+            <ul className="space-y-1 font-mono text-xxs text-bone">
+              <li><span className="text-emerald-400">✓</span> contract live &nbsp;·&nbsp; accepting mints</li>
+              <li><span className="text-emerald-400">✓</span> phase &nbsp;·&nbsp; public mint active</li>
+              <li>
+                <span className={supplyLeft > 0 ? "text-emerald-400" : "text-bleed"}>
+                  {supplyLeft > 0 ? "✓" : "✗"}
+                </span>{" "}
+                supply available &nbsp;·&nbsp; {supply.toLocaleString()} / {SUPPLY_MAX.toLocaleString()} {supplyLeft > 0 ? "(not sold out)" : "(sold out)"}
+              </li>
+              <li><span className="text-emerald-400">✓</span> fn signature matches &nbsp;·&nbsp; <code className="text-elec">{mintFn}</code></li>
+              <li><span className="text-emerald-400">✓</span> mint parameters &nbsp;·&nbsp; {perWalletNum} × {priceNum.toFixed(3)} ape per wallet</li>
+            </ul>
+          </div>
+
+          <div className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-2">
+            wallet checks
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
             <ValidationStat n={counts.ready}   label="READY"           tone="bone" />
             <ValidationStat n={counts.lowGas}  label="INSUFFICIENT"    tone="ape-200" />
@@ -929,7 +1073,10 @@ export default function MintChamberPage() {
         </Panel>
 
         {/* ── 06 — RETRY & FAIL-SAFE ── */}
-        <Panel title="Retry & Fail-Safe" right={<span>auto-recover active</span>}>
+        <Panel title="Step 3c · Retry & Fail-Safe" right={<span>auto-recover active</span>}>
+          <p className="font-serif italic text-xs text-mute mb-3">
+            what happens when a transaction fails. the defaults are sensible — leave them on unless you know better.
+          </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="label">max retries</label>
@@ -961,27 +1108,82 @@ export default function MintChamberPage() {
         <div
           className="panel"
           style={{
-            borderColor: armed ? "#ff2d2d" : "#0040ff",
-            background: armed ? "rgba(255,45,45,0.06)" : "rgba(0,64,255,0.06)",
+            borderColor: armed ? "#ff2d2d" : confirming ? "#ff2d2d" : "#0040ff",
+            background: armed ? "rgba(255,45,45,0.06)" : confirming ? "rgba(255,45,45,0.04)" : "rgba(0,64,255,0.06)",
             boxShadow: armed ? "0 0 0 1px rgba(255,45,45,0.4)" : "none",
           }}
         >
-          <div className="panel-header" style={{ borderBottomColor: armed ? "#ff2d2d" : "#0040ff" }}>
-            <span><span className="text-elec">&gt;</span> Chamber Control</span>
+          <div className="panel-header" style={{ borderBottomColor: armed ? "#ff2d2d" : confirming ? "#ff2d2d" : "#0040ff" }}>
+            <span><span className="text-elec">&gt;</span> Step 5 · Chamber Control</span>
             <span className="font-mono text-xxxs tracking-widest text-mute normal-case">
               prototype · simulation only
             </span>
           </div>
           <div className="panel-body">
-            <div className="flex items-center gap-4 flex-wrap">
-              <Button
-                variant={armed ? "default" : "primary"}
-                onClick={toggleArm}
-                className={armed ? "" : "pulse-soft"}
-                style={{ minWidth: 200, fontSize: 14, padding: "10px 16px" }}
+            <p className="font-serif italic text-xs text-mute mb-3">
+              {armed
+                ? `— the chamber is moving. realized so far: +${realizedNet.toFixed(2)} ape.`
+                : confirming
+                ? "— this is the last step before signed broadcasts go out. review below."
+                : counts.ready === 0
+                ? "— no ready wallets yet. fix the validation step above before you can launch."
+                : "— nothing is signed until you click confirm. the chamber is safe to review."}
+            </p>
+
+            {/* Confirmation review — appears between the ARM click and the
+                actual launch. Mirrors docs' "final confirmation management". */}
+            {confirming && !armed && (
+              <div
+                className="mb-4 border p-3"
+                style={{ borderColor: "#ff2d2d", background: "rgba(255,45,45,0.05)" }}
               >
-                {armed ? "■ HALT CHAMBER" : `▶ ARM — capture +${projectedNet.toFixed(2)} APE`}
-              </Button>
+                <div className="font-mono text-xxs uppercase tracking-widest2 text-bleed mb-2">
+                  ⚠ final confirmation
+                </div>
+                <dl className="grid grid-cols-[140px_1fr] gap-y-1 font-mono text-xxs uppercase tracking-widest2 mb-3">
+                  <dt className="text-mute">contract</dt>
+                  <dd className="text-bone font-mono">{SHORT(contract)}</dd>
+                  <dt className="text-mute">function</dt>
+                  <dd className="text-bone"><code className="text-elec">{mintFn}</code></dd>
+                  <dt className="text-mute">wallets</dt>
+                  <dd className="text-bone">{counts.ready} ready &nbsp;·&nbsp; {wallets.length - counts.ready} will be skipped</dd>
+                  <dt className="text-mute">payload</dt>
+                  <dd className="text-bone">{totalNfts} nft &nbsp;·&nbsp; {totalApeStr} ape</dd>
+                  <dt className="text-mute">projected exit</dt>
+                  <dd className="text-emerald-400">+{projectedNet.toFixed(2)} ape &nbsp;·&nbsp; {multiplier.toFixed(1)}× @ floor {currentFloor.toFixed(2)}</dd>
+                  <dt className="text-mute">mode &nbsp;·&nbsp; gas</dt>
+                  <dd className="text-bone">{mode.toLowerCase()} &nbsp;·&nbsp; {tier.toLowerCase()} ({gasGwei} gwei)</dd>
+                  <dt className="text-mute">retry</dt>
+                  <dd className="text-bone">{maxRetries} attempts · auto-bump {autoBump ? "on" : "off"} · skip-on-fail {skipOnFail ? "on" : "off"}</dd>
+                </dl>
+                <p className="font-serif italic text-xs text-bone mb-3">
+                  every signed broadcast is final once it lands on chain. you can still HALT mid-run.
+                </p>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <Button variant="primary" onClick={startArm} className="pulse-soft" style={{ minWidth: 200, fontSize: 14, padding: "10px 16px" }}>
+                    ✓ confirm &amp; launch
+                  </Button>
+                  <Button variant="ghost" onClick={() => setConfirming(false)}>× cancel review</Button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center gap-4 flex-wrap">
+              {!confirming && (
+                <Button
+                  variant={armed ? "default" : "primary"}
+                  onClick={onLaunchClick}
+                  disabled={!armed && counts.ready === 0}
+                  className={armed ? "" : counts.ready > 0 ? "pulse-soft" : ""}
+                  style={{ minWidth: 220, fontSize: 14, padding: "10px 16px" }}
+                >
+                  {armed
+                    ? "■ HALT CHAMBER"
+                    : counts.ready === 0
+                    ? "▶ NO READY WALLETS"
+                    : `▶ REVIEW & LAUNCH · +${projectedNet.toFixed(2)} APE`}
+                </Button>
+              )}
               <Button variant="ghost" onClick={resetSim}>RESET</Button>
               <div className="ml-auto text-right">
                 <div className="font-mono text-xxs uppercase tracking-widest2 text-mute">payload</div>
@@ -993,17 +1195,12 @@ export default function MintChamberPage() {
                 </div>
               </div>
             </div>
-            <p className="font-serif italic text-xs text-mute mt-3">
-              {armed
-                ? `— the chamber is moving. realized so far: +${realizedNet.toFixed(2)} ape.`
-                : `— hesitation costs ${(currentVelocity * 0.04).toFixed(2)} ape per second at current floor.`}
-            </p>
           </div>
         </div>
 
         {/* ── 07 — REAL-TIME DASHBOARD ── */}
         <Panel
-          title="Real-Time Mint Dashboard"
+          title="Step 5 · Real-Time Mint Dashboard"
           right={
             <span>
               success {counts.successRate}% &nbsp;·&nbsp;
@@ -1015,6 +1212,11 @@ export default function MintChamberPage() {
           }
           padded={false}
         >
+          <div className="px-3 py-2 border-b border-border">
+            <p className="font-serif italic text-xs text-mute">
+              each wallet shows its live tx progress and hash. <span className="text-emerald-400">green</span> = mined, <span className="text-bleed">red</span> = failed, gray = skipped.
+            </p>
+          </div>
           <div className="h-2 w-full bg-ape-950 border-b border-border">
             <div
               className="h-full bg-ape-500 transition-all"
@@ -1081,6 +1283,9 @@ export default function MintChamberPage() {
           title="Chamber Leaderboard · top 3 wallets"
           right={<span>by realized + projected gain</span>}
         >
+          <p className="font-serif italic text-xs text-mute mb-3">
+            your highest-earning wallets, scored by realized profit plus projected gain on pending mints.
+          </p>
           <ol className="space-y-3">
             {leaderboard.map((w, i) => {
               const total = w.realized + w.projected;
