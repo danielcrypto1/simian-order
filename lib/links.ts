@@ -6,7 +6,7 @@ export const SOCIAL = {
   X: "https://x.com/SimianOrder",
   DISCORD: "https://discord.gg/JYJZruds6R",
   APECHAIN: "https://apechain.com",
-  OPENSEA: "https://opensea.io/collection/simian-order",
+  OPENSEA: "https://opensea.io/collection/simian-order-apechain/overview",
 };
 
 export const TASK_LINKS = {
@@ -41,6 +41,6 @@ export const OPENSEA_URL: string =
  * to launch the marketplace surface without a code push.
  */
 export const OPENSEA_HIDDEN: boolean =
-  (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_OPENSEA_HIDDEN === "0")
-    ? false
-    : true; // default: hidden
+  (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_OPENSEA_HIDDEN === "1")
+    ? true
+    : false; // default: live
