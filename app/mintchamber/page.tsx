@@ -1,791 +1,242 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Panel from "@/components/Panel";
 import Button from "@/components/Button";
-import StatusBadge from "@/components/StatusBadge";
 
 /**
- * MINT CHAMBER — holder-gated prototype.
+ * MINT CHAMBER — multi-wallet NFT minter prototype.
  *
  * Visual demo only. Nothing here calls a chain, signs anything, or
- * fetches real state. Mock data is shaped to mirror the documented
- * Mint Chamber feature surface (wallet roster, mint config, pre-mint
- * validation, gas monitor, execution modes, retry, live tx dashboard)
- * with an ambient FOMO ticker on top: floor sparkline, mint velocity,
- * supply countdown, live cross-chamber activity feed, per-wallet P/L
- * projections, leaderboard.
- *
- * Not linked from any nav — reachable only by typing /mintchamber.
+ * fetches real state. SIMIAN ORDER holder-gated tool that lets the
+ * user bind multiple wallets, see which are whitelisted, configure
+ * a mint, and watch a per-wallet success/fail dashboard once the
+ * mint runs. Not linked from any nav — reachable only by typing
+ * /mintchamber.
  */
-
-type Group = "WHITELIST" | "SNIPING" | "RESERVE" | "MAIN";
-type WalletStatus = "READY" | "LOW GAS" | "NOT WHITELISTED" | "INVALID";
-type TxStatus = "QUEUED" | "PENDING" | "MINED" | "FAILED";
-
-type Wallet = {
-  addr: string;
-  group: Group;
-  balance: number; // APE
-  status: WalletStatus;
-  tx: TxStatus;
-  hash: string | null;
-  progress: number; // 0-100
-};
-
-const SHORT = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 
 const SIMIAN_HELD = 3;
 const SLOTS_PER_SIMIAN = 5;
 const SLOTS_TOTAL = SIMIAN_HELD * SLOTS_PER_SIMIAN;
 
-const SUPPLY_MAX = 5000;
-const SUPPLY_START = 4420;
+const MINT_PRICE = 1.0;   // APE per NFT
+const PER_WALLET = 5;     // NFTs minted per wallet per run
 
-const INITIAL_WALLETS: Wallet[] = [
-  { addr: "0x9a17d3b1f4c2e88d4ce8b8a7be4a6d9c1f02e771", group: "MAIN",      balance: 4.21, status: "READY",           tx: "QUEUED", hash: null, progress: 0 },
-  { addr: "0x6f02b41cdd3a18bb55c0e89aaa7cf201a7c4d9e3", group: "WHITELIST", balance: 1.88, status: "READY",           tx: "QUEUED", hash: null, progress: 0 },
-  { addr: "0xbd29c8773e9a01a7e44e6f3f8cd0a2e8b9e1c4a6", group: "SNIPING",   balance: 0.62, status: "READY",           tx: "QUEUED", hash: null, progress: 0 },
-  { addr: "0x1c8be0c4a76a5d2db3c5fa8e0d12e6f3d99a01b2", group: "RESERVE",   balance: 0.04, status: "LOW GAS",         tx: "QUEUED", hash: null, progress: 0 },
-  { addr: "0xeac4cf02af0a3a18f7d1d51d6e6f01e5b9c2adf0", group: "WHITELIST", balance: 2.31, status: "READY",           tx: "QUEUED", hash: null, progress: 0 },
-  { addr: "0x33aa10ff8c5e0a9b3a72e8c1f9d404e2bb6e7a18", group: "MAIN",      balance: 1.45, status: "NOT WHITELISTED", tx: "QUEUED", hash: null, progress: 0 },
-  { addr: "0x77c6e21d3a9f0b48c1cf52d18b4ea7c0e8f3a99d", group: "SNIPING",   balance: 0.91, status: "READY",           tx: "QUEUED", hash: null, progress: 0 },
-];
+type MintStatus = "idle" | "minting" | "success" | "failed" | "skipped";
 
-type ExecMode = "SIMULTANEOUS" | "OPTIMIZED" | "SEQUENTIAL" | "SMART DELAY";
-type GasTier = "HIGH" | "BALANCED" | "LOW";
+type Wallet = {
+  id: string;
+  addr: string;
+  balance: number;     // APE
+  whitelisted: boolean;
+  status: MintStatus;
+  minted: number;      // 0..PER_WALLET
+  txHash: string | null;
+};
 
-const EXEC_MODES: { id: ExecMode; blurb: string }[] = [
-  { id: "SIMULTANEOUS", blurb: "fire all wallets concurrently. fastest, heaviest RPC load." },
-  { id: "OPTIMIZED",    blurb: "reorders + paces against live mempool conditions." },
-  { id: "SEQUENTIAL",   blurb: "one wallet at a time. predictable, slow." },
-  { id: "SMART DELAY",  blurb: "randomized inter-tx pauses. lowers detection footprint." },
-];
-
-const GAS_TIERS: { id: GasTier; blurb: string; gwei: string }[] = [
-  { id: "HIGH",     blurb: "front of block — expensive.", gwei: "0.84" },
-  { id: "BALANCED", blurb: "match network median.",        gwei: "0.62" },
-  { id: "LOW",      blurb: "patient. may not land round.", gwei: "0.41" },
-];
-
-// Mock "other chambers" feed messages. New entries are constructed at
-// runtime by combining a verb with a random wallet stub + amount so the
-// feed feels alive without a real data source.
-const FEED_VERBS = [
-  "minted",
-  "sniped",
-  "rotated",
-  "swept",
-  "flipped",
-  "rugged the public",
-  "locked-in",
-];
-const FEED_CHAMBERS = [
-  "alpha:nova",
-  "lattice",
-  "vault.13",
-  "the-pit",
-  "umbra",
-  "obelisk",
-  "/dev/null",
-  "chamber:sigma",
-];
+const SHORT = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 function randHex(n: number) {
-  let s = "";
   const chars = "0123456789abcdef";
+  let s = "";
   for (let i = 0; i < n; i++) s += chars[Math.floor(Math.random() * 16)];
   return s;
 }
 
-function randWalletStub() {
-  return `0x${randHex(4)}…${randHex(4)}`;
+function genWallet(whitelisted?: boolean): Wallet {
+  return {
+    id: "w" + Math.random().toString(36).slice(2, 10),
+    addr: "0x" + randHex(40),
+    balance: parseFloat((Math.random() * 8 + 2).toFixed(2)),
+    whitelisted: whitelisted ?? Math.random() < 0.7,
+    status: "idle",
+    minted: 0,
+    txHash: null,
+  };
 }
 
-function makeFeedEntry(floor: number): string {
-  const r = Math.random();
-  // 40% per-wallet mint, 30% chamber sweep, 20% block landing, 10% rotation
-  if (r < 0.4) {
-    const gain = (Math.random() * floor * 0.9 + floor * 0.1).toFixed(2);
-    return `${randWalletStub()} ${FEED_VERBS[Math.floor(Math.random() * 3)]} +${gain} ape`;
-  }
-  if (r < 0.7) {
-    const ch = FEED_CHAMBERS[Math.floor(Math.random() * FEED_CHAMBERS.length)];
-    const n = 4 + Math.floor(Math.random() * 12);
-    return `chamber ${ch} ${FEED_VERBS[3]} ${n}/${n} wallets`;
-  }
-  if (r < 0.9) {
-    const block = 18_440_000 + Math.floor(Math.random() * 9999);
-    const n = 2 + Math.floor(Math.random() * 14);
-    return `block ${block.toLocaleString()} — ${n} chamber mints landed`;
-  }
-  const gain = (Math.random() * 12 + 4).toFixed(2);
-  return `rotation alpha booked +${gain} ape across chamber`;
-}
+const INITIAL_WALLETS: Wallet[] = [
+  { id: "w1", addr: "0x9a17d3b1f4c2e88d4ce8b8a7be4a6d9c1f02e771", balance: 8.42, whitelisted: true,  status: "idle", minted: 0, txHash: null },
+  { id: "w2", addr: "0x6f02b41cdd3a18bb55c0e89aaa7cf201a7c4d9e3", balance: 6.18, whitelisted: true,  status: "idle", minted: 0, txHash: null },
+  { id: "w3", addr: "0xbd29c8773e9a01a7e44e6f3f8cd0a2e8b9e1c4a6", balance: 5.62, whitelisted: false, status: "idle", minted: 0, txHash: null },
+];
 
 export default function MintChamberPage() {
-  // ── Config state ─────────────────────────────────────────────────────
-  const [contract, setContract] = useState("0x4d2e8a17c8b1ee4c6e0d3f9b22ca8e7b1d2f0a55");
-  const [mintFn, setMintFn] = useState("mint(uint256)");
-  const [price, setPrice] = useState("0.069");
-  const [perWallet, setPerWallet] = useState("1");
-
-  const [mode, setMode] = useState<ExecMode>("OPTIMIZED");
-  const [tier, setTier] = useState<GasTier>("BALANCED");
-
-  const [maxRetries, setMaxRetries] = useState("3");
-  const [autoBump, setAutoBump] = useState(true);
-  const [skipOnFail, setSkipOnFail] = useState(true);
-
-  // ── Wallet roster + add/import flows ────────────────────────────────
   const [wallets, setWallets] = useState<Wallet[]>(INITIAL_WALLETS);
   const [addOpen, setAddOpen] = useState(false);
   const [addAddr, setAddAddr] = useState("");
-  const [addGroup, setAddGroup] = useState<Group>("MAIN");
   const [addError, setAddError] = useState<string | null>(null);
-  const [wcStatus, setWcStatus] = useState<"idle" | "connecting">("idle");
-  const [lastAction, setLastAction] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [wcConnecting, setWcConnecting] = useState(false);
+  const [minting, setMinting] = useState(false);
+  const [dashboardOpen, setDashboardOpen] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
-  // Auto-clear the last-action toast after a few seconds so the
-  // header doesn't carry yesterday's news.
+  // Derived
+  const requiredBalance = MINT_PRICE * PER_WALLET;
+  const eligibleCount = wallets.filter((w) => w.whitelisted && w.balance >= requiredBalance).length;
+  const ineligibleCount = wallets.length - eligibleCount;
+  const totalNfts = eligibleCount * PER_WALLET;
+  const totalCost = eligibleCount * PER_WALLET * MINT_PRICE;
+  const atCapacity = wallets.length >= SLOTS_TOTAL;
+  const canMint = eligibleCount > 0 && !minting;
+
+  // Mint simulation: each tick advances `minted` for any minting wallet;
+  // when it hits PER_WALLET, the wallet resolves to success or failed.
   useEffect(() => {
-    if (!lastAction) return;
-    const id = setTimeout(() => setLastAction(null), 3500);
-    return () => clearTimeout(id);
-  }, [lastAction]);
+    if (!minting) return;
+    const tick = setInterval(() => {
+      setWallets((prev) => {
+        const next = prev.map((w) => ({ ...w }));
+        let stillWorking = false;
+        for (const w of next) {
+          if (!w.whitelisted || w.balance < requiredBalance) {
+            if (w.status !== "skipped") w.status = "skipped";
+            continue;
+          }
+          if (w.status === "success" || w.status === "failed") continue;
+          stillWorking = true;
+          if (w.status === "idle") {
+            w.status = "minting";
+            w.txHash = "0x" + randHex(12) + "…" + randHex(4);
+          }
+          if (w.minted < PER_WALLET) {
+            w.minted += 1;
+          }
+          if (w.minted >= PER_WALLET) {
+            w.status = Math.random() < 0.92 ? "success" : "failed";
+          }
+        }
+        if (!stillWorking) {
+          // last frame settled — flip out of minting on next macrotask
+          setTimeout(() => setMinting(false), 200);
+        }
+        return next;
+      });
+    }, 600);
+    return () => clearInterval(tick);
+    // requiredBalance is constant; effect re-arms when `minting` flips
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minting]);
 
-  function genWallet(group: Group, balance?: number): Wallet {
-    const bal = balance ?? Math.random() * 4 + 0.2;
-    const rounded = parseFloat(bal.toFixed(2));
-    return {
-      addr: "0x" + randHex(40),
-      group,
-      balance: rounded,
-      status: rounded < 0.1 ? "LOW GAS" : "READY",
-      tx: "QUEUED",
-      hash: null,
-      progress: 0,
-    };
-  }
-
+  // ── Wallet roster handlers ──────────────────────────────────────────
   function openAddForm() {
     setAddOpen((v) => !v);
-    setAddError(null);
     setAddAddr("");
-    setAddGroup("MAIN");
+    setAddError(null);
   }
 
   function submitAdd() {
     const v = addAddr.trim().toLowerCase();
     if (!/^0x[0-9a-f]{40}$/.test(v)) {
-      setAddError("invalid address — must be 0x followed by 40 hex chars");
+      setAddError("invalid address — must be 0x followed by 40 hex characters");
       return;
     }
     if (wallets.some((w) => w.addr.toLowerCase() === v)) {
-      setAddError("already bound");
+      setAddError("this wallet is already added");
       return;
     }
-    const bal = Math.random() * 4 + 0.2;
-    const rounded = parseFloat(bal.toFixed(2));
     setWallets((ws) => [
       ...ws,
       {
+        ...genWallet(),
         addr: v,
-        group: addGroup,
-        balance: rounded,
-        status: rounded < 0.1 ? "LOW GAS" : "READY",
-        tx: "QUEUED",
-        hash: null,
-        progress: 0,
       },
     ]);
     setAddOpen(false);
     setAddAddr("");
     setAddError(null);
-    setLastAction(`bound ${v.slice(0, 6)}…${v.slice(-4)} · ${addGroup.toLowerCase()}`);
   }
 
   function runWalletConnect() {
-    if (wcStatus === "connecting") return;
-    setWcStatus("connecting");
-    setLastAction("walletconnect · awaiting approval in wallet…");
+    if (atCapacity || wcConnecting) return;
+    setWcConnecting(true);
     setTimeout(() => {
-      const w = genWallet("MAIN");
-      setWallets((ws) => [...ws, w]);
-      setWcStatus("idle");
-      setLastAction(`walletconnect bound ${w.addr.slice(0, 6)}…${w.addr.slice(-4)}`);
-    }, 1800);
+      setWallets((ws) => [...ws, genWallet()]);
+      setWcConnecting(false);
+    }, 1500);
   }
 
   function runImport(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setLastAction(`parsing ${file.name}…`);
+    const f = e.target.files?.[0];
+    if (!f) return;
     setTimeout(() => {
-      const slotsLeft = SLOTS_TOTAL - wallets.length;
-      const n = Math.max(0, Math.min(3, slotsLeft));
-      if (n === 0) {
-        setLastAction("import failed — chamber at capacity");
-        return;
-      }
-      const groups: Group[] = ["WHITELIST", "SNIPING", "MAIN", "RESERVE"];
-      const newOnes: Wallet[] = Array.from({ length: n }, (_, i) =>
-        genWallet(groups[i % groups.length])
-      );
+      const n = Math.min(3, SLOTS_TOTAL - wallets.length);
+      if (n <= 0) return;
+      const newOnes: Wallet[] = Array.from({ length: n }, () => genWallet());
       setWallets((ws) => [...ws, ...newOnes]);
-      setLastAction(`imported ${n} wallet${n === 1 ? "" : "s"} from ${file.name}`);
-    }, 900);
+    }, 800);
     e.target.value = "";
   }
 
-  function removeWallet(addr: string) {
-    setWallets((ws) => ws.filter((w) => w.addr !== addr));
-    setLastAction(`removed ${addr.slice(0, 6)}…${addr.slice(-4)}`);
+  function removeWallet(id: string) {
+    setWallets((ws) => ws.filter((w) => w.id !== id));
   }
 
-  const atCapacity = wallets.length >= SLOTS_TOTAL;
+  // ── Mint controls ───────────────────────────────────────────────────
+  function startMint() {
+    if (!canMint) return;
+    setWallets((ws) =>
+      ws.map((w) => ({ ...w, status: "idle" as const, minted: 0, txHash: null }))
+    );
+    setDashboardOpen(true);
+    setMinting(true);
+  }
 
-  // ── Ambient FOMO ticker — always runs, even when chamber is idle ────
-  const [floorHist, setFloorHist] = useState<number[]>(() => {
-    const seed = [1.0, 1.02, 1.05, 1.04, 1.08, 1.12, 1.18, 1.17, 1.22, 1.28, 1.31, 1.35, 1.42, 1.40, 1.46, 1.51, 1.55, 1.58, 1.62];
-    return seed;
-  });
-  const [velocityHist, setVelocityHist] = useState<number[]>(() => [2, 3, 2, 4, 3, 5, 4, 6, 7, 5, 8, 9, 7, 10, 12, 11]);
-  // Deterministic seed — Math.random() in initial state causes server/
-  // client hydration mismatch. The ambient ticker takes over post-mount
-  // and rotates these values for the live feel.
-  const [mempoolHeat, setMempoolHeat] = useState<number[]>(() => {
-    const seed = [0.22, 0.41, 0.55, 0.31, 0.18, 0.62, 0.48, 0.27, 0.74, 0.39, 0.51, 0.66, 0.29, 0.43, 0.58, 0.35, 0.71, 0.46, 0.23, 0.61, 0.49, 0.33, 0.57, 0.42, 0.68, 0.25, 0.53, 0.37, 0.64, 0.45, 0.59, 0.30];
-    return seed;
-  });
-  const [supply, setSupply] = useState(SUPPLY_START);
-  const [feed, setFeed] = useState<string[]>(() => [
-    "0x9be1…ac42 minted +1.41 ape",
-    "chamber lattice swept 12/12 wallets",
-    "block 18,442,919 — 8 chamber mints landed",
-    "0xfde0…11ab minted +1.38 ape",
-    "0x7321…d09c sniped +1.55 ape",
-    "rotation alpha booked +9.42 ape across chamber",
-  ]);
-  const [walletsAhead, setWalletsAhead] = useState(247);
-  const [blocksToOut, setBlocksToOut] = useState(142);
+  function stopMint() {
+    setMinting(false);
+  }
 
-  // Ambient pulse — runs forever, drives the FOMO surface even while
-  // the chamber is idle. Faster than the execution tick.
-  useEffect(() => {
-    const id = setInterval(() => {
-      // Floor: biased random walk upward, with occasional dips.
-      setFloorHist((h) => {
-        const last = h[h.length - 1];
-        const drift = (Math.random() - 0.42) * 0.04; // upward bias
-        const next = Math.max(0.8, last + drift);
-        return [...h.slice(-19), parseFloat(next.toFixed(3))];
-      });
-      // Velocity: random oscillation around 6-12.
-      setVelocityHist((v) => {
-        const next = Math.max(0, Math.round(6 + Math.random() * 10));
-        return [...v.slice(-19), next];
-      });
-      // Mempool heat — rotate slowly so the bar feels alive.
-      setMempoolHeat((m) => {
-        const next = m.slice(1);
-        next.push(Math.random() * 0.85 + 0.1);
-        return next;
-      });
-      // Supply creeps up — but capped just below SUPPLY_MAX so we keep
-      // FOMO copy without flipping to "sold out" in the demo.
-      setSupply((s) => Math.min(SUPPLY_MAX - 12, s + (Math.random() < 0.7 ? 1 : 0)));
-      // Feed: 60% chance to prepend a new entry each beat.
-      if (Math.random() < 0.6) {
-        setFeed((f) => [makeFeedEntry(floorHist[floorHist.length - 1] || 1.5), ...f].slice(0, 14));
-      }
-      // Wallets-ahead & blocks-to-out tighten over time → FOMO.
-      setWalletsAhead((x) => Math.max(12, x - Math.floor(Math.random() * 3)));
-      setBlocksToOut((b) => Math.max(6, b - (Math.random() < 0.4 ? 1 : 0)));
-    }, 1500);
-    return () => clearInterval(id);
-    // intentional: only set up once
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Simulation engine (per-wallet tx progression) ────────────────────
-  const [armed, setArmed] = useState(false);
-  // Two-step launch: clicking ARM first surfaces a confirmation review.
-  // The chamber only actually starts once the user clicks CONFIRM. This
-  // mirrors the docs' "final confirmation management" requirement.
-  const [confirming, setConfirming] = useState(false);
-  const [tick, setTick] = useState(0);
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (!armed) return;
-    tickRef.current = setInterval(() => setTick((t) => t + 1), 700);
-    return () => {
-      if (tickRef.current) clearInterval(tickRef.current);
-      tickRef.current = null;
-    };
-  }, [armed]);
-
-  useEffect(() => {
-    if (!armed) return;
-    setWallets((prev) => {
-      const next = prev.map((w) => ({ ...w }));
-      const eligible = next.filter((w) => w.status === "READY");
-      const concurrent =
-        mode === "SIMULTANEOUS" ? eligible.length :
-        mode === "OPTIMIZED"    ? Math.min(4, eligible.length) :
-        mode === "SMART DELAY"  ? Math.min(2, eligible.length) :
-        1;
-      let advanced = 0;
-      for (const w of next) {
-        if (w.status !== "READY") continue;
-        if (w.tx === "MINED" || w.tx === "FAILED") continue;
-        if (advanced >= concurrent) continue;
-        advanced++;
-        if (w.tx === "QUEUED") {
-          w.tx = "PENDING";
-          w.hash = "0x" + randHex(8) + "…" + randHex(4);
-          w.progress = 12;
-        } else if (w.tx === "PENDING") {
-          const step =
-            tier === "HIGH"     ? 32 :
-            tier === "BALANCED" ? 22 :
-                                  14;
-          w.progress = Math.min(100, w.progress + step + Math.floor(Math.random() * 6));
-          if (w.progress >= 100) {
-            if (Math.random() < 0.11) {
-              w.tx = "FAILED";
-            } else {
-              w.tx = "MINED";
-            }
-          }
-        }
-      }
-      return next;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick]);
-
-  // ── Derived counts + money ───────────────────────────────────────────
-  const counts = useMemo(() => {
-    const ready    = wallets.filter((w) => w.status === "READY").length;
-    const lowGas   = wallets.filter((w) => w.status === "LOW GAS").length;
-    const notWl    = wallets.filter((w) => w.status === "NOT WHITELISTED").length;
-    const invalid  = wallets.filter((w) => w.status === "INVALID").length;
-    const mined    = wallets.filter((w) => w.tx === "MINED").length;
-    const pending  = wallets.filter((w) => w.tx === "PENDING").length;
-    const failed   = wallets.filter((w) => w.tx === "FAILED").length;
-    const queued   = wallets.filter((w) => w.tx === "QUEUED").length;
-    const successRate = wallets.length > 0 ? Math.round((mined / wallets.length) * 100) : 0;
-    return { ready, lowGas, notWl, invalid, mined, pending, failed, queued, successRate };
-  }, [wallets]);
-
-  const priceNum = parseFloat(price) || 0;
-  const perWalletNum = parseInt(perWallet, 10) || 0;
-  const currentFloor = floorHist[floorHist.length - 1] || 1.5;
-  const prevFloor = floorHist[Math.max(0, floorHist.length - 8)] || currentFloor;
-  const floorDelta = currentFloor - prevFloor;
-  const floorDeltaPct = prevFloor > 0 ? (floorDelta / prevFloor) * 100 : 0;
-  const currentVelocity = velocityHist[velocityHist.length - 1] || 0;
-
-  const totalNfts = counts.ready * perWalletNum;
-  const mintedNfts = counts.mined * perWalletNum;
-  const totalCost = totalNfts * priceNum;
-  const totalApeStr = totalCost.toFixed(3);
-  const gasGwei = GAS_TIERS.find((g) => g.id === tier)?.gwei ?? "0.62";
-
-  // Net profit projection — current floor minus mint price, times units
-  // you'd land. As the floor moves the number breathes.
-  const perUnitGain = Math.max(0, currentFloor - priceNum);
-  const projectedGross = totalNfts * currentFloor;
-  const projectedNet = totalNfts * perUnitGain;
-  const realizedNet = mintedNfts * perUnitGain;
-  const multiplier = priceNum > 0 ? currentFloor / priceNum : 0;
-  const supplyLeft = SUPPLY_MAX - supply;
-  const supplyPct = (supply / SUPPLY_MAX) * 100;
-
-  // Per-wallet projection — used in roster + dashboard rows.
-  const projPerWallet = perUnitGain * perWalletNum;
-
-  // Leaderboard — top wallets by realized gain. While idle, project by
-  // ready status; while running, by mined status.
-  const leaderboard = useMemo(() => {
-    return [...wallets]
-      .map((w) => {
-        const realized = w.tx === "MINED" ? perWalletNum * perUnitGain : 0;
-        const projected = w.status === "READY" ? perWalletNum * perUnitGain : 0;
-        return { ...w, realized, projected };
-      })
-      .sort((a, b) => (b.realized + b.projected * 0.5) - (a.realized + a.projected * 0.5))
-      .slice(0, 3);
-  }, [wallets, perUnitGain, perWalletNum]);
-
-  function resetSim() {
-    setArmed(false);
-    setConfirming(false);
-    setTick(0);
+  function reset() {
+    setMinting(false);
+    setDashboardOpen(false);
     setWallets(INITIAL_WALLETS.map((w) => ({ ...w })));
   }
 
-  function startArm() {
-    setWallets((prev) =>
-      prev.map((w) => ({ ...w, tx: "QUEUED" as TxStatus, hash: null, progress: 0 }))
-    );
-    setTick(0);
-    setConfirming(false);
-    setArmed(true);
-  }
-
-  function haltArm() {
-    setArmed(false);
-  }
-
-  // Primary launch button click router — depends on current phase.
-  function onLaunchClick() {
-    if (armed) { haltArm(); return; }
-    if (confirming) { startArm(); return; }
-    setConfirming(true);
-  }
-
-  // ── Workflow stepper state ──────────────────────────────────────────
-  const configured = !!contract.trim() && parseFloat(price) > 0 && parseInt(perWallet, 10) > 0;
-  const stepBound  = wallets.length > 0;
-  const stepValid  = counts.ready > 0;
-  const stepLaunch = armed || counts.mined > 0;
-  const stepDone   = counts.ready > 0 && counts.mined + counts.failed === counts.ready;
-
-  const workflowSteps = [
-    { n: "01", label: "configure",    done: configured, blurb: configured ? "contract set" : "paste contract" },
-    { n: "02", label: "bind wallets", done: stepBound,  blurb: stepBound ? `${wallets.length} bound` : "add wallet" },
-    { n: "03", label: "validate",     done: stepValid,  blurb: stepValid ? `${counts.ready} ready` : "needs ready wallet" },
-    { n: "04", label: "launch",       done: stepLaunch, blurb: armed ? "running…" : confirming ? "awaiting confirm" : "ready when you are" },
-    { n: "05", label: "watch",        done: stepDone,   blurb: counts.mined > 0 ? `+${realizedNet.toFixed(2)} ape` : "live dashboard" },
-  ];
-  // The current step is the first one not yet done.
-  const currentStepIdx = workflowSteps.findIndex((s) => !s.done);
-  const nextHint =
-    !configured                                      ? "step 1 — set a contract address, price, and per-wallet quantity above." :
-    !stepBound                                       ? "step 2 — bind at least one wallet via Add Wallet, WalletConnect, or Import." :
-    !stepValid                                       ? "step 3 — every bound wallet is blocked. fund their gas or unbind them." :
-    confirming                                       ? "step 4 — review the launch parameters and confirm." :
-    armed                                            ? "step 4 — chamber is running. watch the dashboard below." :
-    stepDone                                         ? `step 5 — chamber complete. realized +${realizedNet.toFixed(2)} ape.` :
-                                                       "step 4 — chamber is ready. click review & launch when set.";
+  // Dashboard summary
+  const successCount = wallets.filter((w) => w.status === "success").length;
+  const failedCount  = wallets.filter((w) => w.status === "failed").length;
+  const skippedCount = wallets.filter((w) => w.status === "skipped").length;
+  const mintingCount = wallets.filter((w) => w.status === "minting").length;
+  const mintedNfts   = wallets.reduce((s, w) => s + (w.status === "success" ? w.minted : 0), 0);
 
   return (
-    <div>
-      {/* ── Greeting block ── */}
-      <section className="mb-10 tilt-l">
-        <div className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-1">
-          // mint_chamber.txt &nbsp;·&nbsp; restricted
-        </div>
-        <h1 className="headline text-[28px] sm:text-5xl leading-tight mb-3">
-          the chamber recognises you<span className="text-bleed">.</span>
+    <div className="space-y-10">
+      {/* ── HEADER ────────────────────────────────────────────────── */}
+      <header className="text-center space-y-4">
+        <h1 className="headline text-5xl md:text-7xl leading-none">
+          mint chamber<span className="text-bleed">.</span>
         </h1>
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="badge text-elec">SIMIAN · {SIMIAN_HELD} HELD</span>
-          <span className="font-serif italic text-sm text-mute">
-            &mdash; {SLOTS_TOTAL} wallet slots unlocked, {wallets.length} bound.
-          </span>
-        </div>
-      </section>
-
-      {/* ── Quick-state strip ── */}
-      <section className="mb-8 border-t border-b border-border py-2.5">
-        <div className="flex items-center flex-wrap gap-x-5 gap-y-1 font-mono text-xs uppercase tracking-wider">
-          <span><span className="text-mute">chamber:</span>{" "}
-            <span className={armed ? "text-bleed pulse-soft" : "text-bone"}>
-              {armed ? "armed" : "idle"}
-            </span>
-          </span>
-          <span className="text-mute">/</span>
-          <span><span className="text-mute">net:</span> <span className="text-bone">ape-main</span></span>
-          <span className="text-mute">/</span>
-          <span><span className="text-mute">mode:</span> <span className="text-elec">{mode.toLowerCase()}</span></span>
-          <span className="text-mute">/</span>
-          <span><span className="text-mute">gas:</span> <span className="text-bone">{gasGwei}</span></span>
-          <span className="text-mute">/</span>
-          <span><span className="text-mute">edge:</span>{" "}
-            <span className="text-elec">+3.2 blk</span>
-          </span>
-          <span className="text-mute">/</span>
-          <span><span className="text-mute">lat:</span> <span className="text-bone">11ms</span></span>
-        </div>
-      </section>
-
-      {/* ──────────────────────────────────────────────────────────────
-          WORKFLOW STEPPER — 5 steps, current one pulses. Tells a new
-          user exactly where they are and what to do next.
-          ────────────────────────────────────────────────────────────── */}
-      <section className="mb-6">
-        <ol className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-          {workflowSteps.map((s, i) => {
-            const isCurrent = i === currentStepIdx;
-            const isDone = s.done;
-            const color = isDone ? "#34d399" : isCurrent ? "#0040ff" : "#1a1a28";
-            return (
-              <li
-                key={s.n}
-                style={{
-                  border: `1px solid ${color}`,
-                  background:
-                    isCurrent ? "rgba(0,64,255,0.10)" :
-                    isDone    ? "rgba(52,211,153,0.05)" :
-                                "transparent",
-                  opacity: isDone || isCurrent ? 1 : 0.55,
-                  padding: "8px 10px",
-                }}
-                className={isCurrent ? "pulse-soft" : ""}
-              >
-                <div className="flex items-baseline justify-between">
-                  <span className="font-pixel text-2xl leading-none" style={{ color }}>
-                    {s.n}
-                  </span>
-                  <span
-                    className="font-mono text-xxs"
-                    style={{ color: isDone ? "#34d399" : isCurrent ? "#0040ff" : "#5a5a6a" }}
-                  >
-                    {isDone ? "✓" : isCurrent ? "●" : "—"}
-                  </span>
-                </div>
-                <div
-                  className="font-mono text-xs uppercase tracking-wider mt-2"
-                  style={{ color: isDone || isCurrent ? "#ffffff" : "#aaaadd" }}
-                >
-                  {s.label}
-                </div>
-                <div
-                  className="font-sans text-xs mt-1 truncate"
-                  style={{ color: isDone || isCurrent ? "#aaaadd" : "#5a5a6a" }}
-                >
-                  {s.blurb}
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-        <p className="font-sans text-base text-bone mt-4 leading-relaxed">
-          <span className="text-elec font-mono text-xs uppercase tracking-wider mr-2">next →</span>
-          {nextHint}
+        <p className="font-sans text-lg sm:text-xl text-ape-200 max-w-2xl mx-auto leading-relaxed">
+          mint multiple NFTs across multiple wallets in a single click.
+          SIMIAN ORDER holders only.
         </p>
-      </section>
-
-      {/* ──────────────────────────────────────────────────────────────
-          FOMO CONSOLE — 4-up hero metrics. Big VT323 numbers, live
-          sparklines, color shifts on movement.
-          ────────────────────────────────────────────────────────────── */}
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        <HeroMetric
-          label="EST. NET PROFIT"
-          value={`+${projectedNet.toFixed(2)}`}
-          unit="ape"
-          sub={`${multiplier.toFixed(1)}× exit · ${totalNfts} nft`}
-          tone="elec"
-          pulse={armed}
-          big
-        />
-        <Panel title="Floor · ape">
-          <div className="flex items-baseline justify-between mb-1">
-            <span className="font-pixel text-3xl leading-none text-bone">
-              {currentFloor.toFixed(2)}
-            </span>
-            <span
-              className="font-mono text-xxs"
-              style={{ color: floorDelta >= 0 ? "#34d399" : "#ff2d2d" }}
-            >
-              {floorDelta >= 0 ? "▲" : "▼"} {Math.abs(floorDeltaPct).toFixed(1)}%
-            </span>
-          </div>
-          <Sparkline data={floorHist} color="#0040ff" />
-          <div className="font-mono text-xxs uppercase tracking-wider text-ape-200 mt-2">
-            mint cost {priceNum.toFixed(3)} · gap +{(currentFloor - priceNum).toFixed(2)}
-          </div>
-        </Panel>
-        <Panel title="Velocity · mint/s">
-          <div className="flex items-baseline justify-between mb-1">
-            <span className="font-pixel text-3xl leading-none text-bleed">
-              {currentVelocity}
-            </span>
-            <span className="font-mono text-xxs text-mute">
-              peak {Math.max(...velocityHist)}
-            </span>
-          </div>
-          <Sparkline data={velocityHist} color="#ff2d2d" />
-          <div className="font-mono text-xxs uppercase tracking-wider text-ape-200 mt-2">
-            mempool busy · public can&apos;t keep up
-          </div>
-        </Panel>
-        <Panel title="Supply left">
-          <div className="flex items-baseline justify-between mb-1">
-            <span className="font-pixel text-3xl leading-none text-bone">
-              {supplyLeft}
-            </span>
-            <span className="font-mono text-xxs text-bleed pulse-soft">
-              {(100 - supplyPct).toFixed(1)}%
-            </span>
-          </div>
-          <div className="h-2 w-full bg-ape-950 border border-border mt-1">
-            <div
-              className="h-full bg-bleed transition-all"
-              style={{ width: `${supplyPct}%` }}
-            />
-          </div>
-          <div className="font-mono text-xxs uppercase tracking-wider text-ape-200 mt-2">
-            {blocksToOut} blocks to mint-out
-          </div>
-        </Panel>
-      </section>
-
-      {/* ── Supply urgency + mempool heatmap ── */}
-      <section className="mb-4 panel">
-        <div className="panel-header">
-          <span><span className="text-elec">&gt;</span> Mempool Heat &nbsp;·&nbsp; next 32 blocks</span>
-          <span className="font-mono text-xxxs tracking-widest text-mute normal-case">
-            {walletsAhead} wallets ahead of yours
+        <div className="flex flex-wrap gap-4 items-center justify-center pt-2">
+          <span
+            className="badge text-elec"
+            style={{ fontSize: 13, padding: "6px 12px", letterSpacing: "0.18em" }}
+          >
+            SIMIAN · {SIMIAN_HELD} HELD
+          </span>
+          <span className="font-sans text-base text-bone">
+            {SLOTS_TOTAL} wallet slots unlocked
           </span>
         </div>
-        <div className="panel-body">
-          <div className="flex items-end gap-[2px] h-10 mb-2">
-            {mempoolHeat.map((v, i) => (
-              <div
-                key={i}
-                className="flex-1"
-                style={{
-                  height: `${10 + v * 90}%`,
-                  background:
-                    v > 0.75 ? "#ff2d2d" :
-                    v > 0.5  ? "#0040ff" :
-                    v > 0.25 ? "#aaaadd" :
-                               "#1a1a28",
-                  opacity: 0.4 + v * 0.6,
-                }}
-              />
-            ))}
-          </div>
-          <div className="flex items-center justify-between font-mono text-xs uppercase tracking-wider text-ape-200">
-            <span>now</span>
-            <span>+8 blk</span>
-            <span>+16 blk</span>
-            <span>+24 blk</span>
-            <span>+32 blk</span>
-          </div>
-        </div>
-      </section>
+      </header>
 
-      {/* ── Live cross-chamber activity feed ── */}
-      <section className="mb-6 panel">
-        <div className="panel-header">
-          <span>
-            <span className="text-elec">&gt;</span> Live · cross-chamber feed
-            <span className="ml-2 inline-block w-2 h-2 bg-bleed pulse-soft align-middle" aria-hidden />
-          </span>
-          <span className="font-mono text-xxxs tracking-widest text-mute normal-case">
-            others are not waiting
-          </span>
-        </div>
-        <ul className="divide-y divide-border max-h-[220px] overflow-hidden">
-          {feed.slice(0, 7).map((line, i) => (
-            <li
-              key={`${line}-${i}`}
-              className="px-3 py-2.5 font-mono text-sm flex items-center gap-2"
-              style={{
-                color: i === 0 ? "#ffffff" : "#aaaadd",
-                opacity: Math.max(0.65, 1 - i * 0.06),
-              }}
-            >
-              <span className="text-elec">›</span>
-              <span className="truncate">{line}</span>
-              {i === 0 && (
-                <span className="ml-auto text-xs uppercase tracking-wider text-bleed pulse-soft">
-                  just now
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <div className="space-y-4">
-        {/* ── 01 — TARGET CONTRACT ── */}
-        <Panel title="Step 1 · Target Contract" right={<span>fn detected · supply {supply.toLocaleString()} / {SUPPLY_MAX.toLocaleString()}</span>}>
-          <p className="font-sans text-sm text-ape-200 mb-4 leading-relaxed">
-            tell the chamber which collection to mint. paste the address and pick the function.
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="sm:col-span-2">
-              <label className="label">contract address</label>
-              <input
-                className="field font-mono"
-                value={contract}
-                onChange={(e) => setContract(e.target.value)}
-                spellCheck={false}
-              />
-              <div className="text-sm text-ape-200 mt-3 flex items-center flex-wrap gap-x-3 gap-y-2">
-                <span className="badge text-emerald-400" style={{ letterSpacing: "0.18em" }}>
-                  MAX MINT DETECTED · 1
-                </span>
-                <span>detected: <span className="text-bone">ERC-721A</span></span>
-                <span className="text-mute">·</span>
-                <span>public phase active</span>
-                <span className="text-mute">·</span>
-                <span className="text-elec">edge +3.2 blocks</span>
-              </div>
-            </div>
-
-            <div>
-              <label className="label">mint function</label>
-              <select
-                className="field"
-                value={mintFn}
-                onChange={(e) => setMintFn(e.target.value)}
-              >
-                <option>mint(uint256)</option>
-                <option>publicMint(uint256)</option>
-                <option>claim()</option>
-                <option>mintTo(address,uint256)</option>
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label">price (ape)</label>
-                <input
-                  className="field font-mono"
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="label">per wallet</label>
-                <input
-                  className="field font-mono"
-                  value={perWallet}
-                  onChange={(e) => setPerWallet(e.target.value)}
-                />
-              </div>
-            </div>
-          </div>
-        </Panel>
-
-        {/* ── 02 — WALLET ROSTER ── */}
+      {/* ── TWO-COLUMN MAIN ───────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6">
+        {/* LEFT — wallet roster */}
         <Panel
-          title="Step 2 · Wallet Roster"
+          title="wallets"
           right={
-            <span>
-              {wallets.length}/{SLOTS_TOTAL} bound · proj +{(counts.ready * projPerWallet).toFixed(2)} ape
+            <span className="text-sm">
+              {wallets.length}/{SLOTS_TOTAL} added
               {atCapacity && <span className="ml-2 text-bleed">· FULL</span>}
             </span>
           }
-          padded={false}
         >
-          <div className="px-3 py-2 border-b border-border">
-            <p className="font-sans text-sm text-ape-200 leading-relaxed">
-              bind wallets that will mint. each SIMIAN you hold unlocks 5 slots. use any combination of the buttons below.
-            </p>
-          </div>
-          <div className="px-3 py-2 flex items-center gap-2 flex-wrap border-b border-border">
+          {/* Add controls */}
+          <div className="flex flex-wrap gap-2 mb-4">
             <Button
               variant="ghost"
               onClick={openAddForm}
@@ -796,127 +247,124 @@ export default function MintChamberPage() {
             <Button
               variant="ghost"
               onClick={runWalletConnect}
-              disabled={atCapacity || wcStatus === "connecting"}
+              disabled={atCapacity || wcConnecting}
             >
-              {wcStatus === "connecting" ? "CONNECTING…" : "+ WALLETCONNECT"}
+              {wcConnecting ? "CONNECTING…" : "+ WALLETCONNECT"}
             </Button>
             <Button
               variant="ghost"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => fileRef.current?.click()}
               disabled={atCapacity}
             >
-              IMPORT FILE
+              IMPORT CSV
             </Button>
             <input
-              ref={fileInputRef}
+              ref={fileRef}
               type="file"
               accept=".csv,.txt,.json"
               onChange={runImport}
               hidden
             />
-            <span className="ml-auto font-mono text-xxxs uppercase tracking-widest2 text-mute">
-              private keys never stored · session signing only
-            </span>
           </div>
 
-          {lastAction && (
-            <div className="px-3 py-1 border-b border-border bg-ape-900/40 font-mono text-xxxs uppercase tracking-widest2 text-elec">
-              › {lastAction}
-            </div>
-          )}
-
+          {/* Inline add form */}
           {addOpen && (
-            <div className="px-3 py-3 border-b border-border bg-ape-900/40">
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px_auto] gap-2 items-end">
-                <div>
-                  <label className="label">address</label>
-                  <input
-                    className="field font-mono"
-                    value={addAddr}
-                    onChange={(e) => setAddAddr(e.target.value)}
-                    placeholder="0x..."
-                    spellCheck={false}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") submitAdd();
-                      if (e.key === "Escape") setAddOpen(false);
-                    }}
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="label">group</label>
-                  <select
-                    className="field"
-                    value={addGroup}
-                    onChange={(e) => setAddGroup(e.target.value as Group)}
-                  >
-                    <option value="MAIN">main</option>
-                    <option value="WHITELIST">whitelist</option>
-                    <option value="SNIPING">sniping</option>
-                    <option value="RESERVE">reserve</option>
-                  </select>
-                </div>
-                <div className="flex items-end pb-[1px]">
-                  <Button variant="primary" onClick={submitAdd}>BIND</Button>
-                </div>
+            <div
+              className="mb-4 p-4 border border-elec"
+              style={{ background: "rgba(0,64,255,0.05)" }}
+            >
+              <label className="block font-mono text-sm uppercase tracking-wider text-ape-200 mb-2">
+                paste wallet address
+              </label>
+              <div className="flex flex-wrap gap-2 items-stretch">
+                <input
+                  className="field font-mono flex-1 min-w-[260px]"
+                  style={{ padding: "10px 12px", fontSize: 14 }}
+                  value={addAddr}
+                  onChange={(e) => setAddAddr(e.target.value)}
+                  placeholder="0x..."
+                  spellCheck={false}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") submitAdd();
+                    if (e.key === "Escape") setAddOpen(false);
+                  }}
+                />
+                <Button variant="primary" onClick={submitAdd}>
+                  ADD
+                </Button>
               </div>
               {addError && (
-                <div className="mt-2 font-mono text-xxs text-bleed uppercase tracking-wide">
-                  error: {addError}
-                </div>
+                <p className="mt-2 font-mono text-sm text-bleed">{addError}</p>
               )}
             </div>
           )}
 
+          {/* Empty / populated roster */}
           {wallets.length === 0 ? (
-            <div className="px-3 py-8 text-center space-y-2">
-              <p className="font-serif italic text-base text-bone">no wallets bound. the chamber is empty.</p>
-              <p className="font-mono text-xxs uppercase tracking-widest2 text-mute">
-                use <span className="text-elec">+ ADD WALLET</span> above to bind one manually,
-                <br className="hidden sm:inline" />
-                or <span className="text-elec">+ WALLETCONNECT</span> to bind via your wallet app.
+            <div className="py-10 text-center space-y-2">
+              <p className="font-sans text-lg text-bone">no wallets added yet.</p>
+              <p className="font-sans text-base text-ape-200">
+                use <span className="text-elec">+ ADD WALLET</span> or{" "}
+                <span className="text-elec">+ WALLETCONNECT</span> above.
               </p>
             </div>
           ) : (
-            <ul className="divide-y divide-border">
+            <ul className="space-y-2">
               {wallets.map((w) => {
-                const ready = w.status === "READY";
+                const eligible = w.whitelisted && w.balance >= requiredBalance;
                 return (
-                  <li key={w.addr} className="px-3 py-3 flex items-center gap-3 flex-wrap row-hover">
+                  <li
+                    key={w.id}
+                    className="flex items-center gap-3 flex-wrap p-3 border border-border"
+                    style={{ background: "rgba(10,10,14,0.6)" }}
+                  >
+                    {/* Status dot */}
                     <span
-                      className={`w-2 h-2 shrink-0 ${
-                        w.status === "READY" ? "bg-emerald-400" :
-                        w.status === "LOW GAS" ? "bg-ape-200" :
-                        "bg-bleed"
-                      }`}
+                      className="w-2.5 h-2.5 shrink-0"
+                      style={{ background: eligible ? "#34d399" : "#ff2d2d" }}
                       aria-hidden
                     />
-                    <code className="font-mono text-sm text-bone break-all">{SHORT(w.addr)}</code>
-                    <span className="font-mono text-xs uppercase tracking-wider text-ape-200">
-                      · {w.group.toLowerCase()}
+
+                    <code className="font-mono text-base text-bone">
+                      {SHORT(w.addr)}
+                    </code>
+
+                    <span className="font-mono text-base text-bone ml-auto">
+                      {w.balance.toFixed(2)}{" "}
+                      <span className="text-ape-200">APE</span>
                     </span>
-                    <span className="ml-auto font-mono text-sm text-bone">
-                      {w.balance.toFixed(2)} <span className="text-ape-200">ape</span>
-                    </span>
-                    <span
-                      className="font-mono text-sm min-w-[90px] text-right"
-                      style={{ color: ready ? "#34d399" : "#5a5a6a" }}
-                    >
-                      {ready ? `+${projPerWallet.toFixed(2)} proj` : "—"}
-                    </span>
-                    <span className="ml-2">
-                      {w.status === "READY"           ? <StatusBadge status="Open"     /> :
-                       w.status === "LOW GAS"         ? <StatusBadge status="Pending"  /> :
-                       w.status === "NOT WHITELISTED" ? <StatusBadge status="Locked"   /> :
-                                                        <StatusBadge status="Rejected" />}
-                    </span>
+
+                    {w.whitelisted ? (
+                      <span
+                        className="font-mono text-sm uppercase tracking-wider text-emerald-400"
+                        style={{ minWidth: 170, textAlign: "right" }}
+                      >
+                        ✓ WHITELISTED
+                      </span>
+                    ) : (
+                      <span
+                        className="font-mono text-sm uppercase tracking-wider text-bleed"
+                        style={{ minWidth: 170, textAlign: "right" }}
+                      >
+                        ✗ NOT WHITELISTED
+                      </span>
+                    )}
+
+                    {w.whitelisted && w.balance < requiredBalance && (
+                      <span className="font-mono text-sm text-bleed">
+                        low funds
+                      </span>
+                    )}
+
                     <button
                       type="button"
-                      onClick={() => removeWallet(w.addr)}
-                      disabled={armed}
-                      title={armed ? "halt chamber to unbind" : "unbind wallet"}
-                      className="font-mono text-mute hover:text-bleed disabled:opacity-30 disabled:cursor-not-allowed px-1 leading-none text-base"
-                      aria-label="unbind"
+                      onClick={() => removeWallet(w.id)}
+                      disabled={minting}
+                      title={minting ? "stop mint to remove" : "remove wallet"}
+                      className="font-mono text-mute hover:text-bleed disabled:opacity-30 disabled:cursor-not-allowed px-2 leading-none"
+                      style={{ fontSize: 22 }}
+                      aria-label="remove wallet"
                     >
                       ×
                     </button>
@@ -927,568 +375,250 @@ export default function MintChamberPage() {
           )}
         </Panel>
 
-        {/* ── 03 — EXECUTION MODE ── */}
-        <Panel title="Step 3a · Execution Mode" right={<span>{mode.toLowerCase()}</span>}>
-          <p className="font-sans text-sm text-ape-200 mb-4 leading-relaxed">
-            how the chamber fans out signed transactions across your wallets. optimized is the sane default for most mints.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {EXEC_MODES.map((m) => {
-              const active = m.id === mode;
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setMode(m.id)}
-                  className="text-left"
-                  style={{
-                    border: `1px solid ${active ? "#0040ff" : "#1a1a28"}`,
-                    background: active ? "rgba(0,64,255,0.10)" : "transparent",
-                    padding: "8px 10px",
-                  }}
-                >
-                  <div className="font-mono text-xxs uppercase tracking-widest2"
-                       style={{ color: active ? "#fff" : "#e8e8e8" }}>
-                    {active ? "» " : "  "}{m.id.toLowerCase()}
-                  </div>
-                  <div className="text-xxs text-mute mt-1 font-serif italic">{m.blurb}</div>
-                </button>
-              );
-            })}
-          </div>
-        </Panel>
-
-        {/* ── 04 — GAS PRIORITY ── */}
-        <Panel title="Step 3b · Gas Priority" right={<span>net median 0.62 gwei</span>}>
-          <p className="font-sans text-sm text-ape-200 mb-4 leading-relaxed">
-            how aggressive to bid for blockspace. higher = faster + more expensive. balanced matches the network median.
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            {GAS_TIERS.map((g) => {
-              const active = g.id === tier;
-              return (
-                <button
-                  key={g.id}
-                  type="button"
-                  onClick={() => setTier(g.id)}
-                  className="text-left"
-                  style={{
-                    border: `1px solid ${active ? "#0040ff" : "#1a1a28"}`,
-                    background: active ? "rgba(0,64,255,0.10)" : "transparent",
-                    padding: "8px 10px",
-                  }}
-                >
-                  <div className="flex items-baseline justify-between">
-                    <span className="font-mono text-xxs uppercase tracking-widest2"
-                          style={{ color: active ? "#fff" : "#e8e8e8" }}>
-                      {active ? "» " : "  "}{g.id.toLowerCase()}
-                    </span>
-                    <span className="font-mono text-xxxs text-elec">{g.gwei}</span>
-                  </div>
-                  <div className="text-xxs text-mute mt-1 font-serif italic">{g.blurb}</div>
-                </button>
-              );
-            })}
-          </div>
-        </Panel>
-
-        {/* ── 05 — PRE-MINT VALIDATION + PROFIT GAUGE ── */}
-        <Panel title="Step 4 · Pre-Mint Validation" right={<span>{counts.ready} ready · {wallets.length - counts.ready} blocked</span>}>
-          <p className="font-sans text-sm text-ape-200 mb-4 leading-relaxed">
-            the chamber checks every wallet and the contract before launch. red rows will be skipped automatically.
-          </p>
-
-          {/* Contract sanity checks — mirror the docs' "contract activity",
-              "sold-out detection", "parameter accuracy" validation layer. */}
-          <div className="mb-5 border-l-2 border-emerald-400 pl-4 py-1">
-            <div className="font-mono text-sm uppercase tracking-wider text-bone mb-2">
-              contract sanity
-            </div>
-            <ul className="space-y-1.5 font-mono text-sm text-bone">
-              <li><span className="text-emerald-400">✓</span> contract live &nbsp;·&nbsp; accepting mints</li>
-              <li><span className="text-emerald-400">✓</span> phase &nbsp;·&nbsp; public mint active</li>
-              <li>
-                <span className={supplyLeft > 0 ? "text-emerald-400" : "text-bleed"}>
-                  {supplyLeft > 0 ? "✓" : "✗"}
-                </span>{" "}
-                supply available &nbsp;·&nbsp; {supply.toLocaleString()} / {SUPPLY_MAX.toLocaleString()} {supplyLeft > 0 ? "(not sold out)" : "(sold out)"}
-              </li>
-              <li><span className="text-emerald-400">✓</span> fn signature matches &nbsp;·&nbsp; <code className="text-elec">{mintFn}</code></li>
-              <li><span className="text-emerald-400">✓</span> mint parameters &nbsp;·&nbsp; {perWalletNum} × {priceNum.toFixed(3)} ape per wallet</li>
-            </ul>
-          </div>
-
-          <div className="font-mono text-sm uppercase tracking-wider text-bone mb-3">
-            wallet checks
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-            <ValidationStat n={counts.ready}   label="READY"           tone="bone" />
-            <ValidationStat n={counts.lowGas}  label="INSUFFICIENT"    tone="ape-200" />
-            <ValidationStat n={counts.notWl}   label="NOT WHITELISTED" tone="mute" />
-            <ValidationStat n={counts.invalid} label="INVALID"         tone="bleed" />
-          </div>
-
-          {/* Big projection bar — mint cost vs projected exit value. */}
-          <div className="mt-2 mb-3">
-            <div className="flex items-baseline justify-between font-mono text-xxs uppercase tracking-widest2 mb-1">
-              <span className="text-mute">cost in &nbsp;<span className="text-bone">{totalApeStr} ape</span></span>
-              <span className="text-mute">value out &nbsp;<span className="text-bone">{projectedGross.toFixed(2)} ape</span></span>
-            </div>
-            <div className="relative h-4 w-full bg-ape-950 border border-border overflow-hidden">
-              <div
-                className="absolute inset-y-0 left-0 bg-bleed"
-                style={{
-                  width: `${projectedGross > 0 ? Math.min(100, (totalCost / projectedGross) * 100) : 0}%`,
-                  opacity: 0.85,
-                }}
-              />
-              <div
-                className="absolute inset-y-0 bg-elec"
-                style={{
-                  left: `${projectedGross > 0 ? Math.min(100, (totalCost / projectedGross) * 100) : 0}%`,
-                  right: 0,
-                  opacity: 0.85,
-                }}
-              />
-              <div className="absolute inset-0 flex items-center justify-center font-mono text-xxs text-bone tracking-widest2">
-                NET +{projectedNet.toFixed(2)} APE &nbsp;·&nbsp; {multiplier.toFixed(1)}×
+        {/* RIGHT — mint details + mint button */}
+        <div className="space-y-4">
+          <Panel title="mint details">
+            <dl className="space-y-3">
+              <DetailRow label="price per NFT">
+                {MINT_PRICE.toFixed(2)} APE
+              </DetailRow>
+              <DetailRow label="NFTs per wallet">{PER_WALLET}</DetailRow>
+              <DetailRow label="wallets eligible">
+                <span className={eligibleCount > 0 ? "text-bone" : "text-bleed"}>
+                  {eligibleCount} / {wallets.length}
+                </span>
+              </DetailRow>
+              <DetailRow label="ineligible">
+                <span className={ineligibleCount > 0 ? "text-bleed" : "text-mute"}>
+                  {ineligibleCount}
+                </span>
+              </DetailRow>
+              <div className="border-t border-border pt-3 mt-3 space-y-3">
+                <DetailRow label="total NFTs" highlight>
+                  {totalNfts}
+                </DetailRow>
+                <DetailRow label="total cost" highlight>
+                  {totalCost.toFixed(2)} APE
+                </DetailRow>
               </div>
-            </div>
-          </div>
+            </dl>
+          </Panel>
 
-          <div className="divider-glitch my-4" aria-hidden />
-          <dl className="grid grid-cols-[180px_1fr] gap-y-2 font-mono text-xs uppercase tracking-wider">
-            <dt className="text-ape-200">projected nfts</dt>
-            <dd className="text-bone">{totalNfts}</dd>
-            <dt className="text-ape-200">aggregate cost</dt>
-            <dd className="text-bone">{totalApeStr} ape</dd>
-            <dt className="text-ape-200">projected exit</dt>
-            <dd className="text-emerald-400">+{projectedNet.toFixed(2)} ape @ floor {currentFloor.toFixed(2)}</dd>
-            <dt className="text-ape-200">gas est. (median)</dt>
-            <dd className="text-bone">~ {(counts.ready * 0.0042).toFixed(4)} ape</dd>
-            <dt className="text-ape-200">risk flags</dt>
-            <dd className={counts.lowGas + counts.notWl + counts.invalid > 0 ? "text-bleed" : "text-emerald-400"}>
-              {counts.lowGas + counts.notWl + counts.invalid > 0
-                ? `${counts.lowGas + counts.notWl + counts.invalid} wallet(s) will be skipped`
-                : "none — chamber clean"}
-            </dd>
-          </dl>
-        </Panel>
+          {/* Big MINT button */}
+          <button
+            type="button"
+            onClick={minting ? stopMint : startMint}
+            disabled={!minting && !canMint}
+            className="w-full font-mono uppercase"
+            style={{
+              padding: "18px 16px",
+              fontSize: 17,
+              letterSpacing: "0.14em",
+              border: `2px solid ${
+                minting ? "#ff2d2d" : canMint ? "#0040ff" : "#1a1a28"
+              }`,
+              background: minting ? "#ff2d2d" : canMint ? "#0040ff" : "transparent",
+              color: minting ? "#000" : canMint ? "#fff" : "#5a5a6a",
+              cursor: minting || canMint ? "pointer" : "not-allowed",
+              transition: "none",
+            }}
+          >
+            {minting
+              ? "■ STOP MINT"
+              : eligibleCount === 0
+              ? "no eligible wallets"
+              : `▶ MINT — ${totalNfts} NFTS · ${totalCost.toFixed(2)} APE`}
+          </button>
 
-        {/* ── 06 — RETRY & FAIL-SAFE ── */}
-        <Panel title="Step 3c · Retry & Fail-Safe" right={<span>auto-recover active</span>}>
-          <p className="font-sans text-sm text-ape-200 mb-4 leading-relaxed">
-            what happens when a transaction fails. the defaults are sensible — leave them on unless you know better.
+          {dashboardOpen && !minting && (
+            <Button onClick={reset} variant="ghost" className="w-full">
+              RESET CHAMBER
+            </Button>
+          )}
+
+          <p className="font-sans text-sm text-ape-200 leading-relaxed">
+            each eligible wallet will sign and broadcast{" "}
+            <span className="text-bone">{PER_WALLET}</span> mint transactions —
+            a total of{" "}
+            <span className="text-bone">
+              {(MINT_PRICE * PER_WALLET).toFixed(2)} APE
+            </span>{" "}
+            per wallet.
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="label">max retries</label>
-              <input
-                className="field font-mono"
-                value={maxRetries}
-                onChange={(e) => setMaxRetries(e.target.value)}
-              />
-              <div className="text-xxs text-mute mt-1">
-                per-wallet attempts before the chamber abandons it.
-              </div>
-            </div>
-            <ToggleRow
-              label="gas auto-bump"
-              hint="re-broadcast underpriced tx at next tier."
-              on={autoBump}
-              onChange={setAutoBump}
-            />
-            <ToggleRow
-              label="skip on repeat fail"
-              hint="excise wallets that fail twice."
-              on={skipOnFail}
-              onChange={setSkipOnFail}
-            />
-          </div>
-        </Panel>
-
-        {/* ── ARM / LAUNCH ── */}
-        <div
-          className="panel"
-          style={{
-            borderColor: armed ? "#ff2d2d" : confirming ? "#ff2d2d" : "#0040ff",
-            background: armed ? "rgba(255,45,45,0.06)" : confirming ? "rgba(255,45,45,0.04)" : "rgba(0,64,255,0.06)",
-            boxShadow: armed ? "0 0 0 1px rgba(255,45,45,0.4)" : "none",
-          }}
-        >
-          <div className="panel-header" style={{ borderBottomColor: armed ? "#ff2d2d" : confirming ? "#ff2d2d" : "#0040ff" }}>
-            <span><span className="text-elec">&gt;</span> Step 5 · Chamber Control</span>
-            <span className="font-mono text-xxxs tracking-widest text-mute normal-case">
-              prototype · simulation only
-            </span>
-          </div>
-          <div className="panel-body">
-            <p className="font-sans text-sm text-ape-200 mb-4 leading-relaxed">
-              {armed
-                ? `— the chamber is moving. realized so far: +${realizedNet.toFixed(2)} ape.`
-                : confirming
-                ? "— this is the last step before signed broadcasts go out. review below."
-                : counts.ready === 0
-                ? "— no ready wallets yet. fix the validation step above before you can launch."
-                : "— nothing is signed until you click confirm. the chamber is safe to review."}
-            </p>
-
-            {/* Confirmation review — appears between the ARM click and the
-                actual launch. Mirrors docs' "final confirmation management". */}
-            {confirming && !armed && (
-              <div
-                className="mb-4 border p-3"
-                style={{ borderColor: "#ff2d2d", background: "rgba(255,45,45,0.05)" }}
-              >
-                <div className="font-mono text-sm uppercase tracking-wider text-bleed mb-3">
-                  ⚠ final confirmation
-                </div>
-                <dl className="grid grid-cols-[150px_1fr] gap-y-2 font-mono text-xs uppercase tracking-wider mb-4">
-                  <dt className="text-ape-200">contract</dt>
-                  <dd className="text-bone font-mono">{SHORT(contract)}</dd>
-                  <dt className="text-ape-200">function</dt>
-                  <dd className="text-bone"><code className="text-elec">{mintFn}</code></dd>
-                  <dt className="text-ape-200">wallets</dt>
-                  <dd className="text-bone">{counts.ready} ready &nbsp;·&nbsp; {wallets.length - counts.ready} will be skipped</dd>
-                  <dt className="text-ape-200">payload</dt>
-                  <dd className="text-bone">{totalNfts} nft &nbsp;·&nbsp; {totalApeStr} ape</dd>
-                  <dt className="text-ape-200">projected exit</dt>
-                  <dd className="text-emerald-400">+{projectedNet.toFixed(2)} ape &nbsp;·&nbsp; {multiplier.toFixed(1)}× @ floor {currentFloor.toFixed(2)}</dd>
-                  <dt className="text-ape-200">mode &nbsp;·&nbsp; gas</dt>
-                  <dd className="text-bone">{mode.toLowerCase()} &nbsp;·&nbsp; {tier.toLowerCase()} ({gasGwei} gwei)</dd>
-                  <dt className="text-ape-200">retry</dt>
-                  <dd className="text-bone">{maxRetries} attempts · auto-bump {autoBump ? "on" : "off"} · skip-on-fail {skipOnFail ? "on" : "off"}</dd>
-                </dl>
-                <p className="font-sans text-sm text-bone mb-4 leading-relaxed">
-                  every signed broadcast is final once it lands on chain. you can still HALT mid-run.
-                </p>
-                <div className="flex items-center gap-3 flex-wrap">
-                  <Button variant="primary" onClick={startArm} className="pulse-soft" style={{ minWidth: 200, fontSize: 14, padding: "10px 16px" }}>
-                    ✓ confirm &amp; launch
-                  </Button>
-                  <Button variant="ghost" onClick={() => setConfirming(false)}>× cancel review</Button>
-                </div>
-              </div>
-            )}
-
-            <div className="flex items-center gap-4 flex-wrap">
-              {!confirming && (
-                <Button
-                  variant={armed ? "default" : "primary"}
-                  onClick={onLaunchClick}
-                  disabled={!armed && counts.ready === 0}
-                  className={armed ? "" : counts.ready > 0 ? "pulse-soft" : ""}
-                  style={{ minWidth: 220, fontSize: 14, padding: "10px 16px" }}
-                >
-                  {armed
-                    ? "■ HALT CHAMBER"
-                    : counts.ready === 0
-                    ? "▶ NO READY WALLETS"
-                    : `▶ REVIEW & LAUNCH · +${projectedNet.toFixed(2)} APE`}
-                </Button>
-              )}
-              <Button variant="ghost" onClick={resetSim}>RESET</Button>
-              <div className="ml-auto text-right">
-                <div className="font-mono text-xxs uppercase tracking-widest2 text-mute">payload</div>
-                <div className="font-mono text-bone">
-                  {counts.ready} wallets &nbsp;·&nbsp; {totalNfts} nft &nbsp;·&nbsp; {totalApeStr} ape
-                </div>
-                <div className="font-mono text-xxxs uppercase tracking-widest2 text-emerald-400 mt-1">
-                  exit projection · {multiplier.toFixed(1)}× &nbsp;→&nbsp; +{projectedNet.toFixed(2)} ape
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
+      </div>
 
-        {/* ── 07 — REAL-TIME DASHBOARD ── */}
+      {/* ── DASHBOARD (full width below) ──────────────────────────── */}
+      {dashboardOpen && (
         <Panel
-          title="Step 5 · Real-Time Mint Dashboard"
+          title="mint dashboard"
           right={
-            <span>
-              success {counts.successRate}% &nbsp;·&nbsp;
-              mined {counts.mined} &nbsp;·&nbsp;
-              pending {counts.pending} &nbsp;·&nbsp;
-              failed {counts.failed} &nbsp;·&nbsp;
-              <span className="text-emerald-400">+{realizedNet.toFixed(2)} ape</span>
+            <span className="text-sm">
+              {minting ? "running…" : "complete"} &nbsp;·&nbsp;{" "}
+              <span className="text-emerald-400">{successCount} ok</span> ·{" "}
+              <span className="text-bleed">{failedCount} fail</span> ·{" "}
+              <span className="text-ape-200">{skippedCount} skipped</span>
             </span>
           }
-          padded={false}
         >
-          <div className="px-3 py-2 border-b border-border">
-            <p className="font-sans text-sm text-ape-200 leading-relaxed">
-              each wallet shows its live tx progress and hash. <span className="text-emerald-400">green</span> = mined, <span className="text-bleed">red</span> = failed, gray = skipped.
-            </p>
-          </div>
-          <div className="h-2 w-full bg-ape-950 border-b border-border">
-            <div
-              className="h-full bg-ape-500 transition-all"
-              style={{ width: `${counts.successRate}%` }}
-            />
-          </div>
-          <ul className="divide-y divide-border">
+          {/* Per-wallet progress rows */}
+          <ul className="space-y-2 mb-5">
             {wallets.map((w) => {
-              const blocked = w.status !== "READY";
-              const mined = w.tx === "MINED";
-              const failed = w.tx === "FAILED";
-              const realized = mined ? perWalletNum * perUnitGain : 0;
+              const eligible = w.whitelisted && w.balance >= requiredBalance;
+              const pct = (w.minted / PER_WALLET) * 100;
+              const barColor =
+                w.status === "failed"
+                  ? "#ff2d2d"
+                  : w.status === "success"
+                  ? "#34d399"
+                  : "#0040ff";
               return (
-                <li key={w.addr} className="px-3 py-3 flex items-center gap-3 flex-wrap">
-                  <code className="font-mono text-sm text-bone">{SHORT(w.addr)}</code>
-                  <span className="font-mono text-xs uppercase tracking-wider text-ape-200">
-                    {w.group.toLowerCase()}
-                  </span>
-
-                  <div className="flex-1 min-w-[120px] mx-2">
-                    <div className="h-1.5 w-full bg-ape-950 border border-border">
-                      <div
-                        className={`h-full transition-all ${
-                          failed ? "bg-bleed" :
-                          mined  ? "bg-emerald-400" :
-                                   "bg-ape-500"
-                        }`}
-                        style={{ width: `${blocked ? 0 : w.progress}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <code className="font-mono text-xs text-ape-200 min-w-[140px] text-right">
-                    {w.hash ?? (blocked ? "— skipped —" : "— awaiting —")}
+                <li
+                  key={w.id}
+                  className="flex items-center gap-4 flex-wrap p-3 border border-border"
+                  style={{ background: "rgba(10,10,14,0.6)" }}
+                >
+                  <code
+                    className="font-mono text-base text-bone"
+                    style={{ minWidth: 140 }}
+                  >
+                    {SHORT(w.addr)}
                   </code>
 
+                  <div className="flex-1 min-w-[180px]">
+                    <div
+                      className="h-3 w-full border border-border"
+                      style={{ background: "#050507" }}
+                    >
+                      <div
+                        className="h-full transition-all"
+                        style={{
+                          width: `${eligible ? pct : 0}%`,
+                          background: barColor,
+                        }}
+                      />
+                    </div>
+                    {w.txHash && (
+                      <div className="font-mono text-xs text-ape-200 mt-1">
+                        tx: {w.txHash}
+                      </div>
+                    )}
+                  </div>
+
                   <span
-                    className="font-mono text-sm min-w-[80px] text-right"
-                    style={{
-                      color: mined ? "#34d399" : failed ? "#ff2d2d" : blocked ? "#5a5a6a" : "#aaaadd",
-                    }}
+                    className="font-mono text-base text-bone"
+                    style={{ minWidth: 70, textAlign: "right" }}
                   >
-                    {mined  ? `+${realized.toFixed(2)}`
-                    : failed ? "−gas"
-                    : blocked ? "—"
-                             : `~${projPerWallet.toFixed(2)}`}
+                    {eligible ? `${w.minted} / ${PER_WALLET}` : "—"}
                   </span>
 
-                  <span className="ml-2">
-                    {blocked              ? <StatusBadge status="Locked"   /> :
-                     w.tx === "QUEUED"    ? <StatusBadge status="Open"     /> :
-                     w.tx === "PENDING"   ? <StatusBadge status="Pending"  /> :
-                     mined                ? <StatusBadge status="Done"     /> :
-                                            <StatusBadge status="Rejected" />}
+                  <span
+                    className="font-mono text-base uppercase tracking-wider"
+                    style={{
+                      minWidth: 170,
+                      textAlign: "right",
+                      color:
+                        w.status === "success"
+                          ? "#34d399"
+                          : w.status === "failed"
+                          ? "#ff2d2d"
+                          : w.status === "skipped"
+                          ? "#5a5a6a"
+                          : w.status === "minting"
+                          ? "#aaaadd"
+                          : "#aaaadd",
+                    }}
+                  >
+                    {w.status === "success"
+                      ? "✓ SUCCESS"
+                      : w.status === "failed"
+                      ? "✗ FAILED"
+                      : w.status === "skipped"
+                      ? "⊘ SKIPPED"
+                      : w.status === "minting"
+                      ? "⟳ MINTING…"
+                      : "WAITING"}
                   </span>
                 </li>
               );
             })}
           </ul>
-        </Panel>
 
-        {/* ── 08 — LEADERBOARD ── */}
-        <Panel
-          title="Chamber Leaderboard · top 3 wallets"
-          right={<span>by realized + projected gain</span>}
-        >
-          <p className="font-sans text-sm text-ape-200 mb-4 leading-relaxed">
-            your highest-earning wallets, scored by realized profit plus projected gain on pending mints.
-          </p>
-          <ol className="space-y-3">
-            {leaderboard.map((w, i) => {
-              const total = w.realized + w.projected;
-              const max = leaderboard[0] ? (leaderboard[0].realized + leaderboard[0].projected) || 1 : 1;
-              const pct = (total / max) * 100;
-              return (
-                <li key={w.addr} className="flex items-center gap-3">
-                  <span className="font-pixel text-2xl leading-none text-bleed w-8 text-center">
-                    {i + 1}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline justify-between gap-2 mb-1">
-                      <code className="font-mono text-xs text-bone">{SHORT(w.addr)}</code>
-                      <span className="font-mono text-xxxs uppercase tracking-widest2 text-mute">
-                        {w.group.toLowerCase()}
-                      </span>
-                      <span className="ml-auto font-mono text-xs text-emerald-400">
-                        +{total.toFixed(2)} ape
-                      </span>
-                    </div>
-                    <div className="h-1 w-full bg-ape-950 border border-border">
-                      <div className="h-full bg-emerald-400" style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
-        </Panel>
-
-        {/* Closing whisper — matches the dashboard's tone. */}
-        <p className="font-serif italic text-xs text-mute mt-6 text-right tilt-r">
-          — the chamber remembers every wallet it has ever seen.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/* ─── Subcomponents ──────────────────────────────────────────────────── */
-
-function Sparkline({
-  data,
-  color,
-  height = 36,
-}: {
-  data: number[];
-  color: string;
-  height?: number;
-}) {
-  const width = 200;
-  if (data.length < 2) return <div style={{ height }} />;
-  const max = Math.max(...data);
-  const min = Math.min(...data);
-  const range = max - min || 1;
-  const points = data
-    .map((v, i) => {
-      const x = (i / (data.length - 1)) * width;
-      const y = height - ((v - min) / range) * height;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-  // Build an area fill — extend the polyline down to the baseline.
-  const area = `0,${height} ${points} ${width},${height}`;
-  return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="none"
-      className="w-full block"
-      style={{ height }}
-    >
-      <polygon points={area} fill={color} fillOpacity={0.15} />
-      <polyline points={points} fill="none" stroke={color} strokeWidth={1.4} />
-    </svg>
-  );
-}
-
-function HeroMetric({
-  label,
-  value,
-  unit,
-  sub,
-  tone,
-  pulse,
-  big,
-}: {
-  label: string;
-  value: string;
-  unit?: string;
-  sub?: string;
-  tone: "elec" | "bleed" | "bone";
-  pulse?: boolean;
-  big?: boolean;
-}) {
-  const color =
-    tone === "elec"  ? "#0040ff" :
-    tone === "bleed" ? "#ff2d2d" :
-                       "#e8e8e8";
-  return (
-    <div
-      className="panel"
-      style={{
-        borderColor: color,
-        background: `linear-gradient(180deg, rgba(${tone === "elec" ? "0,64,255" : tone === "bleed" ? "255,45,45" : "232,232,232"},0.08), transparent 60%)`,
-      }}
-    >
-      <div className="panel-header" style={{ borderBottomColor: color }}>
-        <span><span style={{ color }}>&gt;</span> {label}</span>
-        {pulse && (
-          <span className="font-mono text-xxxs tracking-widest text-bleed normal-case pulse-soft">
-            live
-          </span>
-        )}
-      </div>
-      <div className="panel-body">
-        <div className="flex items-baseline gap-2">
-          <span
-            className={`font-pixel leading-none ${big ? "text-5xl" : "text-3xl"} ${pulse ? "pulse-soft" : ""}`}
-            style={{ color }}
+          {/* Summary block */}
+          <div
+            className="p-4 border space-y-2"
+            style={{
+              borderColor: failedCount > 0 ? "#ff2d2d" : "#0040ff",
+              background:
+                failedCount > 0
+                  ? "rgba(255,45,45,0.06)"
+                  : "rgba(0,64,255,0.06)",
+            }}
           >
-            {value}
-          </span>
-          {unit && (
-            <span className="font-mono text-xxs uppercase tracking-widest2 text-mute">
-              {unit}
-            </span>
-          )}
-        </div>
-        {sub && (
-          <div className="font-mono text-xxxs uppercase tracking-widest2 text-mute mt-2">
-            {sub}
+            <p className="font-mono text-sm uppercase tracking-wider text-elec">
+              summary
+            </p>
+            <p className="font-sans text-lg text-bone leading-relaxed">
+              <span className="text-emerald-400 font-bold">{mintedNfts}</span>{" "}
+              NFT{mintedNfts === 1 ? "" : "s"} minted successfully across{" "}
+              <span className="text-emerald-400 font-bold">{successCount}</span>{" "}
+              wallet{successCount === 1 ? "" : "s"}.
+            </p>
+            {minting && mintingCount > 0 && (
+              <p className="font-sans text-base text-ape-200">
+                {mintingCount} wallet{mintingCount === 1 ? "" : "s"} still
+                minting…
+              </p>
+            )}
+            {failedCount > 0 && (
+              <p className="font-sans text-base text-bleed">
+                {failedCount} wallet{failedCount === 1 ? "" : "s"} failed to
+                mint (network or revert).
+              </p>
+            )}
+            {skippedCount > 0 && (
+              <p className="font-sans text-base text-ape-200">
+                {skippedCount} wallet{skippedCount === 1 ? "" : "s"} skipped —
+                not whitelisted or insufficient funds.
+              </p>
+            )}
+            {!minting &&
+              successCount + failedCount + skippedCount === wallets.length && (
+                <p className="font-sans text-base text-bone pt-1">
+                  run complete. press{" "}
+                  <span className="text-elec">RESET CHAMBER</span> to start
+                  another.
+                </p>
+              )}
           </div>
-        )}
-      </div>
+        </Panel>
+      )}
     </div>
   );
 }
 
-function ValidationStat({
-  n,
+/* ── Small helper for the mint-details key-value rows ────────────── */
+function DetailRow({
   label,
-  tone,
+  children,
+  highlight,
 }: {
-  n: number;
   label: string;
-  tone: "bone" | "ape-200" | "mute" | "bleed";
+  children: React.ReactNode;
+  highlight?: boolean;
 }) {
-  const color =
-    tone === "bone"    ? "#e8e8e8" :
-    tone === "ape-200" ? "#aaaadd" :
-    tone === "mute"    ? "#5a5a6a" :
-                         "#ff2d2d";
   return (
-    <div style={{ borderLeft: `2px solid ${color}` }} className="pl-3 py-1">
-      <div className="font-pixel text-3xl leading-none" style={{ color }}>
-        {n}
-      </div>
-      <div className="font-mono text-xxs uppercase tracking-wider text-ape-200 mt-2">
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className="font-mono text-sm uppercase tracking-wider text-ape-200">
         {label}
-      </div>
-    </div>
-  );
-}
-
-function ToggleRow({
-  label,
-  hint,
-  on,
-  onChange,
-}: {
-  label: string;
-  hint: string;
-  on: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <div>
-      <label className="label">{label}</label>
-      <button
-        type="button"
-        onClick={() => onChange(!on)}
-        className="w-full flex items-center gap-2 px-2 py-1"
-        style={{
-          border: `1px solid ${on ? "#0040ff" : "#1a1a28"}`,
-          background: on ? "rgba(0,64,255,0.10)" : "transparent",
-        }}
+      </dt>
+      <dd
+        className={`font-mono ${
+          highlight ? "text-lg text-emerald-400 font-bold" : "text-base text-bone"
+        }`}
       >
-        <span
-          className="inline-block w-3 h-3"
-          style={{
-            background: on ? "#0040ff" : "transparent",
-            border: `1px solid ${on ? "#0040ff" : "#5a5a6a"}`,
-          }}
-          aria-hidden
-        />
-        <span className="font-mono text-xxs uppercase tracking-widest2 text-bone">
-          {on ? "engaged" : "off"}
-        </span>
-      </button>
-      <div className="text-xxs text-mute mt-1 font-serif italic">{hint}</div>
+        {children}
+      </dd>
     </div>
   );
 }
