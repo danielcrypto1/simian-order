@@ -22,7 +22,7 @@ export default function MintChamberLayout({ children }: { children: React.ReactN
       />
       <TopBar />
       <TerminalBar />
-      <main className="relative z-[1] flex-1 w-full max-w-[1280px] mx-auto px-4 sm:px-8 lg:px-10 py-8 sm:py-12">
+      <main className="relative z-[1] flex-1 w-full max-w-[1180px] mx-auto px-4 sm:px-8 lg:px-10 pt-4 sm:pt-6 pb-10 sm:pb-14">
         {children}
       </main>
       <SiteFooter />
