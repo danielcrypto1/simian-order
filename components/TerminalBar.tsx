@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRound } from "@/lib/useRound";
+import { OPENSEA_URL, OPENSEA_HIDDEN } from "@/lib/links";
 
 /**
  * Single-line live system strip below the TopBar.
@@ -35,8 +36,19 @@ export default function TerminalBar() {
         <span className="text-mute">status:</span>
         <span className="text-bone">live</span>
         <span className="text-mute">/</span>
-        <span className="text-mute">market:</span>
-        <span className="text-bone">loading<span className="blink">_</span></span>
+        <span className="text-mute">opensea:</span>
+        {OPENSEA_HIDDEN ? (
+          <span className="text-bone">loading<span className="blink">_</span></span>
+        ) : (
+          <a
+            href={OPENSEA_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-elec no-underline hover:text-bleed"
+          >
+            live ↗
+          </a>
+        )}
         {/* suppressHydrationWarning is belt-and-braces — even with the
             empty initial state, the time may flicker once on hydrate. */}
         <span className="ml-auto text-bleed" suppressHydrationWarning>

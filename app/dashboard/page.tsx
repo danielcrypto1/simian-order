@@ -122,7 +122,7 @@ export default function DashboardPage() {
           {!OPENSEA_HIDDEN && (
             <>
               <span className="text-mute">/</span>
-              <span><span className="text-mute">market:</span> <span className="text-elec">live (opensea)</span></span>
+              <span><span className="text-mute">opensea:</span> <span className="text-elec">live</span></span>
             </>
           )}
         </div>
@@ -207,7 +207,7 @@ export default function DashboardPage() {
               <div className="flex items-baseline gap-3 mb-1">
                 <span className="font-pixel text-bleed text-xl leading-none">04</span>
                 <span className="font-mono text-xxs uppercase tracking-widest2 text-bone">
-                  market
+                  opensea
                 </span>
                 <span className="ml-auto">
                   <StatusBadge status="Live" />
