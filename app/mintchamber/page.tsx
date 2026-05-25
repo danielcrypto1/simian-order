@@ -492,8 +492,8 @@ export default function MintChamberPage() {
       </section>
 
       {/* ── Quick-state strip ── */}
-      <section className="mb-8 border-t border-b border-border py-2">
-        <div className="flex items-center flex-wrap gap-x-5 gap-y-1 font-mono text-xxs uppercase tracking-widest2">
+      <section className="mb-8 border-t border-b border-border py-2.5">
+        <div className="flex items-center flex-wrap gap-x-5 gap-y-1 font-mono text-xs uppercase tracking-wider">
           <span><span className="text-mute">chamber:</span>{" "}
             <span className={armed ? "text-bleed pulse-soft" : "text-bone"}>
               {armed ? "armed" : "idle"}
@@ -550,20 +550,23 @@ export default function MintChamberPage() {
                   </span>
                 </div>
                 <div
-                  className="font-mono text-xxs uppercase tracking-widest2 mt-1"
-                  style={{ color: isDone || isCurrent ? "#e8e8e8" : "#5a5a6a" }}
+                  className="font-mono text-xs uppercase tracking-wider mt-2"
+                  style={{ color: isDone || isCurrent ? "#ffffff" : "#aaaadd" }}
                 >
                   {s.label}
                 </div>
-                <div className="font-serif italic text-xxs text-mute mt-1 truncate">
+                <div
+                  className="font-sans text-xs mt-1 truncate"
+                  style={{ color: isDone || isCurrent ? "#aaaadd" : "#5a5a6a" }}
+                >
                   {s.blurb}
                 </div>
               </li>
             );
           })}
         </ol>
-        <p className="font-serif italic text-bone text-sm mt-3">
-          <span className="text-elec font-mono text-xxs uppercase tracking-widest2 mr-2">next →</span>
+        <p className="font-sans text-base text-bone mt-4 leading-relaxed">
+          <span className="text-elec font-mono text-xs uppercase tracking-wider mr-2">next →</span>
           {nextHint}
         </p>
       </section>
@@ -595,7 +598,7 @@ export default function MintChamberPage() {
             </span>
           </div>
           <Sparkline data={floorHist} color="#0040ff" />
-          <div className="font-mono text-xxxs uppercase tracking-widest2 text-mute mt-1">
+          <div className="font-mono text-xxs uppercase tracking-wider text-ape-200 mt-2">
             mint cost {priceNum.toFixed(3)} · gap +{(currentFloor - priceNum).toFixed(2)}
           </div>
         </Panel>
@@ -609,7 +612,7 @@ export default function MintChamberPage() {
             </span>
           </div>
           <Sparkline data={velocityHist} color="#ff2d2d" />
-          <div className="font-mono text-xxxs uppercase tracking-widest2 text-mute mt-1">
+          <div className="font-mono text-xxs uppercase tracking-wider text-ape-200 mt-2">
             mempool busy · public can&apos;t keep up
           </div>
         </Panel>
@@ -628,7 +631,7 @@ export default function MintChamberPage() {
               style={{ width: `${supplyPct}%` }}
             />
           </div>
-          <div className="font-mono text-xxxs uppercase tracking-widest2 text-mute mt-1">
+          <div className="font-mono text-xxs uppercase tracking-wider text-ape-200 mt-2">
             {blocksToOut} blocks to mint-out
           </div>
         </Panel>
@@ -660,7 +663,7 @@ export default function MintChamberPage() {
               />
             ))}
           </div>
-          <div className="flex items-center justify-between font-mono text-xxxs uppercase tracking-widest2 text-mute">
+          <div className="flex items-center justify-between font-mono text-xs uppercase tracking-wider text-ape-200">
             <span>now</span>
             <span>+8 blk</span>
             <span>+16 blk</span>
@@ -681,20 +684,20 @@ export default function MintChamberPage() {
             others are not waiting
           </span>
         </div>
-        <ul className="divide-y divide-border max-h-[180px] overflow-hidden">
+        <ul className="divide-y divide-border max-h-[220px] overflow-hidden">
           {feed.slice(0, 7).map((line, i) => (
             <li
               key={`${line}-${i}`}
-              className="px-3 py-2 font-mono text-xs flex items-center gap-2"
+              className="px-3 py-2.5 font-mono text-sm flex items-center gap-2"
               style={{
-                color: i === 0 ? "#e8e8e8" : "#aaaadd",
-                opacity: Math.max(0.45, 1 - i * 0.09),
+                color: i === 0 ? "#ffffff" : "#aaaadd",
+                opacity: Math.max(0.65, 1 - i * 0.06),
               }}
             >
               <span className="text-elec">›</span>
               <span className="truncate">{line}</span>
               {i === 0 && (
-                <span className="ml-auto text-xxxs uppercase tracking-widest2 text-bleed pulse-soft">
+                <span className="ml-auto text-xs uppercase tracking-wider text-bleed pulse-soft">
                   just now
                 </span>
               )}
@@ -706,7 +709,7 @@ export default function MintChamberPage() {
       <div className="space-y-4">
         {/* ── 01 — TARGET CONTRACT ── */}
         <Panel title="Step 1 · Target Contract" right={<span>fn detected · supply {supply.toLocaleString()} / {SUPPLY_MAX.toLocaleString()}</span>}>
-          <p className="font-serif italic text-xs text-mute mb-3">
+          <p className="font-sans text-sm text-ape-200 mb-4 leading-relaxed">
             tell the chamber which collection to mint. paste the address and pick the function.
           </p>
 
@@ -719,8 +722,8 @@ export default function MintChamberPage() {
                 onChange={(e) => setContract(e.target.value)}
                 spellCheck={false}
               />
-              <div className="text-xxs text-mute mt-2 flex items-center flex-wrap gap-x-2 gap-y-1">
-                <span className="badge text-emerald-400" style={{ letterSpacing: "0.20em" }}>
+              <div className="text-sm text-ape-200 mt-3 flex items-center flex-wrap gap-x-3 gap-y-2">
+                <span className="badge text-emerald-400" style={{ letterSpacing: "0.18em" }}>
                   MAX MINT DETECTED · 1
                 </span>
                 <span>detected: <span className="text-bone">ERC-721A</span></span>
@@ -778,7 +781,7 @@ export default function MintChamberPage() {
           padded={false}
         >
           <div className="px-3 py-2 border-b border-border">
-            <p className="font-serif italic text-xs text-mute">
+            <p className="font-sans text-sm text-ape-200 leading-relaxed">
               bind wallets that will mint. each SIMIAN you hold unlocks 5 slots. use any combination of the buttons below.
             </p>
           </div>
@@ -888,15 +891,15 @@ export default function MintChamberPage() {
                       }`}
                       aria-hidden
                     />
-                    <code className="font-mono text-xs text-ape-100 break-all">{SHORT(w.addr)}</code>
-                    <span className="font-mono text-xxxs uppercase tracking-widest2 text-mute">
+                    <code className="font-mono text-sm text-bone break-all">{SHORT(w.addr)}</code>
+                    <span className="font-mono text-xs uppercase tracking-wider text-ape-200">
                       · {w.group.toLowerCase()}
                     </span>
-                    <span className="ml-auto font-mono text-xxs text-bone">
-                      {w.balance.toFixed(2)} <span className="text-mute">ape</span>
+                    <span className="ml-auto font-mono text-sm text-bone">
+                      {w.balance.toFixed(2)} <span className="text-ape-200">ape</span>
                     </span>
                     <span
-                      className="font-mono text-xxs min-w-[80px] text-right"
+                      className="font-mono text-sm min-w-[90px] text-right"
                       style={{ color: ready ? "#34d399" : "#5a5a6a" }}
                     >
                       {ready ? `+${projPerWallet.toFixed(2)} proj` : "—"}
@@ -926,7 +929,7 @@ export default function MintChamberPage() {
 
         {/* ── 03 — EXECUTION MODE ── */}
         <Panel title="Step 3a · Execution Mode" right={<span>{mode.toLowerCase()}</span>}>
-          <p className="font-serif italic text-xs text-mute mb-3">
+          <p className="font-sans text-sm text-ape-200 mb-4 leading-relaxed">
             how the chamber fans out signed transactions across your wallets. optimized is the sane default for most mints.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -957,7 +960,7 @@ export default function MintChamberPage() {
 
         {/* ── 04 — GAS PRIORITY ── */}
         <Panel title="Step 3b · Gas Priority" right={<span>net median 0.62 gwei</span>}>
-          <p className="font-serif italic text-xs text-mute mb-3">
+          <p className="font-sans text-sm text-ape-200 mb-4 leading-relaxed">
             how aggressive to bid for blockspace. higher = faster + more expensive. balanced matches the network median.
           </p>
           <div className="grid grid-cols-3 gap-2">
@@ -991,17 +994,17 @@ export default function MintChamberPage() {
 
         {/* ── 05 — PRE-MINT VALIDATION + PROFIT GAUGE ── */}
         <Panel title="Step 4 · Pre-Mint Validation" right={<span>{counts.ready} ready · {wallets.length - counts.ready} blocked</span>}>
-          <p className="font-serif italic text-xs text-mute mb-3">
+          <p className="font-sans text-sm text-ape-200 mb-4 leading-relaxed">
             the chamber checks every wallet and the contract before launch. red rows will be skipped automatically.
           </p>
 
           {/* Contract sanity checks — mirror the docs' "contract activity",
               "sold-out detection", "parameter accuracy" validation layer. */}
-          <div className="mb-4 border-l-2 border-emerald-400 pl-3 py-1">
-            <div className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-2">
+          <div className="mb-5 border-l-2 border-emerald-400 pl-4 py-1">
+            <div className="font-mono text-sm uppercase tracking-wider text-bone mb-2">
               contract sanity
             </div>
-            <ul className="space-y-1 font-mono text-xxs text-bone">
+            <ul className="space-y-1.5 font-mono text-sm text-bone">
               <li><span className="text-emerald-400">✓</span> contract live &nbsp;·&nbsp; accepting mints</li>
               <li><span className="text-emerald-400">✓</span> phase &nbsp;·&nbsp; public mint active</li>
               <li>
@@ -1015,7 +1018,7 @@ export default function MintChamberPage() {
             </ul>
           </div>
 
-          <div className="font-mono text-xxxs uppercase tracking-widest2 text-mute mb-2">
+          <div className="font-mono text-sm uppercase tracking-wider text-bone mb-3">
             wallet checks
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
@@ -1053,17 +1056,17 @@ export default function MintChamberPage() {
             </div>
           </div>
 
-          <div className="divider-glitch my-3" aria-hidden />
-          <dl className="grid grid-cols-[160px_1fr] gap-y-1 font-mono text-xxs uppercase tracking-widest2">
-            <dt className="text-mute">projected nfts</dt>
+          <div className="divider-glitch my-4" aria-hidden />
+          <dl className="grid grid-cols-[180px_1fr] gap-y-2 font-mono text-xs uppercase tracking-wider">
+            <dt className="text-ape-200">projected nfts</dt>
             <dd className="text-bone">{totalNfts}</dd>
-            <dt className="text-mute">aggregate cost</dt>
+            <dt className="text-ape-200">aggregate cost</dt>
             <dd className="text-bone">{totalApeStr} ape</dd>
-            <dt className="text-mute">projected exit</dt>
+            <dt className="text-ape-200">projected exit</dt>
             <dd className="text-emerald-400">+{projectedNet.toFixed(2)} ape @ floor {currentFloor.toFixed(2)}</dd>
-            <dt className="text-mute">gas est. (median)</dt>
+            <dt className="text-ape-200">gas est. (median)</dt>
             <dd className="text-bone">~ {(counts.ready * 0.0042).toFixed(4)} ape</dd>
-            <dt className="text-mute">risk flags</dt>
+            <dt className="text-ape-200">risk flags</dt>
             <dd className={counts.lowGas + counts.notWl + counts.invalid > 0 ? "text-bleed" : "text-emerald-400"}>
               {counts.lowGas + counts.notWl + counts.invalid > 0
                 ? `${counts.lowGas + counts.notWl + counts.invalid} wallet(s) will be skipped`
@@ -1074,7 +1077,7 @@ export default function MintChamberPage() {
 
         {/* ── 06 — RETRY & FAIL-SAFE ── */}
         <Panel title="Step 3c · Retry & Fail-Safe" right={<span>auto-recover active</span>}>
-          <p className="font-serif italic text-xs text-mute mb-3">
+          <p className="font-sans text-sm text-ape-200 mb-4 leading-relaxed">
             what happens when a transaction fails. the defaults are sensible — leave them on unless you know better.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -1120,7 +1123,7 @@ export default function MintChamberPage() {
             </span>
           </div>
           <div className="panel-body">
-            <p className="font-serif italic text-xs text-mute mb-3">
+            <p className="font-sans text-sm text-ape-200 mb-4 leading-relaxed">
               {armed
                 ? `— the chamber is moving. realized so far: +${realizedNet.toFixed(2)} ape.`
                 : confirming
@@ -1137,26 +1140,26 @@ export default function MintChamberPage() {
                 className="mb-4 border p-3"
                 style={{ borderColor: "#ff2d2d", background: "rgba(255,45,45,0.05)" }}
               >
-                <div className="font-mono text-xxs uppercase tracking-widest2 text-bleed mb-2">
+                <div className="font-mono text-sm uppercase tracking-wider text-bleed mb-3">
                   ⚠ final confirmation
                 </div>
-                <dl className="grid grid-cols-[140px_1fr] gap-y-1 font-mono text-xxs uppercase tracking-widest2 mb-3">
-                  <dt className="text-mute">contract</dt>
+                <dl className="grid grid-cols-[150px_1fr] gap-y-2 font-mono text-xs uppercase tracking-wider mb-4">
+                  <dt className="text-ape-200">contract</dt>
                   <dd className="text-bone font-mono">{SHORT(contract)}</dd>
-                  <dt className="text-mute">function</dt>
+                  <dt className="text-ape-200">function</dt>
                   <dd className="text-bone"><code className="text-elec">{mintFn}</code></dd>
-                  <dt className="text-mute">wallets</dt>
+                  <dt className="text-ape-200">wallets</dt>
                   <dd className="text-bone">{counts.ready} ready &nbsp;·&nbsp; {wallets.length - counts.ready} will be skipped</dd>
-                  <dt className="text-mute">payload</dt>
+                  <dt className="text-ape-200">payload</dt>
                   <dd className="text-bone">{totalNfts} nft &nbsp;·&nbsp; {totalApeStr} ape</dd>
-                  <dt className="text-mute">projected exit</dt>
+                  <dt className="text-ape-200">projected exit</dt>
                   <dd className="text-emerald-400">+{projectedNet.toFixed(2)} ape &nbsp;·&nbsp; {multiplier.toFixed(1)}× @ floor {currentFloor.toFixed(2)}</dd>
-                  <dt className="text-mute">mode &nbsp;·&nbsp; gas</dt>
+                  <dt className="text-ape-200">mode &nbsp;·&nbsp; gas</dt>
                   <dd className="text-bone">{mode.toLowerCase()} &nbsp;·&nbsp; {tier.toLowerCase()} ({gasGwei} gwei)</dd>
-                  <dt className="text-mute">retry</dt>
+                  <dt className="text-ape-200">retry</dt>
                   <dd className="text-bone">{maxRetries} attempts · auto-bump {autoBump ? "on" : "off"} · skip-on-fail {skipOnFail ? "on" : "off"}</dd>
                 </dl>
-                <p className="font-serif italic text-xs text-bone mb-3">
+                <p className="font-sans text-sm text-bone mb-4 leading-relaxed">
                   every signed broadcast is final once it lands on chain. you can still HALT mid-run.
                 </p>
                 <div className="flex items-center gap-3 flex-wrap">
@@ -1213,7 +1216,7 @@ export default function MintChamberPage() {
           padded={false}
         >
           <div className="px-3 py-2 border-b border-border">
-            <p className="font-serif italic text-xs text-mute">
+            <p className="font-sans text-sm text-ape-200 leading-relaxed">
               each wallet shows its live tx progress and hash. <span className="text-emerald-400">green</span> = mined, <span className="text-bleed">red</span> = failed, gray = skipped.
             </p>
           </div>
@@ -1231,13 +1234,13 @@ export default function MintChamberPage() {
               const realized = mined ? perWalletNum * perUnitGain : 0;
               return (
                 <li key={w.addr} className="px-3 py-3 flex items-center gap-3 flex-wrap">
-                  <code className="font-mono text-xs text-ape-100">{SHORT(w.addr)}</code>
-                  <span className="font-mono text-xxxs uppercase tracking-widest2 text-mute">
+                  <code className="font-mono text-sm text-bone">{SHORT(w.addr)}</code>
+                  <span className="font-mono text-xs uppercase tracking-wider text-ape-200">
                     {w.group.toLowerCase()}
                   </span>
 
                   <div className="flex-1 min-w-[120px] mx-2">
-                    <div className="h-1 w-full bg-ape-950 border border-border">
+                    <div className="h-1.5 w-full bg-ape-950 border border-border">
                       <div
                         className={`h-full transition-all ${
                           failed ? "bg-bleed" :
@@ -1249,12 +1252,12 @@ export default function MintChamberPage() {
                     </div>
                   </div>
 
-                  <code className="font-mono text-xxs text-mute min-w-[120px] text-right">
+                  <code className="font-mono text-xs text-ape-200 min-w-[140px] text-right">
                     {w.hash ?? (blocked ? "— skipped —" : "— awaiting —")}
                   </code>
 
                   <span
-                    className="font-mono text-xxs min-w-[72px] text-right"
+                    className="font-mono text-sm min-w-[80px] text-right"
                     style={{
                       color: mined ? "#34d399" : failed ? "#ff2d2d" : blocked ? "#5a5a6a" : "#aaaadd",
                     }}
@@ -1283,7 +1286,7 @@ export default function MintChamberPage() {
           title="Chamber Leaderboard · top 3 wallets"
           right={<span>by realized + projected gain</span>}
         >
-          <p className="font-serif italic text-xs text-mute mb-3">
+          <p className="font-sans text-sm text-ape-200 mb-4 leading-relaxed">
             your highest-earning wallets, scored by realized profit plus projected gain on pending mints.
           </p>
           <ol className="space-y-3">
@@ -1443,7 +1446,7 @@ function ValidationStat({
       <div className="font-pixel text-3xl leading-none" style={{ color }}>
         {n}
       </div>
-      <div className="font-mono text-xxxs uppercase tracking-widest2 text-mute mt-1">
+      <div className="font-mono text-xxs uppercase tracking-wider text-ape-200 mt-2">
         {label}
       </div>
     </div>
