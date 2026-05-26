@@ -24,17 +24,19 @@ const SLOTS_PER_SIMIAN = 5;
 const SLOTS_TOTAL = SIMIAN_HELD * SLOTS_PER_SIMIAN;
 
 const COLLECTION_NAME = "TEST COLLECTION";
-const COLLECTION_NETWORK = "ApeChain";
+const COLLECTION_NETWORK = "Sepolia";
 const COLLECTION_SUPPLY_MAX = 5000;
 const COLLECTION_IMAGE = "/media/void.png";
 
-// Apescan helpers — used so the demo's tx hashes and contract address
-// can be clicked through to a real block-explorer page. The wallets +
-// contract on this page are mock, so the destination 404s — fine for a
-// recording, makes the UI look legit.
-const APESCAN_BASE = "https://apescan.io";
-const apescanAddr = (a: string) => `${APESCAN_BASE}/address/${a}`;
-const apescanTx   = (h: string) => `${APESCAN_BASE}/tx/${h}`;
+// Block-explorer helpers — used so the demo's tx hashes and contract
+// address can be clicked through to a real explorer page. Wallets +
+// contract on this page are mock, so destinations 404 — fine for a
+// recording, makes the UI look legit. Using Sepolia + test ETH so the
+// minting "funds" look like a normal EVM testnet mint, since ApeChain
+// has no public testnet equivalent.
+const EXPLORER_BASE = "https://sepolia.etherscan.io";
+const explorerAddr = (a: string) => `${EXPLORER_BASE}/address/${a}`;
+const explorerTx   = (h: string) => `${EXPLORER_BASE}/tx/${h}`;
 
 type ExecMode = "SIMULTANEOUS" | "OPTIMIZED" | "STAGGERED" | "RECALL";
 type GasTier = "HIGH" | "BALANCED" | "LOW";
@@ -44,13 +46,13 @@ type Wallet = {
   id: string;
   label: string;
   addr: string;
-  balance: number;     // APE
+  balance: number;     // ETH (test ETH on Sepolia)
   whitelisted: boolean;
   status: MintStatus;
   minted: number;
   txHashes: string[];  // one full-length hash per NFT minted
   queuePos: number | null;
-  gasUsed: number;     // APE
+  gasUsed: number;     // ETH (test ETH)
 };
 
 const EXEC_MODES: {
@@ -111,7 +113,9 @@ const INITIAL_WALLETS: Wallet[] = [
 
 export default function MintChamberPage() {
   // ── Mint config ─────────────────────────────────────────────────────
-  const [contract, setContract]   = useState("0x4d2e8a17c8b1ee4c6e0d3f9b22ca8e7b1d2f0a55");
+  // Fresh fake contract — no resemblance to any real deployment. Safe
+  // for screen-recording without needing to blur the address.
+  const [contract, setContract]   = useState("0x6f9c4e8b3a7d5f2c1e9b8d4a0f3e7c2b5d9a8f1c");
   const [priceStr, setPriceStr]   = useState("1.00");
   const [maxStr, setMaxStr]       = useState("5");
   const [supply, setSupply]       = useState(4420);
@@ -374,7 +378,7 @@ export default function MintChamberPage() {
           mint chamber<span className="text-bleed">.</span>
         </h1>
         <p className="font-sans text-base sm:text-lg text-ape-200 max-w-xl mx-auto leading-relaxed">
-          a multi-wallet NFT minter for ApeChain collections. SIMIAN ORDER holders only.
+          a multi-wallet NFT minter for EVM-compatible testnets. SIMIAN ORDER holders only.
         </p>
         <div className="flex items-center justify-center gap-3 flex-wrap pt-1">
           <span
@@ -432,12 +436,12 @@ export default function MintChamberPage() {
                   {SHORT(contract)}
                 </code>
                 <a
-                  href={apescanAddr(contract)}
+                  href={explorerAddr(contract)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-mono text-sm text-elec hover:text-bone"
                 >
-                  view on apescan ↗
+                  view on etherscan ↗
                 </a>
               </div>
             </div>
@@ -445,7 +449,7 @@ export default function MintChamberPage() {
             <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <Stat label="price">
                 <span className="font-pixel text-2xl text-bone">{price.toFixed(2)}</span>
-                <span className="font-mono text-sm text-ape-200 ml-1">APE</span>
+                <span className="font-mono text-sm text-ape-200 ml-1">ETH</span>
               </Stat>
               <Stat label="max / wallet">
                 <span className="font-pixel text-2xl text-bone">{maxMint}</span>
@@ -495,7 +499,7 @@ export default function MintChamberPage() {
             </div>
             <div>
               <label className="block font-mono text-xs uppercase tracking-wider text-ape-200 mb-1.5">
-                price (APE)
+                price (ETH)
               </label>
               <input
                 className="field font-mono"
@@ -724,7 +728,7 @@ export default function MintChamberPage() {
                   {/* Balance — hidden on mobile, inline in third row */}
                   <div className="hidden sm:block">
                     <div className="font-mono text-base text-bone leading-none">
-                      {w.balance.toFixed(2)} <span className="text-ape-200">APE</span>
+                      {w.balance.toFixed(2)} <span className="text-ape-200">ETH</span>
                     </div>
                     <div className="font-mono text-xs text-ape-200 mt-0.5">balance</div>
                   </div>
@@ -770,7 +774,7 @@ export default function MintChamberPage() {
                   {/* Mobile-only inline meta row */}
                   <div className="sm:hidden col-span-3 -mt-1 flex items-center justify-between flex-wrap gap-y-1 gap-x-3">
                     <span className="font-mono text-sm text-bone">
-                      {w.balance.toFixed(2)} APE
+                      {w.balance.toFixed(2)} ETH
                     </span>
                     <span
                       className="font-mono text-xs uppercase tracking-wider"
@@ -813,7 +817,7 @@ export default function MintChamberPage() {
             ? "■ STOP MINT"
             : eligibleWallets.length === 0
             ? "no eligible wallets"
-            : `▶ mint ${totalNfts} NFTs · ${totalCost.toFixed(2)} APE`}
+            : `▶ mint ${totalNfts} NFTs · ${totalCost.toFixed(2)} ETH`}
         </button>
         <p className="font-sans text-sm text-ape-200 text-center">
           {eligibleWallets.length} of {wallets.length} wallets eligible · mode{" "}
@@ -845,8 +849,8 @@ export default function MintChamberPage() {
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-5 pb-5 border-b border-border">
             <BigStat n={mintedNfts}   label="NFTs minted" tone="emerald" />
             <BigStat n={`${successCount}/${wallets.length}`} label="success" tone="bone" />
-            <BigStat n={totalGas.toFixed(4)}   label="gas (APE)"   tone="ape-200" />
-            <BigStat n={totalSpent.toFixed(2)} label="spent (APE)" tone="bone" />
+            <BigStat n={totalGas.toFixed(4)}   label="gas (ETH)"   tone="ape-200" />
+            <BigStat n={totalSpent.toFixed(2)} label="spent (ETH)" tone="bone" />
             <BigStat n={fmtElapsed(elapsedMs)} label="elapsed"     tone="ape-200" />
           </div>
 
@@ -912,14 +916,14 @@ export default function MintChamberPage() {
                       / {canMintN || maxMint} <span className="text-ape-200">minted</span>
                     </span>
                     <span className="text-ape-200">
-                      {w.gasUsed.toFixed(4)} <span className="text-mute">APE gas</span>
+                      {w.gasUsed.toFixed(4)} <span className="text-mute">ETH gas</span>
                     </span>
                     <span className="text-ape-200">
-                      {(w.minted * price + w.gasUsed).toFixed(2)} <span className="text-mute">APE total</span>
+                      {(w.minted * price + w.gasUsed).toFixed(2)} <span className="text-mute">ETH total</span>
                     </span>
                   </div>
 
-                  {/* Per-NFT transaction hashes — one Apescan link per
+                  {/* Per-NFT transaction hashes — one explorer link per
                       minted NFT. Each row shows token index + truncated
                       hash and opens the explorer in a new tab. */}
                   {w.txHashes.length > 0 && (
@@ -931,7 +935,7 @@ export default function MintChamberPage() {
                         {w.txHashes.map((h, i) => (
                           <li key={h}>
                             <a
-                              href={apescanTx(h)}
+                              href={explorerTx(h)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="font-mono text-xs text-elec hover:text-bone inline-block"
@@ -964,8 +968,8 @@ export default function MintChamberPage() {
               NFT{mintedNfts === 1 ? "" : "s"} minted across{" "}
               <span className="text-emerald-400 font-bold">{successCount}</span>{" "}
               wallet{successCount === 1 ? "" : "s"} for{" "}
-              <span className="text-bone font-bold">{totalSpent.toFixed(2)}</span> APE
-              {" "}({totalGas.toFixed(4)} APE gas).
+              <span className="text-bone font-bold">{totalSpent.toFixed(2)}</span> ETH
+              {" "}({totalGas.toFixed(4)} ETH gas).
             </p>
             {minting && mintingCount + queuedCount > 0 && (
               <p className="font-sans text-base text-ape-200">
@@ -1072,7 +1076,7 @@ function MetaMaskSignModal({
   onConfirm: () => void;
   onReject: () => void;
 }) {
-  // Estimated network fee — ~0.0009 APE per NFT, padded by gas tier.
+  // Estimated network fee — ~0.0009 ETH per NFT, padded by gas tier.
   const netFee = parseFloat((totalNfts * 0.0009).toFixed(4));
   const total = parseFloat((totalCost + netFee).toFixed(4));
 
@@ -1133,7 +1137,7 @@ function MetaMaskSignModal({
                 style={{ background: "#22c55e", borderRadius: "50%" }}
                 aria-hidden
               />
-              ApeChain mainnet
+              Sepolia testnet
             </div>
           </div>
           <button
@@ -1209,7 +1213,7 @@ function MetaMaskSignModal({
             </MmRow>
             <MmRow label="Wallets in batch">{eligibleWallets}</MmRow>
             <MmRow label="NFTs">{totalNfts}</MmRow>
-            <MmRow label="Price / NFT">{price.toFixed(2)} APE</MmRow>
+            <MmRow label="Price / NFT">{price.toFixed(2)} ETH</MmRow>
             <MmRow label="Gas (gwei)">{gasGwei}</MmRow>
           </div>
 
@@ -1224,13 +1228,13 @@ function MetaMaskSignModal({
             <div className="flex items-baseline justify-between">
               <span style={{ color: mmMute }}>Network fee (est.)</span>
               <span style={{ fontFamily: "ui-monospace, monospace" }}>
-                {netFee.toFixed(4)} APE
+                {netFee.toFixed(4)} ETH
               </span>
             </div>
             <div className="flex items-baseline justify-between mt-2">
               <span style={{ color: mmMute }}>NFT cost</span>
               <span style={{ fontFamily: "ui-monospace, monospace" }}>
-                {totalCost.toFixed(2)} APE
+                {totalCost.toFixed(2)} ETH
               </span>
             </div>
             <div
@@ -1245,7 +1249,7 @@ function MetaMaskSignModal({
                   fontSize: 15,
                 }}
               >
-                {total.toFixed(4)} APE
+                {total.toFixed(4)} ETH
               </span>
             </div>
           </div>
