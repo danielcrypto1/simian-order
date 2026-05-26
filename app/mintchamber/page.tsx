@@ -5,17 +5,28 @@ import Image from "next/image";
 import Panel from "@/components/Panel";
 import Button from "@/components/Button";
 
-// Browser-extension wallet (MetaMask, Rabby, etc.) is exposed on
-// window.ethereum. Typed loosely here — we only call a handful of
-// well-known methods (eth_accounts, eth_sendTransaction, etc.).
+// Browser-extension wallet (MetaMask, Rabby, Phantom, etc.) is exposed
+// as an EIP-1193 provider. When several are installed they fight over
+// window.ethereum (notably Phantom hijacks the slot), so we discover
+// them via EIP-6963 and pick MetaMask explicitly.
+type EthProvider = {
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+  on?: (event: string, handler: (...args: unknown[]) => void) => void;
+  removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
+  isMetaMask?: boolean;
+  isPhantom?: boolean;
+  isCoinbaseWallet?: boolean;
+  providers?: EthProvider[]; // legacy multi-provider field
+};
+
+type EIP6963ProviderDetail = {
+  info: { uuid: string; name: string; icon: string; rdns: string };
+  provider: EthProvider;
+};
+
 declare global {
   interface Window {
-    ethereum?: {
-      request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-      on?: (event: string, handler: (...args: unknown[]) => void) => void;
-      removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
-      isMetaMask?: boolean;
-    };
+    ethereum?: EthProvider;
   }
 }
 
@@ -32,6 +43,66 @@ const SEPOLIA_PARAMS = {
 // keccak256("mint(uint256)").slice(0, 10) — standard ERC721A-style
 // public-mint selector. Combined with a 32-byte uint256 quantity.
 const MINT_SELECTOR = "0xa0712d68";
+
+/**
+ * Find the MetaMask EIP-1193 provider, even when other wallets
+ * (Phantom, Coinbase, Rabby…) are installed and squatting on
+ * window.ethereum.
+ *
+ * Strategy:
+ *   1. EIP-6963 — broadcast `eip6963:requestProvider`, listen for
+ *      announcements, pick the one whose rdns is "io.metamask".
+ *   2. Fall back to window.ethereum.providers[] (legacy multi-wallet
+ *      shim) and filter for `isMetaMask && !isPhantom`.
+ *   3. Last resort: window.ethereum itself, only if it claims to be
+ *      MetaMask and not Phantom / Coinbase.
+ *
+ * Returns the resolved provider or null.
+ */
+function findMetaMaskProvider(timeoutMs = 250): Promise<EthProvider | null> {
+  if (typeof window === "undefined") return Promise.resolve(null);
+
+  return new Promise((resolve) => {
+    const candidates: EIP6963ProviderDetail[] = [];
+
+    function onAnnounce(e: Event) {
+      const detail = (e as CustomEvent<EIP6963ProviderDetail>).detail;
+      if (detail?.info && detail.provider) candidates.push(detail);
+    }
+    window.addEventListener("eip6963:announceProvider", onAnnounce as EventListener);
+    window.dispatchEvent(new Event("eip6963:requestProvider"));
+
+    setTimeout(() => {
+      window.removeEventListener("eip6963:announceProvider", onAnnounce as EventListener);
+
+      // 1. Prefer the EIP-6963 MetaMask announcement.
+      const mm6963 =
+        candidates.find((c) => c.info.rdns === "io.metamask") ||
+        candidates.find((c) => /metamask/i.test(c.info.name));
+      if (mm6963) {
+        resolve(mm6963.provider);
+        return;
+      }
+
+      // 2. Legacy: window.ethereum.providers[] array.
+      const eth = window.ethereum;
+      if (eth?.providers && Array.isArray(eth.providers)) {
+        const mm = eth.providers.find(
+          (p) => p.isMetaMask && !p.isPhantom && !p.isCoinbaseWallet
+        );
+        if (mm) { resolve(mm); return; }
+      }
+
+      // 3. Last resort: window.ethereum itself, only if it really is MM.
+      if (eth && eth.isMetaMask && !eth.isPhantom && !eth.isCoinbaseWallet) {
+        resolve(eth);
+        return;
+      }
+
+      resolve(null);
+    }, timeoutMs);
+  });
+}
 
 /**
  * MINT CHAMBER — premium multi-wallet NFT minter (prototype).
@@ -372,77 +443,110 @@ export default function MintChamberPage() {
   const [walletStatus, setWalletStatus] = useState<WalletStatus>({ kind: "disconnected" });
   const [lastRealTxHash, setLastRealTxHash] = useState<string | null>(null);
 
-  // Detect MM on mount + listen for account / chain changes.
+  // Resolved MetaMask provider (via EIP-6963). null until discovery
+  // completes. Stored in a ref so handlers don't have to thread it
+  // through state — they always read the latest reference.
+  const mmRef = useRef<EthProvider | null>(null);
+
+  // Resolve MetaMask via EIP-6963, attach listeners, read state. Runs
+  // once on mount. If only Phantom is present, mmRef stays null and
+  // the WalletBar shows the "no-mm" message.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const eth = window.ethereum;
-    if (!eth) {
-      setWalletStatus({ kind: "no-mm" });
-      return;
-    }
-    // Read current accounts without prompting.
-    eth.request({ method: "eth_accounts" })
-      .then(async (accs) => {
+    let cleanedUp = false;
+
+    async function init() {
+      const mm = await findMetaMaskProvider();
+      if (cleanedUp) return;
+      if (!mm) {
+        setWalletStatus({ kind: "no-mm" });
+        return;
+      }
+      mmRef.current = mm;
+
+      // Read current accounts without prompting.
+      try {
+        const accs = (await mm.request({ method: "eth_accounts" })) as string[];
+        if (!accs?.length) {
+          setWalletStatus({ kind: "disconnected" });
+        } else {
+          const chainId = (await mm.request({ method: "eth_chainId" })) as string;
+          if (chainId !== SEPOLIA_CHAIN_ID_HEX) {
+            setWalletStatus({ kind: "wrong-chain", address: accs[0], chainId });
+          } else {
+            setWalletStatus({ kind: "ready", address: accs[0], chainId });
+          }
+        }
+      } catch {
+        setWalletStatus({ kind: "disconnected" });
+      }
+
+      // Listen on the resolved MM provider (NOT window.ethereum, which
+      // might be Phantom).
+      const onAccounts = (...args: unknown[]) => {
+        const accs = args[0];
         const list = Array.isArray(accs) ? (accs as string[]) : [];
         if (list.length === 0) {
           setWalletStatus({ kind: "disconnected" });
-          return;
-        }
-        const chainId = (await eth.request({ method: "eth_chainId" })) as string;
-        if (chainId !== SEPOLIA_CHAIN_ID_HEX) {
-          setWalletStatus({ kind: "wrong-chain", address: list[0], chainId });
         } else {
-          setWalletStatus({ kind: "ready", address: list[0], chainId });
+          setWalletStatus((prev) => {
+            if (prev.kind === "ready" || prev.kind === "wrong-chain") {
+              return { ...prev, address: list[0] };
+            }
+            return { kind: "ready", address: list[0], chainId: SEPOLIA_CHAIN_ID_HEX };
+          });
         }
-      })
-      .catch(() => setWalletStatus({ kind: "disconnected" }));
-
-    const onAccounts = (accs: unknown) => {
-      const list = Array.isArray(accs) ? (accs as string[]) : [];
-      if (list.length === 0) {
-        setWalletStatus({ kind: "disconnected" });
-      } else {
+      };
+      const onChain = (...args: unknown[]) => {
+        const chainId = args[0];
+        const cid = typeof chainId === "string" ? chainId : "";
         setWalletStatus((prev) => {
-          // Preserve chain if we know it.
           if (prev.kind === "ready" || prev.kind === "wrong-chain") {
-            return { ...prev, address: list[0] };
+            return cid === SEPOLIA_CHAIN_ID_HEX
+              ? { kind: "ready", address: prev.address, chainId: cid }
+              : { kind: "wrong-chain", address: prev.address, chainId: cid };
           }
-          return { kind: "ready", address: list[0], chainId: SEPOLIA_CHAIN_ID_HEX };
+          return prev;
         });
-      }
-    };
-    const onChain = (chainId: unknown) => {
-      const cid = typeof chainId === "string" ? chainId : "";
-      setWalletStatus((prev) => {
-        if (prev.kind === "ready" || prev.kind === "wrong-chain") {
-          return cid === SEPOLIA_CHAIN_ID_HEX
-            ? { kind: "ready", address: prev.address, chainId: cid }
-            : { kind: "wrong-chain", address: prev.address, chainId: cid };
-        }
-        return prev;
-      });
-    };
-    eth.on?.("accountsChanged", onAccounts);
-    eth.on?.("chainChanged", onChain);
+      };
+      mm.on?.("accountsChanged", onAccounts);
+      mm.on?.("chainChanged", onChain);
+
+      // Capture for cleanup
+      (mmRef as { current: EthProvider | null; cleanup?: () => void }).cleanup = () => {
+        mm.removeListener?.("accountsChanged", onAccounts);
+        mm.removeListener?.("chainChanged", onChain);
+      };
+    }
+
+    init();
+
     return () => {
-      eth.removeListener?.("accountsChanged", onAccounts);
-      eth.removeListener?.("chainChanged", onChain);
+      cleanedUp = true;
+      const ref = mmRef as { current: EthProvider | null; cleanup?: () => void };
+      ref.cleanup?.();
     };
   }, []);
 
   async function connectMetaMask() {
-    if (typeof window === "undefined" || !window.ethereum) {
+    // Re-run discovery on click in case the user just installed MM
+    // and reloaded, or unlocked a previously dormant extension.
+    let mm = mmRef.current;
+    if (!mm) {
+      mm = await findMetaMaskProvider();
+      if (mm) mmRef.current = mm;
+    }
+    if (!mm) {
       setWalletStatus({ kind: "no-mm" });
       return;
     }
     setWalletStatus({ kind: "connecting" });
     try {
-      const accs = (await window.ethereum.request({ method: "eth_requestAccounts" })) as string[];
+      const accs = (await mm.request({ method: "eth_requestAccounts" })) as string[];
       if (!accs?.length) {
         setWalletStatus({ kind: "disconnected" });
         return;
       }
-      const chainId = (await window.ethereum.request({ method: "eth_chainId" })) as string;
+      const chainId = (await mm.request({ method: "eth_chainId" })) as string;
       if (chainId !== SEPOLIA_CHAIN_ID_HEX) {
         setWalletStatus({ kind: "wrong-chain", address: accs[0], chainId });
       } else {
@@ -455,11 +559,11 @@ export default function MintChamberPage() {
   }
 
   async function ensureSepolia(): Promise<boolean> {
-    const eth = window.ethereum;
-    if (!eth) return false;
+    const mm = mmRef.current;
+    if (!mm) return false;
     setWalletStatus((prev) => (prev.kind === "wrong-chain" ? { kind: "switching" } : prev));
     try {
-      await eth.request({
+      await mm.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: SEPOLIA_CHAIN_ID_HEX }],
       });
@@ -469,7 +573,7 @@ export default function MintChamberPage() {
       const code = (e as { code?: number })?.code;
       if (code === 4902) {
         try {
-          await eth.request({
+          await mm.request({
             method: "wallet_addEthereumChain",
             params: [SEPOLIA_PARAMS],
           });
@@ -507,8 +611,13 @@ export default function MintChamberPage() {
     if (minting) { stopMint(); return; }
     if (!canMint) return;
 
-    const eth = window.ethereum;
-    if (!eth) {
+    // Resolve MM (re-run discovery if needed).
+    let mm = mmRef.current;
+    if (!mm) {
+      mm = await findMetaMaskProvider();
+      if (mm) mmRef.current = mm;
+    }
+    if (!mm) {
       setWalletStatus({ kind: "no-mm" });
       return;
     }
@@ -518,19 +627,17 @@ export default function MintChamberPage() {
       await connectMetaMask();
     }
 
-    // Re-read latest status because connectMetaMask updates state async.
-    let s = walletStatus;
-    // Pull a fresh address synchronously from eth_accounts.
+    // Pull a fresh address from the resolved MM provider.
     let addr: string | undefined;
     try {
-      const accs = (await eth.request({ method: "eth_accounts" })) as string[];
+      const accs = (await mm.request({ method: "eth_accounts" })) as string[];
       addr = accs?.[0];
     } catch {
       addr = undefined;
     }
     if (!addr) {
       try {
-        const accs = (await eth.request({ method: "eth_requestAccounts" })) as string[];
+        const accs = (await mm.request({ method: "eth_requestAccounts" })) as string[];
         addr = accs?.[0];
       } catch {
         return;
@@ -539,20 +646,20 @@ export default function MintChamberPage() {
     if (!addr) return;
 
     // Make sure we're on Sepolia.
-    let chainId = (await eth.request({ method: "eth_chainId" })) as string;
+    let chainId = (await mm.request({ method: "eth_chainId" })) as string;
     if (chainId !== SEPOLIA_CHAIN_ID_HEX) {
       const ok = await ensureSepolia();
       if (!ok) return;
-      chainId = (await eth.request({ method: "eth_chainId" })) as string;
+      chainId = (await mm.request({ method: "eth_chainId" })) as string;
       if (chainId !== SEPOLIA_CHAIN_ID_HEX) return;
     }
 
-    // Send the real transaction — this triggers the real MetaMask popup.
+    // Send the real transaction — triggers the real MetaMask popup.
     setWalletStatus({ kind: "awaiting-signature" });
     try {
       const valueHex = ethToWeiHex((maxMint * price).toFixed(18));
       const data = mintCalldata(maxMint);
-      const txHash = (await eth.request({
+      const txHash = (await mm.request({
         method: "eth_sendTransaction",
         params: [
           {
