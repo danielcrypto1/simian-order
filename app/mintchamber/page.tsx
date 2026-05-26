@@ -186,13 +186,18 @@ function randHex(n: number) {
 
 const LABEL_POOL = ["Sniper", "Vault", "Reserve", "Main", "Alt", "Drop", "Bench", "Quiet"];
 
-function genWallet(): Wallet {
+// Newly-bound wallets default to whitelisted so the + ADD WALLET /
+// + WALLETCONNECT / IMPORT CSV flows all surface a ✓ WHITELISTED tag
+// immediately (matches the "your wallet is in the allowlist" UX
+// holders expect). The seeded INITIAL_WALLETS keep their own mix so
+// the dashboard still demonstrates the skipped / not-whitelisted path.
+function genWallet(whitelisted: boolean = true): Wallet {
   return {
     id: "w" + Math.random().toString(36).slice(2, 10),
     label: LABEL_POOL[Math.floor(Math.random() * LABEL_POOL.length)] + "-" + Math.floor(Math.random() * 99 + 1),
     addr: "0x" + randHex(40),
     balance: parseFloat((Math.random() * 8 + 2).toFixed(2)),
-    whitelisted: Math.random() < 0.7,
+    whitelisted,
     status: "idle",
     minted: 0,
     txHashes: [],
