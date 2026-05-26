@@ -212,7 +212,11 @@ export default function MintChamberPage() {
   // Fresh fake contract — no resemblance to any real deployment. Safe
   // for screen-recording without needing to blur the address.
   const [contract, setContract]   = useState("0x6f9c4e8b3a7d5f2c1e9b8d4a0f3e7c2b5d9a8f1c");
-  const [priceStr, setPriceStr]   = useState("1.00");
+  // Default 0.001 ETH × 5 = 0.005 ETH per batch — small enough that a
+  // common Sepolia faucet drop (~0.05 ETH) covers it many times over,
+  // and MetaMask won't flag the tx as suspicious. Override via the
+  // price / max inputs in the configure strip.
+  const [priceStr, setPriceStr]   = useState("0.001");
   const [maxStr, setMaxStr]       = useState("5");
   const [supply, setSupply]       = useState(4420);
 
