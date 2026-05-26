@@ -218,6 +218,11 @@ export default function MintChamberPage() {
   // price / max inputs in the configure strip.
   const [priceStr, setPriceStr]   = useState("0.001");
   const [maxStr, setMaxStr]       = useState("5");
+
+  // Blur the contract address on screen so a recording doesn't expose
+  // the deployment. State value is untouched — eth_sendTransaction
+  // still gets the real bytes. Click the 👁 toggle to reveal.
+  const [addrBlurred, setAddrBlurred] = useState(true);
   const [supply, setSupply]       = useState(4420);
 
   const price   = Math.max(0, parseFloat(priceStr) || 0);
@@ -767,14 +772,35 @@ export default function MintChamberPage() {
                 {COLLECTION_NAME}
               </div>
               <div className="mt-2 flex items-center gap-3 flex-wrap">
-                <code className="font-mono text-sm text-ape-200">
+                <code
+                  className="font-mono text-sm text-ape-200"
+                  style={
+                    addrBlurred
+                      ? { filter: "blur(5px)", userSelect: "none" }
+                      : undefined
+                  }
+                  aria-label={addrBlurred ? "contract address (hidden)" : SHORT(contract)}
+                >
                   {SHORT(contract)}
                 </code>
+                <button
+                  type="button"
+                  onClick={() => setAddrBlurred((b) => !b)}
+                  className="font-mono text-xs uppercase tracking-wider text-mute hover:text-elec"
+                  style={{ background: "transparent", border: "none", cursor: "pointer", padding: "2px 6px" }}
+                  title={addrBlurred ? "show contract address" : "hide contract address"}
+                  aria-label={addrBlurred ? "show contract address" : "hide contract address"}
+                >
+                  {addrBlurred ? "👁 show" : "🙈 hide"}
+                </button>
                 <a
-                  href={explorerAddr(contract)}
-                  target="_blank"
+                  href={addrBlurred ? "#" : explorerAddr(contract)}
+                  onClick={(e) => { if (addrBlurred) e.preventDefault(); }}
+                  target={addrBlurred ? undefined : "_blank"}
                   rel="noopener noreferrer"
                   className="font-mono text-sm text-elec hover:text-bone"
+                  style={addrBlurred ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+                  title={addrBlurred ? "reveal the contract address to open Etherscan" : "view on etherscan"}
                 >
                   view on etherscan ↗
                 </a>
@@ -820,16 +846,30 @@ export default function MintChamberPage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px_140px] gap-3">
             <div>
-              <label className="block font-mono text-xs uppercase tracking-wider text-ape-200 mb-1.5">
+              <label className="block font-mono text-xs uppercase tracking-wider text-ape-200 mb-1.5 flex items-center gap-2">
                 contract address
+                <button
+                  type="button"
+                  onClick={() => setAddrBlurred((b) => !b)}
+                  className="font-mono text-xxs uppercase tracking-wider text-mute hover:text-elec"
+                  style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0 }}
+                  title={addrBlurred ? "show contract address" : "hide contract address"}
+                >
+                  {addrBlurred ? "👁 show" : "🙈 hide"}
+                </button>
               </label>
               <input
                 className="field font-mono"
-                style={{ padding: "10px 12px", fontSize: 14 }}
+                style={{
+                  padding: "10px 12px",
+                  fontSize: 14,
+                  ...(addrBlurred ? { filter: "blur(5px)" } : null),
+                }}
                 value={contract}
                 onChange={(e) => setContract(e.target.value)}
                 spellCheck={false}
                 placeholder="0x..."
+                aria-label="contract address"
               />
             </div>
             <div>
