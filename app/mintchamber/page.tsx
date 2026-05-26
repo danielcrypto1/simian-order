@@ -23,10 +23,18 @@ const SIMIAN_HELD = 3;
 const SLOTS_PER_SIMIAN = 5;
 const SLOTS_TOTAL = SIMIAN_HELD * SLOTS_PER_SIMIAN;
 
-const COLLECTION_NAME = "Simian Order";
+const COLLECTION_NAME = "TEST COLLECTION";
 const COLLECTION_NETWORK = "ApeChain";
 const COLLECTION_SUPPLY_MAX = 5000;
 const COLLECTION_IMAGE = "/media/void.png";
+
+// Apescan helpers — used so the demo's tx hashes and contract address
+// can be clicked through to a real block-explorer page. The wallets +
+// contract on this page are mock, so the destination 404s — fine for a
+// recording, makes the UI look legit.
+const APESCAN_BASE = "https://apescan.io";
+const apescanAddr = (a: string) => `${APESCAN_BASE}/address/${a}`;
+const apescanTx   = (h: string) => `${APESCAN_BASE}/tx/${h}`;
 
 type ExecMode = "SIMULTANEOUS" | "OPTIMIZED" | "STAGGERED" | "RECALL";
 type GasTier = "HIGH" | "BALANCED" | "LOW";
@@ -40,7 +48,7 @@ type Wallet = {
   whitelisted: boolean;
   status: MintStatus;
   minted: number;
-  txHash: string | null;
+  txHashes: string[];  // one full-length hash per NFT minted
   queuePos: number | null;
   gasUsed: number;     // APE
 };
@@ -89,16 +97,16 @@ function genWallet(): Wallet {
     whitelisted: Math.random() < 0.7,
     status: "idle",
     minted: 0,
-    txHash: null,
+    txHashes: [],
     queuePos: null,
     gasUsed: 0,
   };
 }
 
 const INITIAL_WALLETS: Wallet[] = [
-  { id: "w1", label: "Main",      addr: "0x9a17d3b1f4c2e88d4ce8b8a7be4a6d9c1f02e771", balance: 8.42, whitelisted: true,  status: "idle", minted: 0, txHash: null, queuePos: null, gasUsed: 0 },
-  { id: "w2", label: "Sniper-12", addr: "0x6f02b41cdd3a18bb55c0e89aaa7cf201a7c4d9e3", balance: 6.18, whitelisted: true,  status: "idle", minted: 0, txHash: null, queuePos: null, gasUsed: 0 },
-  { id: "w3", label: "Reserve",   addr: "0xbd29c8773e9a01a7e44e6f3f8cd0a2e8b9e1c4a6", balance: 5.62, whitelisted: false, status: "idle", minted: 0, txHash: null, queuePos: null, gasUsed: 0 },
+  { id: "w1", label: "Main",      addr: "0x9a17d3b1f4c2e88d4ce8b8a7be4a6d9c1f02e771", balance: 8.42, whitelisted: true,  status: "idle", minted: 0, txHashes: [], queuePos: null, gasUsed: 0 },
+  { id: "w2", label: "Sniper-12", addr: "0x6f02b41cdd3a18bb55c0e89aaa7cf201a7c4d9e3", balance: 6.18, whitelisted: true,  status: "idle", minted: 0, txHashes: [], queuePos: null, gasUsed: 0 },
+  { id: "w3", label: "Reserve",   addr: "0xbd29c8773e9a01a7e44e6f3f8cd0a2e8b9e1c4a6", balance: 5.62, whitelisted: false, status: "idle", minted: 0, txHashes: [], queuePos: null, gasUsed: 0 },
 ];
 
 export default function MintChamberPage() {
@@ -196,22 +204,19 @@ export default function MintChamberPage() {
           if (w.status === "idle" && inFlight >= concurrent) continue;
 
           if (w.status === "idle" || w.status === "failed") {
-            // RECALL retry: keep minted count, but resume tx + bump retry.
-            if (w.status === "failed") {
-              // small retry log via tx hash refresh
-              w.txHash = "0x" + randHex(12) + "…" + randHex(4);
-            } else {
-              w.txHash = "0x" + randHex(12) + "…" + randHex(4);
-            }
+            // First transition into minting — clear hashes from prior runs.
+            // RECALL preserves the minted count but starts a fresh sequence.
+            w.txHashes = [];
             w.status = "minting";
             w.queuePos = null;
             inFlight += 1;
             continue;
           }
-          // status === "minting" → advance
+          // status === "minting" → advance one mint, push a new tx hash.
           if (w.minted < canWalletMint(w)) {
             w.minted += 1;
             w.gasUsed = parseFloat((w.gasUsed + 0.0009 + Math.random() * 0.0006).toFixed(4));
+            w.txHashes = [...w.txHashes, "0x" + randHex(64)];
           }
           if (w.minted >= canWalletMint(w)) {
             w.status = Math.random() < 0.88 ? "success" : "failed";
@@ -309,7 +314,7 @@ export default function MintChamberPage() {
         ...w,
         status: "idle" as const,
         minted: 0,
-        txHash: null,
+        txHashes: [],
         queuePos: null,
         gasUsed: 0,
       }))
@@ -318,6 +323,20 @@ export default function MintChamberPage() {
     setElapsedMs(0);
     setRunStart(Date.now());
     setMinting(true);
+  }
+
+  // ── MetaMask-style sign popup ──────────────────────────────────────
+  // Click MINT → popup opens with the full payload. Confirm → starts
+  // the run. Reject → closes, no mint. Pure visual demo, no chain calls.
+  const [mmOpen, setMmOpen] = useState(false);
+  function clickMintBtn() {
+    if (minting) { stopMint(); return; }
+    if (!canMint) return;
+    setMmOpen(true);
+  }
+  function confirmMint() {
+    setMmOpen(false);
+    startMint();
   }
   function stopMint() {
     setMinting(false);
@@ -333,6 +352,22 @@ export default function MintChamberPage() {
 
   return (
     <div className="space-y-6 sm:space-y-8">
+      {/* ── METAMASK SIGN POPUP ──────────────────────────────────── */}
+      {mmOpen && (
+        <MetaMaskSignModal
+          contract={contract}
+          eligibleWallets={eligibleWallets.length}
+          totalNfts={totalNfts}
+          totalCost={totalCost}
+          firstWalletLabel={wallets[0]?.label ?? "—"}
+          firstWalletAddr={wallets[0]?.addr ?? ""}
+          price={price}
+          gasGwei={GAS_TIERS.find((g) => g.id === tier)?.gwei ?? "0.62"}
+          onConfirm={confirmMint}
+          onReject={() => setMmOpen(false)}
+        />
+      )}
+
       {/* ── HERO ──────────────────────────────────────────────────── */}
       <header className="text-center space-y-3">
         <h1 className="headline text-5xl md:text-6xl leading-none">
@@ -392,9 +427,19 @@ export default function MintChamberPage() {
               <div className="font-serif italic text-3xl sm:text-4xl text-bone leading-none">
                 {COLLECTION_NAME}
               </div>
-              <code className="font-mono text-sm text-ape-200 mt-2 inline-block">
-                {SHORT(contract)}
-              </code>
+              <div className="mt-2 flex items-center gap-3 flex-wrap">
+                <code className="font-mono text-sm text-ape-200">
+                  {SHORT(contract)}
+                </code>
+                <a
+                  href={apescanAddr(contract)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono text-sm text-elec hover:text-bone"
+                >
+                  view on apescan ↗
+                </a>
+              </div>
             </div>
 
             <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -748,7 +793,7 @@ export default function MintChamberPage() {
       <div className="mx-auto max-w-2xl space-y-3">
         <button
           type="button"
-          onClick={minting ? stopMint : startMint}
+          onClick={clickMintBtn}
           disabled={!minting && !canMint}
           className="w-full font-mono uppercase"
           style={{
@@ -860,7 +905,7 @@ export default function MintChamberPage() {
                     />
                   </div>
 
-                  {/* Bottom row: minted / gas / tx */}
+                  {/* Bottom row: minted / gas / total */}
                   <div className="flex items-center gap-4 flex-wrap font-mono text-sm">
                     <span className="text-bone">
                       <span className="font-pixel text-lg align-middle mr-1">{w.minted}</span>
@@ -872,12 +917,34 @@ export default function MintChamberPage() {
                     <span className="text-ape-200">
                       {(w.minted * price + w.gasUsed).toFixed(2)} <span className="text-mute">APE total</span>
                     </span>
-                    {w.txHash && (
-                      <code className="ml-auto text-xs text-ape-200 truncate max-w-[260px]">
-                        tx: {w.txHash}
-                      </code>
-                    )}
                   </div>
+
+                  {/* Per-NFT transaction hashes — one Apescan link per
+                      minted NFT. Each row shows token index + truncated
+                      hash and opens the explorer in a new tab. */}
+                  {w.txHashes.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-border">
+                      <div className="font-mono text-xs uppercase tracking-wider text-ape-200 mb-2">
+                        transactions ({w.txHashes.length})
+                      </div>
+                      <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1">
+                        {w.txHashes.map((h, i) => (
+                          <li key={h}>
+                            <a
+                              href={apescanTx(h)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-mono text-xs text-elec hover:text-bone inline-block"
+                              title={h}
+                            >
+                              <span className="text-ape-200">#{i + 1}</span>{" "}
+                              {h.slice(0, 10)}…{h.slice(-6)} ↗
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </li>
               );
             })}
@@ -974,4 +1041,271 @@ function fmtElapsed(ms: number): string {
   const m = Math.floor(s / 60);
   const sec = s % 60;
   return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
+/**
+ * MetaMask-style signature popup. Mimics the real wallet's confirm-tx
+ * dialog (dark slate panel, orange Confirm button) so the recording
+ * reads as a legitimate mint flow. Backdrop click + Esc + Reject all
+ * dismiss; only Confirm starts the run.
+ */
+function MetaMaskSignModal({
+  contract,
+  eligibleWallets,
+  totalNfts,
+  totalCost,
+  firstWalletLabel,
+  firstWalletAddr,
+  price,
+  gasGwei,
+  onConfirm,
+  onReject,
+}: {
+  contract: string;
+  eligibleWallets: number;
+  totalNfts: number;
+  totalCost: number;
+  firstWalletLabel: string;
+  firstWalletAddr: string;
+  price: number;
+  gasGwei: string;
+  onConfirm: () => void;
+  onReject: () => void;
+}) {
+  // Estimated network fee — ~0.0009 APE per NFT, padded by gas tier.
+  const netFee = parseFloat((totalNfts * 0.0009).toFixed(4));
+  const total = parseFloat((totalCost + netFee).toFixed(4));
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onReject();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onReject]);
+
+  const mmDark = "#24272A";
+  const mmPanel = "#1c1e21";
+  const mmBorder = "#3f4147";
+  const mmMute = "#9aa0a6";
+  const mmOrange = "#F6851B";
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center px-4"
+      style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(4px)" }}
+      onClick={onReject}
+    >
+      <div
+        className="w-full max-w-md"
+        style={{
+          background: mmDark,
+          border: `1px solid ${mmBorder}`,
+          color: "#ffffff",
+          fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="MetaMask transaction request"
+      >
+        {/* Header */}
+        <div
+          className="flex items-center gap-3 px-5 py-4"
+          style={{ borderBottom: `1px solid ${mmBorder}` }}
+        >
+          <span
+            style={{
+              fontSize: 28,
+              lineHeight: 1,
+              filter: "drop-shadow(0 0 4px rgba(246,133,27,0.4))",
+            }}
+            aria-hidden
+          >
+            🦊
+          </span>
+          <div className="flex-1 leading-tight">
+            <div style={{ fontWeight: 700, fontSize: 15 }}>MetaMask</div>
+            <div style={{ color: mmMute, fontSize: 12 }}>
+              <span
+                className="inline-block w-1.5 h-1.5 mr-1.5 align-middle"
+                style={{ background: "#22c55e", borderRadius: "50%" }}
+                aria-hidden
+              />
+              ApeChain mainnet
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onReject}
+            style={{
+              color: "#ffffff",
+              fontSize: 22,
+              lineHeight: 1,
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              padding: "0 4px",
+            }}
+            aria-label="close"
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Account */}
+        <div className="px-5 py-3" style={{ borderBottom: `1px solid ${mmBorder}` }}>
+          <div className="flex items-center gap-3">
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: "50%",
+                background: "linear-gradient(135deg, #6e54c5, #e96f5d)",
+                flexShrink: 0,
+              }}
+              aria-hidden
+            />
+            <div className="flex-1 min-w-0">
+              <div style={{ fontSize: 13, fontWeight: 600 }}>
+                {firstWalletLabel}
+              </div>
+              <div style={{ color: mmMute, fontSize: 12, fontFamily: "ui-monospace, monospace" }}>
+                {firstWalletAddr.slice(0, 8)}…{firstWalletAddr.slice(-6)}
+              </div>
+            </div>
+            {eligibleWallets > 1 && (
+              <div
+                style={{
+                  fontSize: 11,
+                  color: mmMute,
+                  border: `1px solid ${mmBorder}`,
+                  padding: "3px 8px",
+                }}
+              >
+                +{eligibleWallets - 1} more
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="px-5 py-4 space-y-3">
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#ffffff" }}>
+            Transaction request
+          </div>
+
+          <div style={{ background: mmPanel, padding: "12px 14px", fontSize: 13 }}>
+            <MmRow label="To">
+              <span style={{ fontFamily: "ui-monospace, monospace" }}>
+                {contract.slice(0, 8)}…{contract.slice(-6)}
+              </span>
+            </MmRow>
+            <MmRow label="Function">
+              <span style={{ fontFamily: "ui-monospace, monospace", color: mmOrange }}>
+                mint(uint256)
+              </span>
+            </MmRow>
+            <MmRow label="Wallets in batch">{eligibleWallets}</MmRow>
+            <MmRow label="NFTs">{totalNfts}</MmRow>
+            <MmRow label="Price / NFT">{price.toFixed(2)} APE</MmRow>
+            <MmRow label="Gas (gwei)">{gasGwei}</MmRow>
+          </div>
+
+          <div
+            style={{
+              background: mmPanel,
+              padding: "12px 14px",
+              fontSize: 13,
+              borderTop: `2px solid ${mmOrange}`,
+            }}
+          >
+            <div className="flex items-baseline justify-between">
+              <span style={{ color: mmMute }}>Network fee (est.)</span>
+              <span style={{ fontFamily: "ui-monospace, monospace" }}>
+                {netFee.toFixed(4)} APE
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between mt-2">
+              <span style={{ color: mmMute }}>NFT cost</span>
+              <span style={{ fontFamily: "ui-monospace, monospace" }}>
+                {totalCost.toFixed(2)} APE
+              </span>
+            </div>
+            <div
+              className="flex items-baseline justify-between mt-2 pt-2"
+              style={{ borderTop: `1px solid ${mmBorder}` }}
+            >
+              <span style={{ fontWeight: 700 }}>Total</span>
+              <span
+                style={{
+                  fontFamily: "ui-monospace, monospace",
+                  fontWeight: 700,
+                  fontSize: 15,
+                }}
+              >
+                {total.toFixed(4)} APE
+              </span>
+            </div>
+          </div>
+
+          <div style={{ fontSize: 11, color: mmMute, lineHeight: 1.5 }}>
+            you are about to sign {totalNfts} transactions across{" "}
+            {eligibleWallets} wallet{eligibleWallets === 1 ? "" : "s"}.
+            confirming broadcasts them immediately — only the chamber
+            (this site) can read what you sign.
+          </div>
+        </div>
+
+        {/* Buttons */}
+        <div className="flex gap-3 px-5 pb-5">
+          <button
+            type="button"
+            onClick={onReject}
+            style={{
+              flex: 1,
+              padding: "12px 16px",
+              background: "transparent",
+              border: `1px solid ${mmBorder}`,
+              color: "#ffffff",
+              fontWeight: 700,
+              fontSize: 14,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            Reject
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            autoFocus
+            style={{
+              flex: 1,
+              padding: "12px 16px",
+              background: mmOrange,
+              border: `1px solid ${mmOrange}`,
+              color: "#ffffff",
+              fontWeight: 700,
+              fontSize: 14,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MmRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between py-1.5">
+      <span style={{ color: "#9aa0a6" }}>{label}</span>
+      <span style={{ color: "#ffffff" }}>{children}</span>
+    </div>
+  );
 }
