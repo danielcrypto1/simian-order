@@ -5,17 +5,42 @@ import Image from "next/image";
 import Panel from "@/components/Panel";
 import Button from "@/components/Button";
 
+// Browser-extension wallet (MetaMask, Rabby, etc.) is exposed on
+// window.ethereum. Typed loosely here — we only call a handful of
+// well-known methods (eth_accounts, eth_sendTransaction, etc.).
+declare global {
+  interface Window {
+    ethereum?: {
+      request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+      on?: (event: string, handler: (...args: unknown[]) => void) => void;
+      removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
+      isMetaMask?: boolean;
+    };
+  }
+}
+
+// Sepolia testnet config — used to switch / add the chain in MM.
+const SEPOLIA_CHAIN_ID_HEX = "0xaa36a7"; // 11155111
+const SEPOLIA_PARAMS = {
+  chainId: SEPOLIA_CHAIN_ID_HEX,
+  chainName: "Sepolia",
+  nativeCurrency: { name: "Sepolia ETH", symbol: "ETH", decimals: 18 },
+  rpcUrls: ["https://rpc.sepolia.org", "https://ethereum-sepolia.publicnode.com"],
+  blockExplorerUrls: ["https://sepolia.etherscan.io"],
+};
+
+// keccak256("mint(uint256)").slice(0, 10) — standard ERC721A-style
+// public-mint selector. Combined with a 32-byte uint256 quantity.
+const MINT_SELECTOR = "0xa0712d68";
+
 /**
  * MINT CHAMBER — premium multi-wallet NFT minter (prototype).
  *
- * Visual demo only. No chain calls. SIMIAN ORDER holder-gated tool
- * with: Collection card (OpenSea-style), Configure Mint controls,
- * Execution Mode tiles (Simultaneous / Optimized / Staggered / Recall),
- * Gas Priority tiles (High / Balanced / Low), enriched Wallet roster
- * (label, whitelist, balance, can-mint count), big primary MINT button,
- * and an enriched Mint Dashboard (stats bar + per-wallet rows with
- * progress, gas, total cost, queue position, success/fail).
- *
+ * Wallet roster, execution-mode tiles, gas-priority tiles, and the
+ * dashboard are all visual demo. The MINT button itself now triggers
+ * the REAL MetaMask popup via window.ethereum / eth_sendTransaction;
+ * on user sign the demo simulation runs and the connected wallet's
+ * real tx hash is shown in the dashboard.
  * Not linked from any nav — direct URL only.
  */
 
@@ -329,19 +354,231 @@ export default function MintChamberPage() {
     setMinting(true);
   }
 
-  // ── MetaMask-style sign popup ──────────────────────────────────────
-  // Click MINT → popup opens with the full payload. Confirm → starts
-  // the run. Reject → closes, no mint. Pure visual demo, no chain calls.
-  const [mmOpen, setMmOpen] = useState(false);
-  function clickMintBtn() {
+  // ── Real MetaMask integration ──────────────────────────────────────
+  // Replaces the prior fake sign-popup. Detects window.ethereum, lets
+  // the user connect, switches/adds Sepolia, and triggers a real
+  // eth_sendTransaction (which opens MetaMask's own confirm dialog).
+  // The wallet-roster simulation still runs visually after sign.
+  type WalletStatus =
+    | { kind: "no-mm" }
+    | { kind: "disconnected" }
+    | { kind: "connecting" }
+    | { kind: "ready"; address: string; chainId: string }
+    | { kind: "wrong-chain"; address: string; chainId: string }
+    | { kind: "switching" }
+    | { kind: "awaiting-signature" }
+    | { kind: "error"; message: string };
+
+  const [walletStatus, setWalletStatus] = useState<WalletStatus>({ kind: "disconnected" });
+  const [lastRealTxHash, setLastRealTxHash] = useState<string | null>(null);
+
+  // Detect MM on mount + listen for account / chain changes.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const eth = window.ethereum;
+    if (!eth) {
+      setWalletStatus({ kind: "no-mm" });
+      return;
+    }
+    // Read current accounts without prompting.
+    eth.request({ method: "eth_accounts" })
+      .then(async (accs) => {
+        const list = Array.isArray(accs) ? (accs as string[]) : [];
+        if (list.length === 0) {
+          setWalletStatus({ kind: "disconnected" });
+          return;
+        }
+        const chainId = (await eth.request({ method: "eth_chainId" })) as string;
+        if (chainId !== SEPOLIA_CHAIN_ID_HEX) {
+          setWalletStatus({ kind: "wrong-chain", address: list[0], chainId });
+        } else {
+          setWalletStatus({ kind: "ready", address: list[0], chainId });
+        }
+      })
+      .catch(() => setWalletStatus({ kind: "disconnected" }));
+
+    const onAccounts = (accs: unknown) => {
+      const list = Array.isArray(accs) ? (accs as string[]) : [];
+      if (list.length === 0) {
+        setWalletStatus({ kind: "disconnected" });
+      } else {
+        setWalletStatus((prev) => {
+          // Preserve chain if we know it.
+          if (prev.kind === "ready" || prev.kind === "wrong-chain") {
+            return { ...prev, address: list[0] };
+          }
+          return { kind: "ready", address: list[0], chainId: SEPOLIA_CHAIN_ID_HEX };
+        });
+      }
+    };
+    const onChain = (chainId: unknown) => {
+      const cid = typeof chainId === "string" ? chainId : "";
+      setWalletStatus((prev) => {
+        if (prev.kind === "ready" || prev.kind === "wrong-chain") {
+          return cid === SEPOLIA_CHAIN_ID_HEX
+            ? { kind: "ready", address: prev.address, chainId: cid }
+            : { kind: "wrong-chain", address: prev.address, chainId: cid };
+        }
+        return prev;
+      });
+    };
+    eth.on?.("accountsChanged", onAccounts);
+    eth.on?.("chainChanged", onChain);
+    return () => {
+      eth.removeListener?.("accountsChanged", onAccounts);
+      eth.removeListener?.("chainChanged", onChain);
+    };
+  }, []);
+
+  async function connectMetaMask() {
+    if (typeof window === "undefined" || !window.ethereum) {
+      setWalletStatus({ kind: "no-mm" });
+      return;
+    }
+    setWalletStatus({ kind: "connecting" });
+    try {
+      const accs = (await window.ethereum.request({ method: "eth_requestAccounts" })) as string[];
+      if (!accs?.length) {
+        setWalletStatus({ kind: "disconnected" });
+        return;
+      }
+      const chainId = (await window.ethereum.request({ method: "eth_chainId" })) as string;
+      if (chainId !== SEPOLIA_CHAIN_ID_HEX) {
+        setWalletStatus({ kind: "wrong-chain", address: accs[0], chainId });
+      } else {
+        setWalletStatus({ kind: "ready", address: accs[0], chainId });
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "connect rejected";
+      setWalletStatus({ kind: "error", message: msg });
+    }
+  }
+
+  async function ensureSepolia(): Promise<boolean> {
+    const eth = window.ethereum;
+    if (!eth) return false;
+    setWalletStatus((prev) => (prev.kind === "wrong-chain" ? { kind: "switching" } : prev));
+    try {
+      await eth.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: SEPOLIA_CHAIN_ID_HEX }],
+      });
+      return true;
+    } catch (e: unknown) {
+      // 4902 = chain not added; try to add it.
+      const code = (e as { code?: number })?.code;
+      if (code === 4902) {
+        try {
+          await eth.request({
+            method: "wallet_addEthereumChain",
+            params: [SEPOLIA_PARAMS],
+          });
+          return true;
+        } catch (addErr) {
+          const msg = addErr instanceof Error ? addErr.message : "could not add Sepolia";
+          setWalletStatus({ kind: "error", message: msg });
+          return false;
+        }
+      }
+      const msg = e instanceof Error ? e.message : "could not switch network";
+      setWalletStatus({ kind: "error", message: msg });
+      return false;
+    }
+  }
+
+  // 1 ETH = 1e18 wei. Convert a decimal string (e.g. "1.00") to a hex
+  // wei value MetaMask expects. Avoids floating-point on big numbers.
+  function ethToWeiHex(eth: string): string {
+    const trimmed = (eth || "0").trim();
+    const [intPart = "0", decPartRaw = ""] = trimmed.split(".");
+    const decPart = (decPartRaw + "000000000000000000").slice(0, 18);
+    const cleanInt = intPart.replace(/[^0-9]/g, "") || "0";
+    const cleanDec = decPart.replace(/[^0-9]/g, "").padEnd(18, "0");
+    const wei = BigInt(cleanInt + cleanDec);
+    return "0x" + wei.toString(16);
+  }
+
+  function mintCalldata(amount: number): string {
+    const hex = BigInt(Math.max(0, amount)).toString(16).padStart(64, "0");
+    return MINT_SELECTOR + hex;
+  }
+
+  async function clickMintBtn() {
     if (minting) { stopMint(); return; }
     if (!canMint) return;
-    setMmOpen(true);
+
+    const eth = window.ethereum;
+    if (!eth) {
+      setWalletStatus({ kind: "no-mm" });
+      return;
+    }
+
+    // Auto-connect if needed.
+    if (walletStatus.kind === "disconnected" || walletStatus.kind === "error") {
+      await connectMetaMask();
+    }
+
+    // Re-read latest status because connectMetaMask updates state async.
+    let s = walletStatus;
+    // Pull a fresh address synchronously from eth_accounts.
+    let addr: string | undefined;
+    try {
+      const accs = (await eth.request({ method: "eth_accounts" })) as string[];
+      addr = accs?.[0];
+    } catch {
+      addr = undefined;
+    }
+    if (!addr) {
+      try {
+        const accs = (await eth.request({ method: "eth_requestAccounts" })) as string[];
+        addr = accs?.[0];
+      } catch {
+        return;
+      }
+    }
+    if (!addr) return;
+
+    // Make sure we're on Sepolia.
+    let chainId = (await eth.request({ method: "eth_chainId" })) as string;
+    if (chainId !== SEPOLIA_CHAIN_ID_HEX) {
+      const ok = await ensureSepolia();
+      if (!ok) return;
+      chainId = (await eth.request({ method: "eth_chainId" })) as string;
+      if (chainId !== SEPOLIA_CHAIN_ID_HEX) return;
+    }
+
+    // Send the real transaction — this triggers the real MetaMask popup.
+    setWalletStatus({ kind: "awaiting-signature" });
+    try {
+      const valueHex = ethToWeiHex((maxMint * price).toFixed(18));
+      const data = mintCalldata(maxMint);
+      const txHash = (await eth.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: addr,
+            to: contract,
+            value: valueHex,
+            data,
+          },
+        ],
+      })) as string;
+
+      setLastRealTxHash(txHash);
+      setWalletStatus({ kind: "ready", address: addr, chainId });
+      startMint();
+    } catch (e: unknown) {
+      const code = (e as { code?: number })?.code;
+      // 4001 = user rejected. Don't treat as error; quietly return.
+      if (code === 4001) {
+        setWalletStatus({ kind: "ready", address: addr, chainId });
+        return;
+      }
+      const msg = e instanceof Error ? e.message : "transaction failed";
+      setWalletStatus({ kind: "error", message: msg });
+    }
   }
-  function confirmMint() {
-    setMmOpen(false);
-    startMint();
-  }
+
   function stopMint() {
     setMinting(false);
     setRunStart(null);
@@ -356,21 +593,8 @@ export default function MintChamberPage() {
 
   return (
     <div className="space-y-6 sm:space-y-8">
-      {/* ── METAMASK SIGN POPUP ──────────────────────────────────── */}
-      {mmOpen && (
-        <MetaMaskSignModal
-          contract={contract}
-          eligibleWallets={eligibleWallets.length}
-          totalNfts={totalNfts}
-          totalCost={totalCost}
-          firstWalletLabel={wallets[0]?.label ?? "—"}
-          firstWalletAddr={wallets[0]?.addr ?? ""}
-          price={price}
-          gasGwei={GAS_TIERS.find((g) => g.id === tier)?.gwei ?? "0.62"}
-          onConfirm={confirmMint}
-          onReject={() => setMmOpen(false)}
-        />
-      )}
+      {/* MetaMask popup is the REAL one now — clicking MINT triggers
+          window.ethereum / eth_sendTransaction. See clickMintBtn. */}
 
       {/* ── HERO ──────────────────────────────────────────────────── */}
       <header className="text-center space-y-3">
@@ -795,10 +1019,18 @@ export default function MintChamberPage() {
 
       {/* ── MINT BUTTON ───────────────────────────────────────────── */}
       <div className="mx-auto max-w-2xl space-y-3">
+        {/* Wallet connection bar — shows current MM state and a connect
+            / switch-chain CTA when needed. */}
+        <WalletBar
+          status={walletStatus}
+          onConnect={connectMetaMask}
+          onSwitch={ensureSepolia}
+        />
+
         <button
           type="button"
           onClick={clickMintBtn}
-          disabled={!minting && !canMint}
+          disabled={(!minting && !canMint) || walletStatus.kind === "awaiting-signature" || walletStatus.kind === "switching"}
           className="w-full font-mono uppercase"
           style={{
             padding: "22px 16px",
@@ -815,6 +1047,10 @@ export default function MintChamberPage() {
         >
           {minting
             ? "■ STOP MINT"
+            : walletStatus.kind === "awaiting-signature"
+            ? "⏳ check metamask…"
+            : walletStatus.kind === "switching"
+            ? "⇄ switching to sepolia…"
             : eligibleWallets.length === 0
             ? "no eligible wallets"
             : `▶ mint ${totalNfts} NFTs · ${totalCost.toFixed(2)} ETH`}
@@ -993,9 +1229,186 @@ export default function MintChamberPage() {
                 <span className="text-emerald-400 font-bold">{successRate}%</span>
               </p>
             )}
+            {lastRealTxHash && (
+              <p className="font-sans text-sm text-ape-200 pt-2 border-t border-border">
+                your signed transaction:{" "}
+                <a
+                  href={explorerTx(lastRealTxHash)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono text-elec hover:text-bone"
+                >
+                  {lastRealTxHash.slice(0, 12)}…{lastRealTxHash.slice(-8)} ↗
+                </a>
+              </p>
+            )}
           </div>
         </Panel>
       )}
+    </div>
+  );
+}
+
+/* ─── WalletBar ──────────────────────────────────────────────────── */
+
+type WalletBarStatus =
+  | { kind: "no-mm" }
+  | { kind: "disconnected" }
+  | { kind: "connecting" }
+  | { kind: "ready"; address: string; chainId: string }
+  | { kind: "wrong-chain"; address: string; chainId: string }
+  | { kind: "switching" }
+  | { kind: "awaiting-signature" }
+  | { kind: "error"; message: string };
+
+function WalletBar({
+  status,
+  onConnect,
+  onSwitch,
+}: {
+  status: WalletBarStatus;
+  onConnect: () => void;
+  onSwitch: () => void;
+}) {
+  // Common pill style for the right-hand action.
+  const pillBase: React.CSSProperties = {
+    padding: "8px 14px",
+    fontSize: 13,
+    fontFamily: "ui-monospace, 'Courier New', monospace",
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    cursor: "pointer",
+    border: "1px solid #0040ff",
+    background: "#0040ff",
+    color: "#fff",
+  };
+
+  let left: React.ReactNode;
+  let right: React.ReactNode;
+  let tone: "ok" | "warn" | "err" | "info" = "info";
+
+  switch (status.kind) {
+    case "no-mm":
+      tone = "warn";
+      left = (
+        <span className="font-sans text-sm text-bleed">
+          MetaMask not detected — install{" "}
+          <a
+            href="https://metamask.io/download/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-elec hover:text-bone underline"
+          >
+            metamask.io
+          </a>{" "}
+          to mint.
+        </span>
+      );
+      break;
+    case "disconnected":
+      tone = "info";
+      left = (
+        <span className="font-sans text-sm text-ape-200">
+          connect your wallet to sign and mint.
+        </span>
+      );
+      right = (
+        <button type="button" onClick={onConnect} style={pillBase}>
+          🦊 connect metamask
+        </button>
+      );
+      break;
+    case "connecting":
+      tone = "info";
+      left = (
+        <span className="font-sans text-sm text-ape-200">
+          opening metamask…
+        </span>
+      );
+      break;
+    case "wrong-chain":
+      tone = "warn";
+      left = (
+        <span className="font-sans text-sm text-bleed">
+          wrong network — switch your wallet to Sepolia testnet.
+        </span>
+      );
+      right = (
+        <button type="button" onClick={onSwitch} style={pillBase}>
+          ⇄ switch to sepolia
+        </button>
+      );
+      break;
+    case "switching":
+      tone = "info";
+      left = (
+        <span className="font-sans text-sm text-ape-200">
+          switching network in metamask…
+        </span>
+      );
+      break;
+    case "awaiting-signature":
+      tone = "info";
+      left = (
+        <span className="font-sans text-sm text-ape-200">
+          ⏳ check metamask — sign the transaction to proceed.
+        </span>
+      );
+      break;
+    case "ready":
+      tone = "ok";
+      left = (
+        <span className="font-sans text-sm text-bone flex items-center gap-2 flex-wrap">
+          <span
+            className="inline-block w-2 h-2"
+            style={{ background: "#34d399", borderRadius: "50%" }}
+            aria-hidden
+          />
+          <span>connected:</span>
+          <code className="font-mono text-bone">
+            {status.address.slice(0, 6)}…{status.address.slice(-4)}
+          </code>
+          <span className="text-ape-200">· Sepolia</span>
+        </span>
+      );
+      break;
+    case "error":
+      tone = "err";
+      left = (
+        <span className="font-sans text-sm text-bleed">
+          {status.message.slice(0, 100)}
+        </span>
+      );
+      right = (
+        <button type="button" onClick={onConnect} style={pillBase}>
+          retry
+        </button>
+      );
+      break;
+  }
+
+  const borderColor =
+    tone === "ok"   ? "#34d399" :
+    tone === "warn" ? "#ff2d2d" :
+    tone === "err"  ? "#ff2d2d" :
+                      "#1a1a28";
+  const bg =
+    tone === "ok"   ? "rgba(52,211,153,0.05)" :
+    tone === "warn" ? "rgba(255,45,45,0.05)" :
+    tone === "err"  ? "rgba(255,45,45,0.05)" :
+                      "rgba(0,64,255,0.04)";
+
+  return (
+    <div
+      className="flex items-center justify-between gap-3 flex-wrap"
+      style={{
+        padding: "10px 14px",
+        border: `1px solid ${borderColor}`,
+        background: bg,
+      }}
+    >
+      <div className="flex-1 min-w-0">{left}</div>
+      {right}
     </div>
   );
 }
@@ -1047,352 +1460,3 @@ function fmtElapsed(ms: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-/**
- * MetaMask-style signature popup. Mimics the modern MetaMask
- * transaction-request UI (dark navy header + light body + rounded
- * gray cards + pill Cancel/Confirm). Backdrop click, Esc, and Cancel
- * all dismiss; only Confirm starts the run.
- */
-function MetaMaskSignModal({
-  contract,
-  eligibleWallets,
-  totalNfts,
-  totalCost,
-  firstWalletLabel,
-  firstWalletAddr,
-  onConfirm,
-  onReject,
-}: {
-  contract: string;
-  eligibleWallets: number;
-  totalNfts: number;
-  totalCost: number;
-  firstWalletLabel: string;
-  firstWalletAddr: string;
-  /** kept for API stability, unused in this layout */
-  price?: number;
-  /** kept for API stability, unused in this layout */
-  gasGwei?: string;
-  onConfirm: () => void;
-  onReject: () => void;
-}) {
-  // Estimated network fee — ~0.0009 ETH per NFT, looks plausible for
-  // a small Sepolia mint.
-  const netFee = parseFloat((totalNfts * 0.0009).toFixed(4));
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onReject();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onReject]);
-
-  // Palette mirrors the new MetaMask UI.
-  const mmHeader = "#1a1d23"; // dark navy header bar
-  const mmText   = "#1d1d1f"; // primary text
-  const mmMute   = "#6b6f76"; // secondary text
-  const mmBg     = "#ffffff"; // body white
-  const mmCard   = "#f5f6f8"; // card light-gray
-  const mmLine   = "#e4e6ea"; // divider
-  const mmAccent = "#1d1d1f"; // confirm button
-  const mmEdit   = "#5e34d6"; // edit icon purple
-
-  const contractShort  = `${contract.slice(0, 6)}…${contract.slice(-5)}`;
-  const accountShort   = `${firstWalletAddr.slice(0, 6)}…${firstWalletAddr.slice(-4)}`;
-  const walletInitial  = (firstWalletLabel[0] || "W").toUpperCase();
-
-  return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center px-4 py-6"
-      style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)" }}
-      onClick={onReject}
-    >
-      <div
-        className="w-full"
-        style={{
-          maxWidth: 400,
-          background: mmBg,
-          color: mmText,
-          fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
-          borderRadius: 24,
-          overflow: "hidden",
-          boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
-          maxHeight: "92vh",
-          display: "flex",
-          flexDirection: "column",
-        }}
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label="MetaMask transaction request"
-      >
-        {/* Dark header bar */}
-        <div
-          className="flex items-center gap-2 px-4"
-          style={{ background: mmHeader, color: "#ffffff", padding: "10px 16px" }}
-        >
-          <span style={{ fontSize: 18, lineHeight: 1 }} aria-hidden>
-            🦊
-          </span>
-          <span style={{ fontWeight: 600, fontSize: 15 }}>MetaMask</span>
-          <div className="ml-auto flex items-center gap-3" style={{ color: "#cfd1d5" }}>
-            <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden title="notifications muted">
-              ⌀
-            </span>
-            <button
-              type="button"
-              onClick={onReject}
-              style={{
-                color: "#ffffff",
-                fontSize: 20,
-                lineHeight: 1,
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-                padding: 2,
-              }}
-              aria-label="close"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-
-        {/* Account row */}
-        <div
-          className="flex items-center gap-3"
-          style={{ padding: "12px 16px", borderBottom: `1px solid ${mmLine}` }}
-        >
-          <div
-            style={{
-              width: 36,
-              height: 36,
-              background: "#ff5722",
-              borderRadius: 10,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
-            aria-hidden
-          >
-            <span style={{ color: "#ffffff", fontWeight: 700, fontSize: 18, lineHeight: 1 }}>
-              {walletInitial}
-            </span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div style={{ fontWeight: 600, fontSize: 15, color: mmText }}>
-              {firstWalletLabel}
-            </div>
-            <div style={{ color: mmMute, fontSize: 13, fontFamily: "ui-monospace, monospace" }}>
-              {accountShort}
-            </div>
-          </div>
-          <button
-            type="button"
-            aria-label="info"
-            style={{ color: mmMute, background: "transparent", border: "none", padding: 4, fontSize: 16, cursor: "pointer" }}
-          >
-            ⓘ
-          </button>
-          <button
-            type="button"
-            aria-label="settings"
-            style={{ color: mmMute, background: "transparent", border: "none", padding: 4, fontSize: 18, cursor: "pointer" }}
-          >
-            ☰
-          </button>
-        </div>
-
-        {/* Scrollable body */}
-        <div
-          style={{
-            padding: "16px",
-            overflowY: "auto",
-            display: "flex",
-            flexDirection: "column",
-            gap: 12,
-            background: mmBg,
-          }}
-        >
-          <h2
-            style={{
-              textAlign: "center",
-              fontWeight: 700,
-              fontSize: 22,
-              color: mmText,
-              margin: "4px 0 8px",
-            }}
-          >
-            Transaction request
-          </h2>
-
-          {/* Estimated changes card */}
-          <div style={{ background: mmCard, borderRadius: 16, padding: "14px 16px" }}>
-            <div className="flex items-center gap-1" style={{ color: mmMute, fontSize: 14, marginBottom: 10 }}>
-              <span>Estimated changes</span>
-              <span style={{ fontSize: 13, opacity: 0.6 }}>ⓘ</span>
-            </div>
-            <div className="flex items-start justify-between gap-3">
-              <span style={{ color: mmText, fontSize: 15 }}>You receive</span>
-              <div style={{ textAlign: "right" }}>
-                <div className="flex items-center justify-end" style={{ gap: 6 }}>
-                  <span style={{ color: "#22c55e", fontWeight: 600, fontSize: 15 }}>
-                    +{totalNfts}
-                  </span>
-                  <span
-                    style={{
-                      display: "inline-block",
-                      width: 16,
-                      height: 16,
-                      background: "#5e34d6",
-                      borderRadius: "50%",
-                      flexShrink: 0,
-                    }}
-                    aria-hidden
-                  />
-                  <span style={{ color: mmText, fontWeight: 600, fontSize: 15 }}>NFTs</span>
-                </div>
-                <div style={{ color: mmMute, fontSize: 13, marginTop: 4 }}>
-                  ≈ {totalCost.toFixed(2)} ETH
-                </div>
-                {eligibleWallets > 1 && (
-                  <div style={{ color: mmMute, fontSize: 12, marginTop: 2 }}>
-                    across {eligibleWallets} wallets
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Network / Request from / Interacting with */}
-          <div style={{ background: mmCard, borderRadius: 16, padding: "4px 16px" }}>
-            <div
-              className="flex items-center justify-between"
-              style={{ padding: "12px 0" }}
-            >
-              <span style={{ color: mmMute, fontSize: 14 }}>Network</span>
-              <div className="flex items-center gap-2">
-                <span
-                  style={{
-                    width: 18,
-                    height: 18,
-                    borderRadius: "50%",
-                    background: "#5e34d6",
-                    display: "inline-block",
-                    flexShrink: 0,
-                  }}
-                  aria-hidden
-                />
-                <span style={{ color: mmText, fontSize: 14, fontWeight: 500 }}>Sepolia</span>
-              </div>
-            </div>
-            <div
-              className="flex items-center justify-between"
-              style={{ padding: "12px 0", borderTop: `1px solid ${mmLine}` }}
-            >
-              <span style={{ color: mmMute, fontSize: 14 }}>
-                Request from <span style={{ fontSize: 13, opacity: 0.6 }}>ⓘ</span>
-              </span>
-              <span style={{ color: mmText, fontSize: 14, fontWeight: 500 }}>
-                simianorder.xyz
-              </span>
-            </div>
-            <div
-              className="flex items-center justify-between"
-              style={{ padding: "12px 0", borderTop: `1px solid ${mmLine}` }}
-            >
-              <span style={{ color: mmMute, fontSize: 14 }}>
-                Interacting with <span style={{ fontSize: 13, opacity: 0.6 }}>ⓘ</span>
-              </span>
-              <span
-                style={{
-                  color: mmText,
-                  fontSize: 14,
-                  fontFamily: "ui-monospace, monospace",
-                  fontWeight: 500,
-                }}
-              >
-                {contractShort}
-              </span>
-            </div>
-          </div>
-
-          {/* Network fee / Speed */}
-          <div style={{ background: mmCard, borderRadius: 16, padding: "4px 16px" }}>
-            <div
-              className="flex items-center justify-between"
-              style={{ padding: "12px 0" }}
-            >
-              <span style={{ color: mmMute, fontSize: 14 }}>
-                Network fee <span style={{ fontSize: 13, opacity: 0.6 }}>ⓘ</span>
-              </span>
-              <span style={{ color: mmText, fontSize: 14, fontWeight: 500 }}>
-                <span style={{ color: mmEdit, marginRight: 6 }} aria-hidden>✎</span>
-                ~{netFee.toFixed(4)} ETH
-              </span>
-            </div>
-            <div
-              className="flex items-center justify-between"
-              style={{ padding: "12px 0", borderTop: `1px solid ${mmLine}` }}
-            >
-              <span style={{ color: mmMute, fontSize: 14 }}>Speed</span>
-              <span style={{ color: mmText, fontSize: 14, fontWeight: 500 }}>
-                Market <span style={{ color: mmMute, marginLeft: 4 }}>&lt;1 sec</span>
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Buttons */}
-        <div
-          className="flex gap-2.5"
-          style={{
-            padding: "16px",
-            background: mmBg,
-            borderTop: `1px solid ${mmLine}`,
-          }}
-        >
-          <button
-            type="button"
-            onClick={onReject}
-            style={{
-              flex: 1,
-              padding: "13px 16px",
-              borderRadius: 999,
-              background: mmCard,
-              color: mmText,
-              border: "none",
-              fontWeight: 600,
-              fontSize: 15,
-              cursor: "pointer",
-              fontFamily: "inherit",
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            autoFocus
-            style={{
-              flex: 1,
-              padding: "13px 16px",
-              borderRadius: 999,
-              background: mmAccent,
-              color: "#ffffff",
-              border: "none",
-              fontWeight: 600,
-              fontSize: 15,
-              cursor: "pointer",
-              fontFamily: "inherit",
-            }}
-          >
-            Confirm
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
