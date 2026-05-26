@@ -1048,10 +1048,10 @@ function fmtElapsed(ms: number): string {
 }
 
 /**
- * MetaMask-style signature popup. Mimics the real wallet's confirm-tx
- * dialog (dark slate panel, orange Confirm button) so the recording
- * reads as a legitimate mint flow. Backdrop click + Esc + Reject all
- * dismiss; only Confirm starts the run.
+ * MetaMask-style signature popup. Mimics the modern MetaMask
+ * transaction-request UI (dark navy header + light body + rounded
+ * gray cards + pill Cancel/Confirm). Backdrop click, Esc, and Cancel
+ * all dismiss; only Confirm starts the run.
  */
 function MetaMaskSignModal({
   contract,
@@ -1060,8 +1060,6 @@ function MetaMaskSignModal({
   totalCost,
   firstWalletLabel,
   firstWalletAddr,
-  price,
-  gasGwei,
   onConfirm,
   onReject,
 }: {
@@ -1071,14 +1069,16 @@ function MetaMaskSignModal({
   totalCost: number;
   firstWalletLabel: string;
   firstWalletAddr: string;
-  price: number;
-  gasGwei: string;
+  /** kept for API stability, unused in this layout */
+  price?: number;
+  /** kept for API stability, unused in this layout */
+  gasGwei?: string;
   onConfirm: () => void;
   onReject: () => void;
 }) {
-  // Estimated network fee — ~0.0009 ETH per NFT, padded by gas tier.
+  // Estimated network fee — ~0.0009 ETH per NFT, looks plausible for
+  // a small Sepolia mint.
   const netFee = parseFloat((totalNfts * 0.0009).toFixed(4));
-  const total = parseFloat((totalCost + netFee).toFixed(4));
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -1088,198 +1088,289 @@ function MetaMaskSignModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onReject]);
 
-  const mmDark = "#24272A";
-  const mmPanel = "#1c1e21";
-  const mmBorder = "#3f4147";
-  const mmMute = "#9aa0a6";
-  const mmOrange = "#F6851B";
+  // Palette mirrors the new MetaMask UI.
+  const mmHeader = "#1a1d23"; // dark navy header bar
+  const mmText   = "#1d1d1f"; // primary text
+  const mmMute   = "#6b6f76"; // secondary text
+  const mmBg     = "#ffffff"; // body white
+  const mmCard   = "#f5f6f8"; // card light-gray
+  const mmLine   = "#e4e6ea"; // divider
+  const mmAccent = "#1d1d1f"; // confirm button
+  const mmEdit   = "#5e34d6"; // edit icon purple
+
+  const contractShort  = `${contract.slice(0, 6)}…${contract.slice(-5)}`;
+  const accountShort   = `${firstWalletAddr.slice(0, 6)}…${firstWalletAddr.slice(-4)}`;
+  const walletInitial  = (firstWalletLabel[0] || "W").toUpperCase();
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center px-4"
-      style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(4px)" }}
+      className="fixed inset-0 z-[100] flex items-center justify-center px-4 py-6"
+      style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)" }}
       onClick={onReject}
     >
       <div
-        className="w-full max-w-md"
+        className="w-full"
         style={{
-          background: mmDark,
-          border: `1px solid ${mmBorder}`,
-          color: "#ffffff",
+          maxWidth: 400,
+          background: mmBg,
+          color: mmText,
           fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+          borderRadius: 24,
+          overflow: "hidden",
+          boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
+          maxHeight: "92vh",
+          display: "flex",
+          flexDirection: "column",
         }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label="MetaMask transaction request"
       >
-        {/* Header */}
+        {/* Dark header bar */}
         <div
-          className="flex items-center gap-3 px-5 py-4"
-          style={{ borderBottom: `1px solid ${mmBorder}` }}
+          className="flex items-center gap-2 px-4"
+          style={{ background: mmHeader, color: "#ffffff", padding: "10px 16px" }}
         >
-          <span
+          <span style={{ fontSize: 18, lineHeight: 1 }} aria-hidden>
+            🦊
+          </span>
+          <span style={{ fontWeight: 600, fontSize: 15 }}>MetaMask</span>
+          <div className="ml-auto flex items-center gap-3" style={{ color: "#cfd1d5" }}>
+            <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden title="notifications muted">
+              ⌀
+            </span>
+            <button
+              type="button"
+              onClick={onReject}
+              style={{
+                color: "#ffffff",
+                fontSize: 20,
+                lineHeight: 1,
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                padding: 2,
+              }}
+              aria-label="close"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        {/* Account row */}
+        <div
+          className="flex items-center gap-3"
+          style={{ padding: "12px 16px", borderBottom: `1px solid ${mmLine}` }}
+        >
+          <div
             style={{
-              fontSize: 28,
-              lineHeight: 1,
-              filter: "drop-shadow(0 0 4px rgba(246,133,27,0.4))",
+              width: 36,
+              height: 36,
+              background: "#ff5722",
+              borderRadius: 10,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
             }}
             aria-hidden
           >
-            🦊
-          </span>
-          <div className="flex-1 leading-tight">
-            <div style={{ fontWeight: 700, fontSize: 15 }}>MetaMask</div>
-            <div style={{ color: mmMute, fontSize: 12 }}>
-              <span
-                className="inline-block w-1.5 h-1.5 mr-1.5 align-middle"
-                style={{ background: "#22c55e", borderRadius: "50%" }}
-                aria-hidden
-              />
-              Sepolia testnet
+            <span style={{ color: "#ffffff", fontWeight: 700, fontSize: 18, lineHeight: 1 }}>
+              {walletInitial}
+            </span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div style={{ fontWeight: 600, fontSize: 15, color: mmText }}>
+              {firstWalletLabel}
+            </div>
+            <div style={{ color: mmMute, fontSize: 13, fontFamily: "ui-monospace, monospace" }}>
+              {accountShort}
             </div>
           </div>
           <button
             type="button"
-            onClick={onReject}
-            style={{
-              color: "#ffffff",
-              fontSize: 22,
-              lineHeight: 1,
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              padding: "0 4px",
-            }}
-            aria-label="close"
+            aria-label="info"
+            style={{ color: mmMute, background: "transparent", border: "none", padding: 4, fontSize: 16, cursor: "pointer" }}
           >
-            ×
+            ⓘ
+          </button>
+          <button
+            type="button"
+            aria-label="settings"
+            style={{ color: mmMute, background: "transparent", border: "none", padding: 4, fontSize: 18, cursor: "pointer" }}
+          >
+            ☰
           </button>
         </div>
 
-        {/* Account */}
-        <div className="px-5 py-3" style={{ borderBottom: `1px solid ${mmBorder}` }}>
-          <div className="flex items-center gap-3">
-            <div
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: "50%",
-                background: "linear-gradient(135deg, #6e54c5, #e96f5d)",
-                flexShrink: 0,
-              }}
-              aria-hidden
-            />
-            <div className="flex-1 min-w-0">
-              <div style={{ fontSize: 13, fontWeight: 600 }}>
-                {firstWalletLabel}
-              </div>
-              <div style={{ color: mmMute, fontSize: 12, fontFamily: "ui-monospace, monospace" }}>
-                {firstWalletAddr.slice(0, 8)}…{firstWalletAddr.slice(-6)}
-              </div>
-            </div>
-            {eligibleWallets > 1 && (
-              <div
-                style={{
-                  fontSize: 11,
-                  color: mmMute,
-                  border: `1px solid ${mmBorder}`,
-                  padding: "3px 8px",
-                }}
-              >
-                +{eligibleWallets - 1} more
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Body */}
-        <div className="px-5 py-4 space-y-3">
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#ffffff" }}>
-            Transaction request
-          </div>
-
-          <div style={{ background: mmPanel, padding: "12px 14px", fontSize: 13 }}>
-            <MmRow label="To">
-              <span style={{ fontFamily: "ui-monospace, monospace" }}>
-                {contract.slice(0, 8)}…{contract.slice(-6)}
-              </span>
-            </MmRow>
-            <MmRow label="Function">
-              <span style={{ fontFamily: "ui-monospace, monospace", color: mmOrange }}>
-                mint(uint256)
-              </span>
-            </MmRow>
-            <MmRow label="Wallets in batch">{eligibleWallets}</MmRow>
-            <MmRow label="NFTs">{totalNfts}</MmRow>
-            <MmRow label="Price / NFT">{price.toFixed(2)} ETH</MmRow>
-            <MmRow label="Gas (gwei)">{gasGwei}</MmRow>
-          </div>
-
-          <div
+        {/* Scrollable body */}
+        <div
+          style={{
+            padding: "16px",
+            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+            background: mmBg,
+          }}
+        >
+          <h2
             style={{
-              background: mmPanel,
-              padding: "12px 14px",
-              fontSize: 13,
-              borderTop: `2px solid ${mmOrange}`,
+              textAlign: "center",
+              fontWeight: 700,
+              fontSize: 22,
+              color: mmText,
+              margin: "4px 0 8px",
             }}
           >
-            <div className="flex items-baseline justify-between">
-              <span style={{ color: mmMute }}>Network fee (est.)</span>
-              <span style={{ fontFamily: "ui-monospace, monospace" }}>
-                {netFee.toFixed(4)} ETH
-              </span>
+            Transaction request
+          </h2>
+
+          {/* Estimated changes card */}
+          <div style={{ background: mmCard, borderRadius: 16, padding: "14px 16px" }}>
+            <div className="flex items-center gap-1" style={{ color: mmMute, fontSize: 14, marginBottom: 10 }}>
+              <span>Estimated changes</span>
+              <span style={{ fontSize: 13, opacity: 0.6 }}>ⓘ</span>
             </div>
-            <div className="flex items-baseline justify-between mt-2">
-              <span style={{ color: mmMute }}>NFT cost</span>
-              <span style={{ fontFamily: "ui-monospace, monospace" }}>
-                {totalCost.toFixed(2)} ETH
+            <div className="flex items-start justify-between gap-3">
+              <span style={{ color: mmText, fontSize: 15 }}>You receive</span>
+              <div style={{ textAlign: "right" }}>
+                <div className="flex items-center justify-end" style={{ gap: 6 }}>
+                  <span style={{ color: "#22c55e", fontWeight: 600, fontSize: 15 }}>
+                    +{totalNfts}
+                  </span>
+                  <span
+                    style={{
+                      display: "inline-block",
+                      width: 16,
+                      height: 16,
+                      background: "#5e34d6",
+                      borderRadius: "50%",
+                      flexShrink: 0,
+                    }}
+                    aria-hidden
+                  />
+                  <span style={{ color: mmText, fontWeight: 600, fontSize: 15 }}>NFTs</span>
+                </div>
+                <div style={{ color: mmMute, fontSize: 13, marginTop: 4 }}>
+                  ≈ {totalCost.toFixed(2)} ETH
+                </div>
+                {eligibleWallets > 1 && (
+                  <div style={{ color: mmMute, fontSize: 12, marginTop: 2 }}>
+                    across {eligibleWallets} wallets
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Network / Request from / Interacting with */}
+          <div style={{ background: mmCard, borderRadius: 16, padding: "4px 16px" }}>
+            <div
+              className="flex items-center justify-between"
+              style={{ padding: "12px 0" }}
+            >
+              <span style={{ color: mmMute, fontSize: 14 }}>Network</span>
+              <div className="flex items-center gap-2">
+                <span
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: "50%",
+                    background: "#5e34d6",
+                    display: "inline-block",
+                    flexShrink: 0,
+                  }}
+                  aria-hidden
+                />
+                <span style={{ color: mmText, fontSize: 14, fontWeight: 500 }}>Sepolia</span>
+              </div>
+            </div>
+            <div
+              className="flex items-center justify-between"
+              style={{ padding: "12px 0", borderTop: `1px solid ${mmLine}` }}
+            >
+              <span style={{ color: mmMute, fontSize: 14 }}>
+                Request from <span style={{ fontSize: 13, opacity: 0.6 }}>ⓘ</span>
+              </span>
+              <span style={{ color: mmText, fontSize: 14, fontWeight: 500 }}>
+                simianorder.xyz
               </span>
             </div>
             <div
-              className="flex items-baseline justify-between mt-2 pt-2"
-              style={{ borderTop: `1px solid ${mmBorder}` }}
+              className="flex items-center justify-between"
+              style={{ padding: "12px 0", borderTop: `1px solid ${mmLine}` }}
             >
-              <span style={{ fontWeight: 700 }}>Total</span>
+              <span style={{ color: mmMute, fontSize: 14 }}>
+                Interacting with <span style={{ fontSize: 13, opacity: 0.6 }}>ⓘ</span>
+              </span>
               <span
                 style={{
+                  color: mmText,
+                  fontSize: 14,
                   fontFamily: "ui-monospace, monospace",
-                  fontWeight: 700,
-                  fontSize: 15,
+                  fontWeight: 500,
                 }}
               >
-                {total.toFixed(4)} ETH
+                {contractShort}
               </span>
             </div>
           </div>
 
-          <div style={{ fontSize: 11, color: mmMute, lineHeight: 1.5 }}>
-            you are about to sign {totalNfts} transactions across{" "}
-            {eligibleWallets} wallet{eligibleWallets === 1 ? "" : "s"}.
-            confirming broadcasts them immediately — only the chamber
-            (this site) can read what you sign.
+          {/* Network fee / Speed */}
+          <div style={{ background: mmCard, borderRadius: 16, padding: "4px 16px" }}>
+            <div
+              className="flex items-center justify-between"
+              style={{ padding: "12px 0" }}
+            >
+              <span style={{ color: mmMute, fontSize: 14 }}>
+                Network fee <span style={{ fontSize: 13, opacity: 0.6 }}>ⓘ</span>
+              </span>
+              <span style={{ color: mmText, fontSize: 14, fontWeight: 500 }}>
+                <span style={{ color: mmEdit, marginRight: 6 }} aria-hidden>✎</span>
+                ~{netFee.toFixed(4)} ETH
+              </span>
+            </div>
+            <div
+              className="flex items-center justify-between"
+              style={{ padding: "12px 0", borderTop: `1px solid ${mmLine}` }}
+            >
+              <span style={{ color: mmMute, fontSize: 14 }}>Speed</span>
+              <span style={{ color: mmText, fontSize: 14, fontWeight: 500 }}>
+                Market <span style={{ color: mmMute, marginLeft: 4 }}>&lt;1 sec</span>
+              </span>
+            </div>
           </div>
         </div>
 
         {/* Buttons */}
-        <div className="flex gap-3 px-5 pb-5">
+        <div
+          className="flex gap-2.5"
+          style={{
+            padding: "16px",
+            background: mmBg,
+            borderTop: `1px solid ${mmLine}`,
+          }}
+        >
           <button
             type="button"
             onClick={onReject}
             style={{
               flex: 1,
-              padding: "12px 16px",
-              background: "transparent",
-              border: `1px solid ${mmBorder}`,
-              color: "#ffffff",
-              fontWeight: 700,
-              fontSize: 14,
+              padding: "13px 16px",
+              borderRadius: 999,
+              background: mmCard,
+              color: mmText,
+              border: "none",
+              fontWeight: 600,
+              fontSize: 15,
               cursor: "pointer",
               fontFamily: "inherit",
             }}
           >
-            Reject
+            Cancel
           </button>
           <button
             type="button"
@@ -1287,12 +1378,13 @@ function MetaMaskSignModal({
             autoFocus
             style={{
               flex: 1,
-              padding: "12px 16px",
-              background: mmOrange,
-              border: `1px solid ${mmOrange}`,
+              padding: "13px 16px",
+              borderRadius: 999,
+              background: mmAccent,
               color: "#ffffff",
-              fontWeight: 700,
-              fontSize: 14,
+              border: "none",
+              fontWeight: 600,
+              fontSize: 15,
               cursor: "pointer",
               fontFamily: "inherit",
             }}
@@ -1301,15 +1393,6 @@ function MetaMaskSignModal({
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function MmRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-baseline justify-between py-1.5">
-      <span style={{ color: "#9aa0a6" }}>{label}</span>
-      <span style={{ color: "#ffffff" }}>{children}</span>
     </div>
   );
 }
