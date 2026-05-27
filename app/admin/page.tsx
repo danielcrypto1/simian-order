@@ -783,6 +783,7 @@ function ApplicationsSection({
       : searchedItems.slice(safePage * pageSize, safePage * pageSize + pageSize);
 
   const pendingCount = allItems.filter((a) => a.status === "pending").length;
+  const rejectedCount = allItems.filter((a) => a.status === "rejected").length;
   const questCount = allItems.filter((a) => a.source === "quest").length;
   const applyCount = allItems.length - questCount;
 
@@ -873,6 +874,22 @@ function ApplicationsSection({
       setBulkMessage(`error: ${e instanceof ApiError ? e.message : "bulk_failed"}`);
     } finally { setBulkBusy(false); }
   }
+
+  async function deleteAllRejected() {
+    if (rejectedCount === 0) return;
+    if (!confirm(
+      `Delete all ${rejectedCount} rejected application${rejectedCount === 1 ? "" : "s"}?\n\nThis removes them from the queue entirely. Rejected wallets can re-apply afterwards. This cannot be undone.`
+    )) return;
+    setBulkBusy(true);
+    setBulkMessage(null);
+    try {
+      const r = await adminApi.deleteAllRejected();
+      setBulkMessage(`${r.count} rejected application${r.count === 1 ? "" : "s"} removed.`);
+      onAction();
+    } catch (e) {
+      setBulkMessage(`error: ${e instanceof ApiError ? e.message : "delete_rejected_failed"}`);
+    } finally { setBulkBusy(false); }
+  }
   return (
     <div id="apps">
       <Panel
@@ -918,6 +935,14 @@ function ApplicationsSection({
               disabled={bulkBusy || pendingCount === 0}
             >
               {`Reject All Pending`}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={deleteAllRejected}
+              disabled={bulkBusy || rejectedCount === 0}
+              title={rejectedCount === 0 ? "no rejected applications to remove" : `permanently remove all ${rejectedCount} rejected application${rejectedCount === 1 ? "" : "s"} from the queue`}
+            >
+              {`Delete All Rejected (${rejectedCount})`}
             </Button>
             <a
               href="/api/admin/export/high-order"
