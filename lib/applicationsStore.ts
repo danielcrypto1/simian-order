@@ -164,6 +164,21 @@ export async function clearAllApplications(): Promise<number> {
   return before.length;
 }
 
+/**
+ * Bulk-delete every application currently in `status: "rejected"`. Used
+ * by the admin panel to clear out the rejected queue without having to
+ * delete one row at a time. Single read-modify-write so it costs one
+ * gist round-trip regardless of how many rows are removed. Returns the
+ * count removed.
+ */
+export async function deleteRejectedApplications(): Promise<number> {
+  const apps = await read();
+  const kept = apps.filter((a) => a.status !== "rejected");
+  const removed = apps.length - kept.length;
+  if (removed > 0) await write(kept);
+  return removed;
+}
+
 export async function deleteApplication(wallet: string): Promise<boolean> {
   const apps = await read();
   const w = wallet.toLowerCase();

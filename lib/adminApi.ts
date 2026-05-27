@@ -100,6 +100,11 @@ export const adminApi = {
     ),
   deleteApplication: (w: string) =>
     req<{ ok: boolean }>(`/api/admin/applications/${w}`, { method: "DELETE" }),
+  deleteAllRejected: () =>
+    req<{ success: boolean; count: number }>(
+      "/api/admin/applications/delete-rejected",
+      { method: "POST" }
+    ),
 
   /**
    * Curated submissions (replaces the old auto-tracked referral
